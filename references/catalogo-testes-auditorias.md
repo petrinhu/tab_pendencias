@@ -23,8 +23,9 @@ Caracteristicas (habilitam tipos condicionais):
 | Caracteristica | Sinais | Habilita |
 |---|---|---|
 | DB SQL | `*.sql`, `migrations/`, libs sqlite/mysql/psycopg/PDO | T10, AUD-DB |
-| Rede/API | servidor HTTP, endpoints, sockets, rotas | T6, T9, T11, AUD-API |
-| Binario compilado | C/C++/Rust | T4, T7 |
+| Rede/API | servidor HTTP, endpoints, sockets, rotas | T6, T9, AUD-API |
+| Protocolo de rede custom | protocolo binario/sockets raw nao-HTTP | T11 |
+| Binario compilado | C/C++/Rust | T3, T4, T7 |
 | UI | QML, widgets, HTML, componentes front | AUD-UI |
 
 ## Testes (T1-T15)
@@ -36,7 +37,7 @@ hook de TDD; nunca vira item na tabela).
 |---|---|---|---|---|
 | (T1) | Testes Unitarios | modulo isolado conforme spec | EXCLUIDO (hook TDD) | QtTest, gtest, pytest, vitest, cargo test |
 | TST-T2 | Analise Estatica | bugs/ma pratica sem executar | sempre | cppcheck+clang-tidy, ruff+mypy, eslint+tsc, clippy, phpstan |
-| TST-T3 | Fuzzing de Inputs | parsing de input nao-confiavel | binario compilado OU parser de formato | libFuzzer/AFL, atheris |
+| TST-T3 | Fuzzing de Inputs | parsing de input nao-confiavel | binario compilado | libFuzzer/AFL, atheris |
 | TST-T4 | Analise Dinamica de Memoria | leaks/UB em runtime | binario compilado | ASan + UBSan |
 | TST-T5 | Scanning de Dependencias | deps vulneraveis/desatualizadas | sempre | trivy/grype, pip-audit, npm audit, cargo audit, composer audit |
 | TST-T6 | Teste de APIs | contratos de endpoints | rede/API | schemathesis, postman/newman, REST client |
