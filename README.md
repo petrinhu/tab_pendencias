@@ -97,7 +97,7 @@ A tabela de pendências e planejamento do projeto está em `TODO.md` na raiz.
 
 ### Licença
 
-[PolyForm-Noncommercial-1.0.0](LICENSE) — uso, modificação e compartilhamento permitidos para fins não-comerciais. Venda proibida.
+[PolyForm-Noncommercial-1.0.0](LICENSE): uso, modificação e compartilhamento permitidos para fins não-comerciais. Venda proibida.
 
 ### Autor
 
@@ -179,7 +179,7 @@ A tabela de pendências e planejamento do projeto está em `TODO.md` na raiz.
 
 ### License
 
-[PolyForm-Noncommercial-1.0.0](LICENSE) — use, modification, and sharing permitted for noncommercial purposes. Sale prohibited.
+[PolyForm-Noncommercial-1.0.0](LICENSE): use, modification, and sharing permitted for noncommercial purposes. Sale prohibited.
 
 ### Author
 
