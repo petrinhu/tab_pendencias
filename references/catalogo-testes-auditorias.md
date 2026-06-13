@@ -48,3 +48,23 @@ hook de TDD; nunca vira item na tabela).
 | TST-T12 | Busca de CVEs | CVE nas deps | sempre | trivy, grype, OSV/NVD |
 | TST-T14 | Integracao (fim-a-fim) | sistema integrado contra fontes de verdade | sempre (quase) | harness de integracao por stack |
 | TST-T15 | Pre-CI (espelhar CI local) | rodar a suite do CI antes do push | sempre | scripts/preci.sh por stack |
+
+## Auditorias (consolidadas)
+
+Funde os blocos de auditoria genericos (A1-A10) com os temas por stack, deduplicando
+por tema. ID semantico e estavel. `Aplica` igual ao das tabelas de teste.
+
+| ID | Tema | Objetivo (1 linha) | Aplica |
+|---|---|---|---|
+| AUD-DISC | Descoberta e Modelagem | mapear superficie, ativos, modelo de ameaca | sempre |
+| AUD-ARCH | Arquitetura e Camadas | 4 camadas, SOLID, DRY, sem violacao de dependencia | sempre |
+| AUD-SEC | Seguranca | memory safety, secrets, SQLi, binario, LGPD/privacidade | sempre |
+| AUD-DB | Banco de Dados | schema, queries, EXPLAIN, migrations, indices, LGPD | DB SQL |
+| AUD-API | API e Contratos | verbos REST, status codes, auth, OpenAPI | rede/API |
+| AUD-UI | UI/UX e Acessibilidade | contraste, navegacao por teclado, WCAG | UI |
+| AUD-QUALITY | Qualidade de Codigo | god classes, complexidade, dead code, duplicacao | sempre |
+| AUD-COV | Cobertura de Testes | cobertura significativa nos modulos criticos | sempre |
+| AUD-DEPS | Dependencias e Acoplamento | grafo de deps, acoplamento, ciclos | sempre |
+| AUD-LANG | Idiomas Modernos da Linguagem | tipos/concorrencia/idioms do stack | por stack (Baixa) |
+| AUD-FRAMEWORK | Framework Especifico | padroes do framework (ex.: Qt signals/slots, model/view, i18n) | quando usa framework relevante |
+| AUD-REPORT | Relatorio Final de Auditoria | score 0-100, sumario de problemas, patches | sempre (consolida) |
