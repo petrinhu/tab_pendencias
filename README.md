@@ -67,6 +67,21 @@ Ou comando slash: `/tab_pendencias [--create | --show | --main]`
 
 Sem argumento, usa linguagem natural: "mostrar pendências" → `--main`, "tabela completa" → `--show`, "criar tabela" → `--create`.
 
+## Testes e auditorias automaticos
+
+Em qualquer comando, a skill verifica se os testes nao-unitarios (T2-T15) e as
+auditorias aplicaveis ao stack do projeto estao no planejamento. Se faltam, ela
+pergunta (com recomendacao alta) se deve acrescentar; recusando duas vezes, segue
+sem eles e lembra do comando `--add_tests_audit` para incluir depois.
+
+- O teste unitario (TDD) NAO entra na tabela: fica a cargo do hook de TDD.
+- Os manuais `./TESTES.md` e `./AUDITORIAS.md` sao criados na raiz do projeto
+  (podados pro stack) quando faltam, e nunca sobrescritos se ja existem.
+- Os itens entram como `TST-*` (testes, apos a implementacao) e `AUD-*` (auditorias,
+  nas ondas finais), de forma idempotente.
+
+Comando dedicado: `/tab_pendencias --add_tests_audit` injeta direto, sem perguntar.
+
 ### Arquivo canônico
 
 **`TODO.md` na raiz do projeto** é a única localização válida. Skill nunca cria `PENDENCIAS.md`, `TAREFAS.md` ou `BACKLOG.md` paralelos.
