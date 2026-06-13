@@ -125,6 +125,64 @@ Regra de ouro: o custo de reordenar deve ser menor que o retrabalho que ele evit
 
 ---
 
+## Injecao automatica de testes e auditorias
+
+Executa no INICIO de TODO comando (--create, --reorder, --show, --main), antes de
+exibir/escrever a tabela. Garante que os testes nao-unitarios e auditorias aplicaveis
+estejam planejados. Catalogo e regras: `references/catalogo-testes-auditorias.md`.
+
+### Passos
+
+1. **Detectar stack + caracteristicas** do projeto (Glob na raiz; ver o reference).
+2. **Calcular itens aplicaveis**: TST-* (T2-T15 podados; T1 SEMPRE fora) + AUD-* (podados).
+3. **Garantir manuais do projeto**: se `./TESTES.md` ou `./AUDITORIAS.md` faltam, marca-los para criacao (do reference, podados). Nunca sobrescrever manual existente.
+4. **Conferir a tabela** `TODO.md`: quais TST-*/AUD- ja existem (por ID).
+5. Se **nada falta** (itens presentes e manuais existem): idempotente, NAO pergunta, NAO escreve. Segue o comando.
+6. Se **falta algo**: rodar o fluxo de confirmacao abaixo.
+
+### Fluxo de confirmacao (nunca silencioso)
+
+PERGUNTA 1 (AskUserQuestion, recomendacao ALTA a favor):
+> "Faltam testes/auditorias no planejamento deste projeto. Acrescentar agora?"
+> Opcoes: [Acrescentar (fortemente recomendado)] | [Nao acrescentar]
+
+- Acrescentar -> aplicar (secao "Aplicar") + avisar o que mudou. Segue o comando.
+- Nao -> PERGUNTA 2 (reforco):
+  > "Testes e auditoria sao Definition of Done: previnem retrabalho, vulnerabilidades
+  >  (secrets, SQLi, CVE) e regressoes. Seguir mesmo assim sem eles?"
+  > Opcoes: [Acrescentar agora (recomendado)] | [Seguir sem testes]
+  - Acrescentar -> aplicar + avisar. Segue o comando.
+  - Seguir sem -> executa o comando SEM testes; avisar:
+    "OK. Pode acrescentar depois com: /tab_pendencias --add_tests_audit"
+
+### Aplicar (criar manuais + injetar itens)
+
+- Criar `./TESTES.md` e/ou `./AUDITORIAS.md` se faltarem (podados pro stack).
+- Injetar na tabela apenas os IDs AUSENTES (idempotente):
+  - **TST-*** -> `Grupo` = `Testes`; `Onda` = uma apos a ultima de implementacao; `Pre-requisito` = itens de implementacao cobertos (na pratica, a ultima onda funcional); `Status` = ⏳; `Estado Auditado` = `—`; `Descricao` referencia `TESTES.md`.
+  - **AUD-*** -> `Grupo` = `Auditoria`; `Onda` = final, apos os testes; `Pre-requisito` = os TST-* + codigo; `Status` = ⏳; `Estado Auditado` = `—`; `Descricao` referencia `AUDITORIAS.md`.
+- Reaplicar a ordenacao (topological + WSJF + ondas) para encaixar os novos itens respeitando a ordem inviolavel.
+- Avisar: "criei <arquivos>; injetei N testes + M auditorias nas ondas <...>".
+
+### --add_tests_audit
+
+Comando dedicado: pula as PERGUNTAS (o usuario ja pediu); roda "Aplicar" direto;
+idempotente; avisa o que fez (ou "nada a fazer" se ja completo).
+
+### Hook de TDD ausente
+
+T1 sempre fora. Se o projeto NAO tem `.claude/tdd-guard.json`, avisar uma vez:
+"TDD nao esta sob hook neste projeto; ative o hook ou inclua testes unitarios
+manualmente." (nao bloqueia).
+
+### Modo nao-interativo
+
+Sem humano para responder o AskUserQuestion (ex.: invocacao por workflow/agente):
+NAO injeta (respeita "nao silencioso"); executa o comando e emite aviso proeminente
+recomendando `/tab_pendencias --add_tests_audit`.
+
+---
+
 ## `--show` / `--main`
 
 - **`--show`**: localizar `TODO.md` na raiz (depois `PLANNING.md`, depois perguntar). Exibir tabela **completa**, incluindo `✅`.
