@@ -2,7 +2,7 @@
 name: tab_pendencias
 description: Cria e gerencia tabela de pendências/planejamento ORDENADA para minimizar retrabalho. No --create (e --reorder) orquestra um time de agents (Cosmo/COO coordena software-architect + tech-lead + product-manager + engineering-manager + scrum-master) para sequenciar por dependência (topological) e valor (WSJF), com coluna "Onda" sinalizando passos de igual valor paralelizáveis. Use sempre que o usuário pedir criar/mostrar/atualizar tabela de pendências, planejar passos, ordenar backlog, "o que falta", "em que ordem fazer", ou invocar /tab_pendencias. Em qualquer comando, garante (com dupla-confirmacao) testes nao-unitarios e auditorias aplicaveis ao stack como itens de fechamento; cria ./TESTES.md e ./AUDITORIAS.md do projeto quando faltam. Argumentos: --create, --reorder, --show, --main, --add_tests_audit.
 argument-hint: --create | --reorder | --show | --main | --add_tests_audit
-allowed-tools: [Read, Write, Edit, Glob, Agent, TodoWrite]
+allowed-tools: [Read, Write, Edit, Glob, Grep, Agent, TodoWrite]
 ---
 
 # tab_pendencias
@@ -133,7 +133,7 @@ estejam planejados. Catalogo e regras: `references/catalogo-testes-auditorias.md
 
 ### Passos
 
-1. **Detectar stack + caracteristicas** do projeto (Glob na raiz; ver o reference).
+1. **Detectar stack + caracteristicas**: Glob na raiz para sinais de arquivo; Grep/Read de deps e imports para sinais de conteudo (rede/API, protocolo, framework). Ver o reference.
 2. **Calcular itens aplicaveis**: TST-* (T2-T15 podados; T1 SEMPRE fora) + AUD-* (podados).
 3. **Garantir manuais do projeto**: se `./TESTES.md` ou `./AUDITORIAS.md` faltam, marca-los para criacao (do reference, podados). Nunca sobrescrever manual existente.
 4. **Conferir a tabela** `TODO.md`: quais TST-*/AUD- ja existem (por ID).

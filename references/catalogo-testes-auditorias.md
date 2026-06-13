@@ -8,6 +8,8 @@
 
 ## Deteccao de stack
 
+> Sinais marcados "(conteudo)" sao detectados lendo deps/imports dos arquivos (Grep/Read), nao apenas por nome de arquivo na raiz.
+
 Por arquivos na raiz (via Glob):
 
 | Stack | Sinais |
@@ -23,10 +25,11 @@ Caracteristicas (habilitam tipos condicionais):
 | Caracteristica | Sinais | Habilita |
 |---|---|---|
 | DB SQL | `*.sql`, `migrations/`, libs sqlite/mysql/psycopg/PDO | T10, AUD-DB |
-| Rede/API | servidor HTTP, endpoints, sockets, rotas | T6, T9, AUD-API |
-| Protocolo de rede custom | protocolo binario/sockets raw nao-HTTP | T11 |
+| Rede/API | deps/imports de framework HTTP (flask, fastapi, django, express, actix-web, gin, spring) ou uso de http.server/socket listen (conteudo) | T6, T9, AUD-API |
+| Protocolo de rede custom | sockets raw (socket/bind/recv) com protocolo nao-HTTP proprio (conteudo) | T11 |
 | Binario compilado | C/C++/Rust | T3, T4, T7 |
 | UI | QML, widgets, HTML, componentes front | AUD-UI |
+| Framework de app/UI | Qt (find_package(Qt), *.pro, *.ui, *.qml) ou framework nas deps (django/flask/fastapi/react/vue/angular/express/spring) (conteudo) | AUD-FRAMEWORK |
 
 ## Testes (T1-T15)
 
@@ -66,8 +69,8 @@ por tema. ID semantico e estavel. `Aplica` igual ao das tabelas de teste.
 | AUD-QUALITY | Qualidade de Codigo | god classes, complexidade, dead code, duplicacao | sempre |
 | AUD-COV | Cobertura de Testes | cobertura significativa nos modulos criticos | sempre |
 | AUD-DEPS | Dependencias e Acoplamento | grafo de deps, acoplamento, ciclos | sempre |
-| AUD-LANG | Idiomas Modernos da Linguagem | tipos/concorrencia/idioms do stack | por stack (Baixa) |
-| AUD-FRAMEWORK | Framework Especifico | padroes do framework (ex.: Qt signals/slots, model/view, i18n) | quando usa framework relevante |
+| AUD-LANG | Idiomas Modernos da Linguagem | tipos/concorrencia/idioms do stack | sempre (Baixa) |
+| AUD-FRAMEWORK | Framework Especifico | padroes do framework (ex.: Qt signals/slots, model/view, i18n) | framework de app/UI |
 | AUD-REPORT | Relatorio Final de Auditoria | score 0-100, sumario de problemas, patches | sempre (consolida) |
 
 ## Criacao dos manuais do projeto (poda por stack)
