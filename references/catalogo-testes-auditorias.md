@@ -68,3 +68,34 @@ por tema. ID semantico e estavel. `Aplica` igual ao das tabelas de teste.
 | AUD-LANG | Idiomas Modernos da Linguagem | tipos/concorrencia/idioms do stack | por stack (Baixa) |
 | AUD-FRAMEWORK | Framework Especifico | padroes do framework (ex.: Qt signals/slots, model/view, i18n) | quando usa framework relevante |
 | AUD-REPORT | Relatorio Final de Auditoria | score 0-100, sumario de problemas, patches | sempre (consolida) |
+
+## Criacao dos manuais do projeto (poda por stack)
+
+Quando `./TESTES.md` ou `./AUDITORIAS.md` faltam na raiz do projeto e o usuario
+confirma acrescentar, a skill os CRIA a partir dos templates abaixo, removendo as
+linhas cujo `Aplica` nao casa o stack/caracteristicas detectados. NUNCA sobrescreve
+um manual existente.
+
+### Template ./TESTES.md
+
+```markdown
+# Testes do Projeto
+
+> Tipos de teste aplicaveis a este projeto (stack: {STACK}). T1 unitario fica sob o
+> hook de TDD, nao listado aqui. Cada tipo vira um item TST-* na tabela de pendencias.
+
+<<linhas de TST-* aplicaveis, no formato: "## TST-T<n> <Tipo>\n<objetivo>\n**Ferramentas:** ...">>
+```
+
+### Template ./AUDITORIAS.md
+
+```markdown
+# Auditorias do Projeto
+
+> Auditorias aplicaveis a este projeto (stack: {STACK}). Cada uma vira um item AUD-*
+> na tabela de pendencias, nas ondas finais (downstream de codigo+teste).
+
+<<linhas de AUD-* aplicaveis, no formato: "## AUD-<ID> <Tema>\n<objetivo>">>
+```
+
+A poda usa a coluna `Aplica` das tabelas acima contra a deteccao de stack/caracteristicas.
