@@ -160,7 +160,7 @@ PERGUNTA 1 (AskUserQuestion, recomendacao ALTA a favor):
 - Criar `./TESTES.md` e/ou `./AUDITORIAS.md` se faltarem (podados pro stack).
 - Injetar na tabela apenas os IDs AUSENTES (idempotente):
   - **TST-*** -> `Grupo` = `Testes`; `Onda` = uma apos a ultima de implementacao; `Pre-requisito` = itens de implementacao cobertos (na pratica, a ultima onda funcional); `Status` = ⏳; `Estado Auditado` = `—`; `Descricao` referencia `TESTES.md`.
-  - **AUD-*** -> `Grupo` = `Auditoria`; `Onda` = final, apos os testes; `Pre-requisito` = os TST-* + codigo; `Status` = ⏳; `Estado Auditado` = `—`; `Descricao` referencia `AUDITORIAS.md`.
+  - **AUD-*** -> `Grupo` = `Auditoria`; `Onda` = final, apos os testes; `Pre-requisito` = os TST-* + ultima onda de implementacao; `Status` = ⏳; `Estado Auditado` = `—`; `Descricao` referencia `AUDITORIAS.md`.
 - Reaplicar a ordenacao (topological + WSJF + ondas) para encaixar os novos itens respeitando a ordem inviolavel.
 - Avisar: "criei <arquivos>; injetei N testes + M auditorias nas ondas <...>".
 
