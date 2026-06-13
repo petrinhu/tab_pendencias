@@ -66,11 +66,12 @@ Em contexto SAFe (porte scale-up/bigtech, definido por Cósimo), NÃO apresentar
 
 `CoD = Valor + Criticidade + Redução de Risco`; `WSJF = CoD / Job Size`. Rank = ordem decrescente de WSJF. Em projeto pequeno (solo/early), o WSJF pode ser qualitativo (sem a tabela completa), respeitando o anti-OE.
 
-### Testes e auditoria: ordem inviolável (TDD + shift-left, [[TESTES]] / [[AUDITORIAS]])
+### Testes e auditoria: ordem inviolavel (TDD + shift-left)
 
-- **Teste não é item tardio nem fase isolada.** É enabler / parte da Definition of Done (AGILE §93, §227 TDD): ride COM o item de implementação (escrito antes/junto do código). Não criar "escrever testes" como passo solto após o build.
-- **Auditoria é downstream:** ela depende de código já implementado E testado. Toda linha de auditoria tem `Pré-requisito` = os itens de código+teste que ela audita. Pelo topological sort, auditoria cai numa Onda POSTERIOR.
-- **Invariante:** nunca agendar teste depois da auditoria correspondente. Se a ordenação produzir isso, a dependência está errada (corrigir o `Pré-requisito`).
+- **Teste unitario (T1) = TDD:** ride COM o item de implementacao (escrito antes/junto do codigo), garantido pelo hook de TDD (tdd_guard/tdd_runner). **NAO vira item** na tabela; nao criar "escrever testes unitarios" como passo solto.
+- **Demais testes (T2-T15) sao downstream:** estatica, integracao, e2e, seguranca (secrets, SQLi, CVE), memoria, pre-CI. Nao existem antes do sistema; entram como itens de fechamento (`TST-*`) numa onda APOS a implementacao. Sao injetados pelo fluxo "Injecao automatica de testes e auditorias".
+- **Auditoria e downstream de codigo+teste:** todo item `AUD-*` tem `Pre-requisito` = os itens de codigo+teste que audita; cai numa Onda POSTERIOR aos testes.
+- **Invariante:** nunca agendar teste/auditoria antes do que ele cobre. Se a ordenacao produzir isso, a dependencia esta errada (corrigir o `Pre-requisito`).
 
 ---
 
