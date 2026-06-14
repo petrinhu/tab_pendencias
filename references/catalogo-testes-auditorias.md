@@ -58,20 +58,20 @@ hook de TDD; nunca vira item na tabela).
 Funde os blocos de auditoria genericos (A1-A10) com os temas por stack, deduplicando
 por tema. ID semantico e estavel. `Aplica` igual ao das tabelas de teste.
 
-| ID | Tema | Objetivo (1 linha) | Aplica |
-|---|---|---|---|
-| AUD-DISC | Descoberta e Modelagem | mapear superficie, ativos, modelo de ameaca | sempre |
-| AUD-ARCH | Arquitetura e Camadas | 4 camadas, SOLID, DRY, sem violacao de dependencia | sempre |
-| AUD-SEC | Seguranca | memory safety, secrets, SQLi, binario, LGPD/privacidade | sempre |
-| AUD-DB | Banco de Dados | schema, queries, EXPLAIN, migrations, indices, LGPD | DB SQL |
-| AUD-API | API e Contratos | verbos REST, status codes, auth, OpenAPI | rede/API |
-| AUD-UI | UI/UX e Acessibilidade | contraste, navegacao por teclado, WCAG | UI |
-| AUD-QUALITY | Qualidade de Codigo | god classes, complexidade, dead code, duplicacao | sempre |
-| AUD-COV | Cobertura de Testes | cobertura significativa nos modulos criticos | sempre |
-| AUD-DEPS | Dependencias e Acoplamento | grafo de deps, acoplamento, ciclos | sempre |
-| AUD-LANG | Idiomas Modernos da Linguagem | tipos/concorrencia/idioms do stack | sempre (Baixa) |
-| AUD-FRAMEWORK | Framework Especifico | padroes do framework (ex.: Qt signals/slots, model/view, i18n) | framework de app/UI |
-| AUD-REPORT | Relatorio Final de Auditoria | score 0-100, sumario de problemas, patches | sempre (consolida) |
+| ID | Tema | Objetivo (1 linha) | Aplica | Ferramentas |
+|---|---|---|---|---|
+| AUD-DISC | Descoberta e Modelagem | mapear superficie, ativos, modelo de ameaca | sempre | OWASP Threat Dragon, diagramas C4/DFD, revisao manual de superficie e ativos |
+| AUD-ARCH | Arquitetura e Camadas | 4 camadas, SOLID, DRY, sem violacao de dependencia | sempre | import-linter (Py), dependency-cruiser (JS/TS), ArchUnit (JVM), deptrac (PHP), clang-tidy (C++), revisao de camadas |
+| AUD-SEC | Seguranca | memory safety, secrets, SQLi, binario, LGPD/privacidade | sempre | SAST (semgrep, CodeQL, bandit, cppcheck), gitleaks/trufflehog (secrets), trivy/grype (CVE), OWASP ZAP (DAST) |
+| AUD-DB | Banco de Dados | schema, queries, EXPLAIN, migrations, indices, LGPD | DB SQL | EXPLAIN / EXPLAIN ANALYZE, sqlfluff (lint SQL), revisao de migrations e indices, sqlmap (SQLi) |
+| AUD-API | API e Contratos | verbos REST, status codes, auth, OpenAPI | rede/API | OpenAPI/Swagger validator, Spectral (lint OpenAPI), schemathesis, Postman/newman |
+| AUD-UI | UI/UX e Acessibilidade | contraste, navegacao por teclado, WCAG | UI | axe-core, Lighthouse, pa11y, WAVE, WebAIM contrast; em Qt: revisao manual de acessibilidade |
+| AUD-QUALITY | Qualidade de Codigo | god classes, complexidade, dead code, duplicacao | sempre | linters (clang-tidy, ruff, eslint, clippy, phpstan), complexidade (lizard, radon), dead code (vulture, ts-prune), SonarQube |
+| AUD-COV | Cobertura de Testes | cobertura significativa nos modulos criticos | sempre | lcov/gcov, llvm-cov (C/C++); coverage.py / pytest-cov (Python); c8 / nyc / vitest --coverage (Node/TS); cargo-tarpaulin / llvm-cov (Rust); coverlet (.NET); phpunit --coverage com Xdebug/PCOV (PHP) |
+| AUD-DEPS | Dependencias e Acoplamento | grafo de deps, acoplamento, ciclos | sempre | dependency-cruiser (JS/TS), pydeps / import-linter (Py), cargo-tree (Rust), deptrac (PHP), license-checker; revisao do grafo de deps |
+| AUD-LANG | Idiomas Modernos da Linguagem | tipos/concorrencia/idioms do stack | sempre (Baixa) | clang-tidy (modernize, cppcoreguidelines) (C++), pyupgrade + mypy (Py), clippy (Rust), tsc strict + eslint (TS); revisao de idioms |
+| AUD-FRAMEWORK | Framework Especifico | padroes do framework (ex.: Qt signals/slots, model/view, i18n) | framework de app/UI | clazy (Qt), django checks / django-stubs (Django), eslint-plugin-react / -vue (React/Vue); revisao de padroes do framework |
+| AUD-REPORT | Relatorio Final de Auditoria | score 0-100, sumario de problemas, patches | sempre (consolida) | consolidacao manual + gerador de relatorio (markdown/HTML); agrega os achados das auditorias anteriores |
 
 ## Criacao dos manuais do projeto (poda por stack)
 
@@ -99,7 +99,7 @@ um manual existente.
 > Auditorias aplicaveis a este projeto (stack: {STACK}). Cada uma vira um item AUD-*
 > na tabela de pendencias, nas ondas finais (downstream de codigo+teste).
 
-<<linhas de AUD-* aplicaveis, no formato: "## AUD-<ID> <Tema>\n<objetivo>">>
+<<linhas de AUD-* aplicaveis, no formato: "## AUD-<ID> <Tema>\n<objetivo>\n**Ferramentas:** ...">>
 ```
 
 A poda usa a coluna `Aplica` das tabelas acima contra a deteccao de stack/caracteristicas.
