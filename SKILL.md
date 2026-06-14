@@ -64,7 +64,7 @@ Em contexto SAFe (porte scale-up/bigtech, definido por Cósimo), NÃO apresentar
 | ID | Item | Valor (1-20) | Criticidade (1-20) | Redução de Risco (1-20) | CoD | Job Size (1-20) | WSJF | Rank |
 ```
 
-`CoD = Valor + Criticidade + Redução de Risco`; `WSJF = CoD / Job Size`. Rank = ordem decrescente de WSJF. Em projeto pequeno (solo/early), o WSJF pode ser qualitativo (sem a tabela completa), respeitando o anti-OE.
+`CoD = Valor + Criticidade + Redução de Risco`; `WSJF = CoD / Job Size`. Rank = ordem decrescente de WSJF. Em projeto pequeno (early), o WSJF pode ser qualitativo (sem a tabela completa), respeitando o anti-OE.
 
 ### Testes e auditoria: ordem inviolavel (TDD + shift-left)
 
@@ -80,7 +80,7 @@ Em contexto SAFe (porte scale-up/bigtech, definido por Cósimo), NÃO apresentar
 ### Gate anti over-engineering (sempre primeiro)
 
 Calibrar pelo porte (ver `cosimo-chief-of-staff` / [[ORG]]):
-- **Tabela pequena/simples** (até ~8 itens, projeto solo/pessoal): **NÃO** spawnar o time. A própria thread aplica o método (topological + WSJF + ondas) e escreve. Anti-OE.
+- **Tabela pequena/simples** (até ~8 itens, baixa complexidade e poucas dependencias cruzadas): **NÃO** spawnar o time. A própria thread aplica o método (topological + WSJF + ondas) e escreve. Anti-OE por complexidade da tabela, nao por porte "solo" (que nao existe: a constelacao esta sempre disponivel).
 - **Tabela grande/complexa** (muitos itens, dependências cruzadas, cross-funcional): orquestrar o time abaixo.
 
 ### Orquestração (tabela grande)
