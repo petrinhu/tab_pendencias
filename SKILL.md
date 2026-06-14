@@ -79,13 +79,13 @@ Em contexto SAFe (porte scale-up/bigtech, definido por Cósimo), NÃO apresentar
 
 ### Gate anti over-engineering (sempre primeiro)
 
-Calibrar pelo porte (ver `cosimo-chief-of-staff` / [[ORG]]):
+**Quem decide a abordagem de montagem (em `--create` e `--reorder`) é o Cosimo (Chief of Staff)**: ele classifica a complexidade da tabela (número de itens, dependências cruzadas, criticidade) e determina thread direta (simples) vs orquestrar o time (complexa). Calibrar pelo porte/complexidade (ver `cosimo-chief-of-staff` / [[ORG]]).
 - **Tabela pequena/simples** (até ~8 itens, baixa complexidade e poucas dependencias cruzadas): **NÃO** spawnar o time. A própria thread aplica o método (topological + WSJF + ondas) e escreve. Anti-OE por complexidade da tabela, nao por porte "solo" (que nao existe: a constelacao esta sempre disponivel).
 - **Tabela grande/complexa** (muitos itens, dependências cruzadas, cross-funcional): orquestrar o time abaixo.
 
 ### Orquestração (tabela grande)
 
-Cosmo (COO) coordena. A skill (thread principal) dispara os agents em paralelo, cada um com a lista bruta de itens, para sua lente:
+Quando o Cosimo determina "via time", o **Cosmo (COO) coordena a montagem**: a skill (thread principal) dispara os agents em paralelo, cada um com a lista bruta de itens, para sua lente:
 
 | Agent | Lente que devolve |
 |---|---|
@@ -102,8 +102,8 @@ Subagent não dispara subagent: quem dispara cada agent é a thread principal (a
 
 1. Coletar os itens (do usuário; se vier de um doc, ler).
 2. Perguntar só o essencial: caminho (sugerir `TODO.md` na raiz) e título do projeto.
-3. Aplicar o gate anti-OE.
-4. Ordenar pelo método (direto ou via time).
+3. Aplicar o gate anti-OE: **o Cosimo decide a abordagem** (thread direta vs time) pela complexidade.
+4. Montar a tabela: thread direta (simples) OU **time coordenado pelo Cosmo** (complexa), conforme a decisão do Cosimo.
 5. Escrever `TODO.md` com as 9 colunas, linhas em ordem de execução, Onda preenchida.
 
 ### `--reorder`
@@ -112,7 +112,7 @@ Reordena uma tabela existente (mesmo método e gate). Preserva IDs, Status e Est
 
 ### Gatilho de reordenação (proporcional ao tamanho e à repercussão)
 
-Quando uma pendência NOVA entra, decidir entre **só anexar** ou **reordenar tudo**, proporcional ao tamanho da solicitação e ao impacto no projeto inteiro. Em caso dúbio ou grande, quem julga a repercussão é `cosmo-coo` (COO).
+Quando uma pendência NOVA entra, decidir entre **só anexar** ou **reordenar tudo**, proporcional ao tamanho da solicitação e ao impacto no projeto inteiro. **O Cosimo (Chief of Staff) decide a abordagem** (só anexar vs reordenar) pela complexidade/repercussão; quando reordena via time, **o Cosmo (COO) coordena a montagem** (dispara as lentes e consolida). Em caso dúbio sobre a repercussão, o Cosmo (COO) julga.
 
 - **Só anexar** (sem reordenar): item pequeno, escopo local, sem criar dependência sobre itens já ordenados, não mexe em fundação nem one-way-door. Adicionar na Onda adequada (ou ao fim) e seguir.
 - **Reordenar (`--reorder`, orquestra o time):** quando o item novo
