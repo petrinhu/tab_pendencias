@@ -17,7 +17,7 @@ Skill do Claude Code que gerencia a tabela de pendências/planejamento de projet
 ```bash
 mkdir -p ~/.claude/skills
 cd ~/.claude/skills
-git clone https://codeberg.org/petrinhu/tab_pendencias.git
+git clone https://github.com/petrinhu/tab_pendencias.git
 ```
 
 Auto-discovered pelo Claude Code. Trigger automático em frases como "criar tabela", "mostrar pendências", "mostrar tarefas", "o que falta", "histórico completo", "atualizar status".
@@ -114,7 +114,7 @@ Claude Code skill that manages the project pendencies/planning table in `TODO.md
 ```bash
 mkdir -p ~/.claude/skills
 cd ~/.claude/skills
-git clone https://codeberg.org/petrinhu/tab_pendencias.git
+git clone https://github.com/petrinhu/tab_pendencias.git
 ```
 
 Auto-discovered by Claude Code. Auto-triggers on phrases like "create table", "show pendencies", "show tasks", "what's left", "full history", "update status".
