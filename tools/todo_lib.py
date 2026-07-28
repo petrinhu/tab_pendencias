@@ -67,11 +67,18 @@ def touched_code(files):
     Mora aqui porque DOIS consumidores dependem dela: o todo_freshness.py
     (avisa quando codigo muda sem citar ID) e o todo_sync.py (commit que so
     mexe na tabela CITA o ID sem ter entregado nada -- criar item, reordenar,
-    aprovar escopo --, logo nao e evidencia de entrega)."""
+    aprovar escopo --, logo nao e evidencia de entrega).
+
+    So o `inbox/` do TOPO do repo e bookkeeping (INBOX da TODO.md, D-6). Um
+    diretorio de CODIGO chamado `inbox` em qualquer nivel (ex.:
+    `src/inbox/parser.py`) e trabalho substantivo -- TCH-1 corrigido: a
+    checagem antiga (`"/inbox/" in f`) casava esse caso por substring de
+    path e nunca flipava o ID citado. Caminho vem do git (diff/status), que
+    sempre usa "/" independente de SO -- ADR-0001 (e).1."""
     for f in files:
         if os.path.basename(f) == "TODO.md":
             continue
-        if f.startswith("inbox/") or "/inbox/" in f:
+        if f.startswith("inbox/"):
             continue
         return True
     return False
@@ -112,9 +119,18 @@ def _is_separator(cells):
     return bool(cells) and set("".join(cells)) <= set("-: ")
 
 
+_STATUS_WORD = re.compile(r"(?<![\w-])status\b")
+
+
 def _is_header(cells):
+    """Cabecalho canonico: celula exata "id" + alguma celula com a palavra
+    "status" (nao substring crua). HDR-1: uma celula que so CONTEM "status"
+    grudado por hifen ou underscore (ex.: "Sub-status" de tabela alheia) nao
+    conta -- o lookbehind negativo exige que "status" comece em fronteira de
+    palavra de verdade (inicio da celula, espaco ou pontuacao como "(", nunca
+    "-"/"_"/letra colada), preservando "Status" e "Estado Auditado (Status)"."""
     low = [c.lower() for c in cells]
-    return ("id" in low) and any("status" in c for c in low)
+    return ("id" in low) and any(_STATUS_WORD.search(c) for c in low)
 
 
 def parse_table(text):
@@ -265,10 +281,18 @@ def is_done(status):
 def cited_ids(message, ids):
     """IDs conhecidos citados na mensagem, com fronteira (V-1 nao casa em V-12,
     F1.4 nao casa em F1.45). re.escape protege ID com metachar. Funciona p/
-    qualquer esquema de ID."""
+    qualquer esquema de ID.
+
+    CIT-1: o lookahead proibia QUALQUER "." logo apos o ID, inclusive o ponto
+    final de frase ("fechei V-12." nunca casava) -- uso comum em prosa de
+    commit. O "." so precisa continuar proibido quando e continuacao
+    NUMERICA do proprio ID (ex.: "F1.4.5" nao pode confirmar "F1.4", pois
+    seria citar um ID mais especifico); ponto seguido de nao-digito (fim de
+    frase, ou nada) e permitido."""
     out = []
     for i in ids:
-        if re.search(r"(?<![\w-])" + re.escape(i) + r"(?![\w.-])", message):
+        pat = r"(?<![\w-])" + re.escape(i) + r"(?![\w-])(?!\.\d)"
+        if re.search(pat, message):
             out.append(i)
     return out
 
