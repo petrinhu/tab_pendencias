@@ -19,11 +19,10 @@ tools/todo_audit.py
 
 Motor do `--audit` (AUDIT-ENG, ADR-0001): registro de checks, ativacao de
 perfil core/casa, execucao, relatorio e CLI. NAO contem os checks
-concretos do catalogo (CHK-01..14) -- esses sao de outras fatias
-(CHK-CORE, CHK-GRAPH, CHK-09, CHK-10, CHK-CASA). O unico check registrado
-aqui e `CHK-00`, um EXEMPLO fora do catalogo que prova o mecanismo ponta a
-ponta (registro -> execucao -> achado -> relatorio -> exit code); pode ser
-removido quando `CHK-CORE` registrar os checks de verdade.
+concretos do catalogo -- esses sao de outras fatias (`checks/chk_core.py`
+= CHK-01/02/03/04/08/11; `checks/chk_graph.py` = CHK-05/06/07;
+`checks/chk_frescor.py` = CHK-09/10). Todos os 11 ja registrados em
+`CHECKS` abaixo; CHK-12/13/14 (convencao da casa) ainda por vir.
 
 Read-only por contrato (ADR-0001 c): nenhum caminho de codigo deste modulo
 abre o TODO.md do usuario em modo de escrita. A unica escrita possivel e a
@@ -34,6 +33,14 @@ repo do usuario.
 descarte do proprio motor -- check pulado por perfil, check que lancou
 excecao, achados truncados por `--max-per-check` -- e declarado no
 relatorio, nunca silencioso.
+
+Apresentacao do relatorio (achado do team-lead calibrando contra as
+fixtures reais, 28/07): secoes ordenadas por SEVERIDADE (CRITICO sempre
+primeiro), achados CRITICO nunca truncados pelo `--max-per-check` (so os
+de severidade menor sao cortados quando o total excede o limite), e o
+cabecalho de cada secao mostra o CONJUNTO REAL de severidades presentes
+naquela execucao (nao a `severity_default` estatica do check, que pode
+nao bater com achados individuais de severidade propria -- ex. CHK-09).
 
 Uso:
   python3 todo_audit.py                      # roda os checks do perfil ativo
@@ -64,7 +71,6 @@ import argparse
 import configparser
 import inspect
 import os
-import re
 import sys
 import traceback
 from collections.abc import Callable
@@ -76,9 +82,18 @@ TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 CASA_DIR = os.path.join(TOOLS_DIR, "casa")
 
 _PROFILES = ("core", "casa")
-_SEVERITIES = ("CRÍTICO", "IMPORTANTE", "COSMÉTICO")
+_SEVERITIES = ("CRÍTICO", "IMPORTANTE", "COSMÉTICO")  # ordem = prioridade de leitura
+_SEVERITY_RANK = {s: i for i, s in enumerate(_SEVERITIES)}
 
-DEFAULT_MAX_PER_CHECK = 20
+# DEFAULT_MAX_PER_CHECK reduzido de 20 para 5 (achado do team-lead calibrando
+# contra as fixtures reais, 28/07): um check de "padrao repetitivo" (ex.
+# CHK-05 com 89 ocorrencias) com 20 linhas de amostra ainda produz um
+# relatorio longo demais para escaneamento humano -- 5 e amostra suficiente
+# para reconhecer o padrao (o TITULO do check ja diz QUAL e o padrao; a
+# amostra so precisa provar que ele e real e mostrar onde). CRITICO nunca e
+# cortado por este limite (ver `_shown_findings`) -- so severidades menores
+# perdem detalhe quando excedem o limite, nunca o que mais importa.
+DEFAULT_MAX_PER_CHECK = 5
 CONFIG_FILENAME = ".tab_pendencias.ini"
 
 
@@ -141,27 +156,6 @@ class Check:
                 f"{self.severity_default!r} (esperado um de {_SEVERITIES}).")
 
 
-def _chk00_id_com_espaco(ctx):
-    """[EXEMPLO / placeholder de AUDIT-ENG] Reporta IDs que contem espaco em
-    branco -- convencao minima (um ID e um token, ex.: 'V-12', 'F1.4').
-    Deliberadamente FORA do catalogo CHK-01..14 (esses sao de CHK-CORE/
-    CHK-GRAPH/CHK-09/CHK-10/CHK-CASA): so precisa provar que o motor
-    registra, executa, emite Finding com evidencia de linha e aparece no
-    relatorio -- nada mais. Remova quando CHK-CORE registrar os checks
-    reais."""
-    table = ctx.table
-    if not table:
-        return []
-    out = []
-    for it in table["items"]:
-        if re.search(r"\s", it["id"]):
-            out.append(Finding(
-                check_id="CHK-00", severity="COSMÉTICO",
-                message=f"ID {it['id']!r} contem espaco em branco",
-                line_no=it["line_no"], fixable=False))
-    return out
-
-
 import checks.chk_graph as _chk_graph  # noqa: E402 -- import tardio de
 # proposito (depois de Check/Finding definidos): `checks.chk_graph` importa
 # `Finding` de volta deste modulo dentro do CORPO das suas funcoes de check
@@ -174,9 +168,6 @@ import checks.chk_core as _chk_core  # noqa: E402 -- mesmo padrao (CHK-CORE:
 # CHK-01/02/03/04/08/11, `checks/chk_core.py`).
 
 CHECKS: list[Check] = [
-    Check(id="CHK-00", title="[exemplo] ID com espaco em branco",
-          profile="core", severity_default="COSMÉTICO",
-          run=_chk00_id_com_espaco),
     Check(id="CHK-01", title="ID duplicado", profile="core",
           severity_default="CRÍTICO", run=_chk_core._chk01_id_duplicado),
     Check(id="CHK-02", title="nº de células ≠ cabeçalho (diagnóstico)",
@@ -403,6 +394,38 @@ def _fmt_finding(f):
     return f"    {loc}: {f.message}  {tag}"
 
 
+def _severity_rank(f):
+    return _SEVERITY_RANK.get(f.severity, len(_SEVERITIES))
+
+
+def _severities_presentes(results):
+    """Conjunto REAL de severidades dos achados desta execucao, em ordem de
+    prioridade (CRITICO, IMPORTANTE, COSMETICO) -- NUNCA a `severity_default`
+    estatica do check, que pode nao bater com o que foi achado de fato (ex.:
+    CHK-09 tem achados IMPORTANTE e COSMETICO na MESMA execucao; mostrar so
+    o default faria o cabecalho parecer contradizer a contagem abaixo dele,
+    o achado original do team-lead que motivou este conserto)."""
+    presentes = {f.severity for f in results}
+    return tuple(s for s in _SEVERITIES if s in presentes)
+
+
+def _shown_findings(results, max_per_check):
+    """(mostrados, omitidos) -- ordena por severidade (CRITICO primeiro,
+    estavel dentro de cada severidade) ANTES de truncar, e garante que
+    achados CRITICO NUNCA sao cortados pelo limite: o corte so incide sobre
+    severidades menores. Isto nao e supressao automatica (o team-lead pediu
+    para nao inventar isso) -- e o oposto, uma garantia de VISIBILIDADE do
+    que mais importa; a contagem total e o exit code continuam refletindo
+    TUDO que foi achado, so a AMOSTRA impressa muda de composicao."""
+    se_ordenados = sorted(results, key=_severity_rank)
+    if max_per_check <= 0:
+        return se_ordenados, 0
+    n_critico = sum(1 for f in se_ordenados if f.severity == "CRÍTICO")
+    limite = max(max_per_check, n_critico)
+    mostrados = se_ordenados[:limite]
+    return mostrados, len(se_ordenados) - len(mostrados)
+
+
 def _render(root, todo_path, profile, origin, checks_run, notices,
             all_checks, all_findings, max_per_check=DEFAULT_MAX_PER_CHECK):
     lines = []
@@ -416,21 +439,31 @@ def _render(root, todo_path, profile, origin, checks_run, notices,
     elif not checks_run:
         lines.append("Nenhum check aplicavel produziu achados.")
     else:
+        # Secoes ORDENADAS por severidade (achado do team-lead, 28/07): a
+        # ordem de registro (CHK-01, CHK-02, ...) enterrava achados CRITICO
+        # raros sob centenas de achados de severidade menor de checks
+        # registrados depois. A chave de ordenacao e a PIOR (mais severa)
+        # severidade presente nos achados do proprio check -- sort estavel
+        # preserva a ordem de registro como desempate entre checks de mesma
+        # pior-severidade.
+        com_achados = [(c, r) for c, r in checks_run if r]
+        com_achados.sort(key=lambda cr: min(_severity_rank(f) for f in cr[1]))
+
         n = 0
-        for check, results in checks_run:
-            if not results:
-                continue
+        for check, results in com_achados:
             n += 1
-            lines.append(f"[{n}] {check.id} -- {check.title} "
-                         f"({check.severity_default}) -- {len(results)} achado(s)")
-            shown = results if max_per_check <= 0 else results[:max_per_check]
+            severidades = _severities_presentes(results)
+            rotulo_severidade = ", ".join(severidades)
+            lines.append(
+                f"[{n}] {check.id} -- {check.title} ({rotulo_severidade}) "
+                f"-- {len(results)} ocorrencia(s) deste padrao")
+            shown, omitidos = _shown_findings(results, max_per_check)
             for f in shown:
                 lines.append(_fmt_finding(f))
-            omitidos = len(results) - len(shown)
             if omitidos > 0:
                 lines.append(
-                    f"    ... (+{omitidos} nao mostrados; rode com "
-                    "--max-per-check 0 para ver todos -- no silent caps)")
+                    f"    ... (+{omitidos} nao mostrada(s); rode com "
+                    "--max-per-check 0 para ver todas -- no silent caps)")
             lines.append("")
         if n == 0:
             lines.append("Nenhum check aplicavel produziu achados.")

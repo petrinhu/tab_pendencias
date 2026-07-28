@@ -1,8 +1,13 @@
 """Suite do motor de `--audit` (AUDIT-ENG). Cobre so o MOTOR e a
 infraestrutura de registro/perfil/relatorio/CLI -- os checks concretos
-(CHK-01..14) sao de outras fatias (CHK-CORE, CHK-GRAPH, CHK-09, CHK-10,
-CHK-CASA); aqui so existe o check de exemplo CHK-00 (fora do catalogo, prova
-o mecanismo ponta a ponta).
+(CHK-01..11) sao de outras fatias (CHK-CORE, CHK-GRAPH, CHK-09, CHK-10),
+todos ja registrados em producao. O motor NAO tem check de exemplo proprio
+(CHK-00 foi removido -- achado do team-lead: com os checks reais
+registrados, ele so somava ruido a qualquer auditoria real); testes que
+precisam de um check controlavel definem um Check SINTETICO dentro do
+proprio teste (nunca no registro de producao), e testes que precisam de UM
+achado REAL e deterministico usam as fixtures `TODO_ID_DUPLICADO` (CHK-01,
+CRITICO) ou `TODO_PREREQ_INEXISTENTE` (CHK-05, IMPORTANTE, [julgamento]).
 
 ADR de referencia: docs/adr/0001-fronteira-nucleo-generico-e-convencoes-da-casa.md
 """
@@ -31,11 +36,24 @@ TODO_OK = (
     "| V-12 | W2 | Auth | Login | Alta | — | Média | ⏳ Pendente | — |\n"
 )
 
-TODO_ID_COM_ESPACO = (
+TODO_ID_DUPLICADO = (
+    # Dispara CHK-01 (CRITICO): mesmo ID duas vezes, com so a Descricao
+    # divergindo (nem placeholder, nem prefixo de uma na outra) -- exige
+    # julgamento humano, fixable=False, resultado deterministico.
     "| ID | Onda | Grupo | Descrição | Prioridade | Pré-requisito | "
     "Dificuldade | Status | Estado Auditado |\n"
     "| :- | :- | :- | :- | :- | :- | :- | :- | :- |\n"
-    "| V 12 | W2 | Auth | Login | Alta | — | Média | ⏳ Pendente | — |\n"
+    "| V-12 | W2 | Auth | Login | Alta | — | Média | ⏳ Pendente | — |\n"
+    "| V-12 | W2 | Auth | Cadastro | Alta | — | Média | ⏳ Pendente | — |\n"
+)
+
+TODO_PREREQ_INEXISTENTE = (
+    # Dispara CHK-05 (IMPORTANTE, sempre [julgamento] -- fixable=False):
+    # pre-requisito citando um ID que nao existe na tabela.
+    "| ID | Onda | Grupo | Descrição | Prioridade | Pré-requisito | "
+    "Dificuldade | Status | Estado Auditado |\n"
+    "| :- | :- | :- | :- | :- | :- | :- | :- | :- |\n"
+    "| V-12 | W2 | Auth | Login | Alta | V-99 | Média | ⏳ Pendente | — |\n"
 )
 
 
@@ -195,11 +213,40 @@ def test_run_audit_sem_todo_md_e_estado_valido_zero_achados(tmp_path):
     assert res.findings == []
 
 
-def test_run_audit_com_exemplo_core_acha_id_com_espaco(tmp_path):
+def _check_id_com_espaco_sintetico():
+    """Check de exemplo definido DENTRO do teste (nao no registro de
+    producao, que nao tem mais CHK-00) -- so para provar o mecanismo
+    registro->execucao->achado ponta a ponta com um Check controlavel."""
+    def _run(ctx):
+        table = ctx.table
+        if not table:
+            return []
+        out = []
+        for it in table["items"]:
+            if " " in it["id"]:
+                out.append(A.Finding(
+                    check_id="CHK-SINTETICO", severity="COSMÉTICO",
+                    message=f"ID {it['id']!r} contem espaco em branco",
+                    line_no=it["line_no"], fixable=False))
+        return out
+    return A.Check(id="CHK-SINTETICO", title="[teste] ID com espaco",
+                   profile="core", severity_default="COSMÉTICO", run=_run)
+
+
+TODO_ID_COM_ESPACO = (
+    "| ID | Onda | Grupo | Descrição | Prioridade | Pré-requisito | "
+    "Dificuldade | Status | Estado Auditado |\n"
+    "| :- | :- | :- | :- | :- | :- | :- | :- | :- |\n"
+    "| V 12 | W2 | Auth | Login | Alta | — | Média | ⏳ Pendente | — |\n"
+)
+
+
+def test_run_audit_com_check_sintetico_produz_finding_com_evidencia(tmp_path):
     root, _todo = _repo(tmp_path, TODO_ID_COM_ESPACO)
-    res = A.run_audit(str(root))
-    assert any(f.check_id == "CHK-00" for f in res.findings)
-    f = next(f for f in res.findings if f.check_id == "CHK-00")
+    fake = _check_id_com_espaco_sintetico()
+    res = A.run_audit(str(root), checks=[fake])
+    assert any(f.check_id == "CHK-SINTETICO" for f in res.findings)
+    f = next(f for f in res.findings if f.check_id == "CHK-SINTETICO")
     assert f.line_no == 2  # 0-based: linha 3 do arquivo (1-based)
     assert f.severity == "COSMÉTICO"
 
@@ -211,7 +258,7 @@ def test_run_audit_tabela_limpa_zero_achados(tmp_path):
 
 
 def test_run_audit_e_read_only_hash_identico(tmp_path):
-    root, todo = _repo(tmp_path, TODO_ID_COM_ESPACO)
+    root, todo = _repo(tmp_path, TODO_ID_DUPLICADO)
     antes = _md5(todo)
     A.run_audit(str(root))
     depois = _md5(todo)
@@ -294,7 +341,7 @@ def test_fixable_e_fix_ref_aparecem_no_relatorio(tmp_path):
 
 
 def test_julgamento_aparece_quando_nao_fixavel(tmp_path):
-    root, _todo = _repo(tmp_path, TODO_ID_COM_ESPACO)
+    root, _todo = _repo(tmp_path, TODO_PREREQ_INEXISTENTE)
     res = A.run_audit(str(root))
     assert "[julgamento]" in res.report_text
 
@@ -310,13 +357,13 @@ def test_output_dentro_do_repo_e_recusado(tmp_path):
 
 
 def test_output_fora_do_repo_escreve_relatorio(tmp_path):
-    root, _todo = _repo(tmp_path, TODO_ID_COM_ESPACO)
+    root, _todo = _repo(tmp_path, TODO_ID_DUPLICADO)
     fora = tmp_path.parent / f"relatorio-{tmp_path.name}.txt"
     try:
         r = _run(["--output", str(fora)], cwd=root)
         assert r.returncode == 2, (r.stdout, r.stderr)
         assert fora.exists()
-        assert "CHK-00" in fora.read_text(encoding="utf-8")
+        assert "CHK-01" in fora.read_text(encoding="utf-8")
     finally:
         if fora.exists():
             fora.unlink()
@@ -344,11 +391,11 @@ def test_exit0_sem_achados(tmp_path):
     assert r.returncode == 0, (r.stdout, r.stderr)
 
 
-def test_exit2_com_achado_cosmetico(tmp_path):
-    root, _todo = _repo(tmp_path, TODO_ID_COM_ESPACO)
+def test_exit2_com_achado_real_do_registro(tmp_path):
+    root, _todo = _repo(tmp_path, TODO_ID_DUPLICADO)
     r = _run([], cwd=root)
     assert r.returncode == 2, (r.stdout, r.stderr)
-    assert "CHK-00" in r.stdout
+    assert "CHK-01" in r.stdout
 
 
 def test_exit1_fora_de_repo(tmp_path):
@@ -365,7 +412,7 @@ def test_perfil_invalido_via_cli_e_erro(tmp_path):
 # ------------------------- --audit e sempre read-only (CLI real) ---------------
 
 def test_cli_read_only_mesmo_com_achados_e_flags_diversas(tmp_path):
-    root, todo = _repo(tmp_path, TODO_ID_COM_ESPACO)
+    root, todo = _repo(tmp_path, TODO_ID_DUPLICADO)
     antes = _md5(todo)
     for args in ([], ["--profile", "casa"], ["-v"], ["--max-per-check", "1"]):
         _run(args, cwd=root)
@@ -528,11 +575,11 @@ def test_todo_flag_audita_arquivo_fora_do_cwd_atual(tmp_path):
     invocador = tmp_path / "invocador"
     invocador.mkdir()
     alvo_root = tmp_path / "alvo"
-    todo_alvo = _repo_em(alvo_root, TODO_ID_COM_ESPACO)
+    todo_alvo = _repo_em(alvo_root, TODO_ID_DUPLICADO)
 
     r = _run(["--todo", str(todo_alvo)], cwd=invocador)
-    assert r.returncode == 2, (r.stdout, r.stderr)   # CHK-00 acha o ID com espaco
-    assert "CHK-00" in r.stdout
+    assert r.returncode == 2, (r.stdout, r.stderr)   # CHK-01 acha o ID duplicado
+    assert "CHK-01" in r.stdout
     assert str(todo_alvo) in r.stdout
 
 
@@ -540,7 +587,7 @@ def test_todo_flag_read_only_hash_identico(tmp_path):
     invocador = tmp_path / "invocador"
     invocador.mkdir()
     alvo_root = tmp_path / "alvo"
-    todo_alvo = _repo_em(alvo_root, TODO_ID_COM_ESPACO)
+    todo_alvo = _repo_em(alvo_root, TODO_ID_DUPLICADO)
     antes = _md5(todo_alvo)
     _run(["--todo", str(todo_alvo)], cwd=invocador)
     depois = _md5(todo_alvo)
@@ -549,18 +596,18 @@ def test_todo_flag_read_only_hash_identico(tmp_path):
 
 def test_todo_flag_arquivo_solto_sem_git_ainda_funciona_com_aviso(tmp_path):
     """Alvo SEM nenhum repositorio git acima dele: checks estruturais
-    (CHK-00, que nao depende de git) continuam rodando; o motor DECLARA a
+    (CHK-01, que nao depende de git) continuam rodando; o motor DECLARA a
     ausencia de contexto git explicitamente (no silent caps) em vez de
     deixar CHK-09/CHK-10 falharem contexto por contexto sem explicacao
     sistemica."""
     invocador = tmp_path / "invocador"
     invocador.mkdir()
     alvo_root = tmp_path / "solto"
-    todo_alvo = _repo_em(alvo_root, TODO_ID_COM_ESPACO, com_git=False)
+    todo_alvo = _repo_em(alvo_root, TODO_ID_DUPLICADO, com_git=False)
 
     r = _run(["--todo", str(todo_alvo)], cwd=invocador)
     assert r.returncode == 2, (r.stdout, r.stderr)
-    assert "CHK-00" in r.stdout
+    assert "CHK-01" in r.stdout
     assert "repositorio git" in r.stdout.lower()
 
 
@@ -641,3 +688,121 @@ def test_todo_flag_com_contexto_git_correto_chk10_nao_reclama_de_repo(tmp_path):
 
     r = _run(["--todo", str(todo_alvo)], cwd=invocador)
     assert "Nao e um repositorio git" not in r.stdout
+
+
+# --------------------- apresentacao do relatorio (achado do team-lead) --------
+#
+# Duas mensagens do team-lead, mesma leva: (1) o cabecalho de cada secao
+# mostrava `severity_default` (estatico do check), que pode nao bater com
+# achados de severidade PROPRIA (ex.: CHK-09 mistura IMPORTANTE/COSMETICO) --
+# parecia contradizer a contagem total. (2) os 2 CRITICO do consumidor B
+# apareciam enterrados sob 157 achados de severidade menor: o relatorio
+# precisa ordenar por severidade e nunca truncar CRITICO.
+
+def _check_severidade_mista():
+    """Emite 1 IMPORTANTE + 1 COSMETICO na MESMA execucao -- prova que o
+    cabecalho reflete o CONJUNTO REAL de severidades, nao um valor estatico."""
+    def _run(ctx):
+        return [
+            A.Finding(check_id="CHK-MISTO", severity="IMPORTANTE",
+                     message="achado importante", line_no=0),
+            A.Finding(check_id="CHK-MISTO", severity="COSMÉTICO",
+                     message="achado cosmetico", line_no=1),
+        ]
+    return A.Check(id="CHK-MISTO", title="severidade mista", profile="core",
+                   severity_default="IMPORTANTE", run=_run)
+
+
+def test_cabecalho_mostra_conjunto_real_de_severidades_nao_o_default(tmp_path):
+    root, _todo = _repo(tmp_path, TODO_OK)
+    fake = _check_severidade_mista()
+    res = A.run_audit(str(root), checks=[fake])
+    secao = res.report_text.split("CHK-MISTO")[1].split("\n")[0]
+    assert "IMPORTANTE" in secao and "COSMÉTICO" in secao
+    # a ordem do rotulo segue a prioridade de leitura, nao a ordem de emissao
+    assert secao.index("IMPORTANTE") < secao.index("COSMÉTICO")
+
+
+def test_cabecalho_severidade_uniforme_mostra_so_ela(tmp_path):
+    root, _todo = _repo(tmp_path, TODO_ID_DUPLICADO)
+    res = A.run_audit(str(root))
+    secao = res.report_text.split("CHK-01")[1].split("\n")[0]
+    assert "CRÍTICO" in secao
+    assert "IMPORTANTE" not in secao and "COSMÉTICO" not in secao
+
+
+def _check_muitos_importantes(n=10):
+    def _run(ctx):
+        return [A.Finding(check_id="CHK-MUITOS", severity="IMPORTANTE",
+                          message=f"ocorrencia {i}", line_no=i)
+                for i in range(n)]
+    return A.Check(id="CHK-MUITOS", title="muitos importantes",
+                  profile="core", severity_default="IMPORTANTE", run=_run)
+
+
+def _check_um_critico():
+    def _run(ctx):
+        return [A.Finding(check_id="CHK-CRIT", severity="CRÍTICO",
+                          message="o achado que importa", line_no=0)]
+    return A.Check(id="CHK-CRIT", title="acha o critico", profile="core",
+                  severity_default="CRÍTICO", run=_run)
+
+
+def test_secao_critico_aparece_antes_de_secoes_de_severidade_menor(tmp_path):
+    """Registra o check IMPORTANTE ANTES do CRITICO -- se o relatorio so
+    respeitasse ordem de registro, o CRITICO apareceria DEPOIS. Ordenado por
+    severidade, o CRITICO tem que aparecer primeiro, mesmo assim."""
+    root, _todo = _repo(tmp_path, TODO_OK)
+    checks = [_check_muitos_importantes(), _check_um_critico()]
+    res = A.run_audit(str(root), checks=checks)
+    corpo = res.report_text
+    assert corpo.index("CHK-CRIT") < corpo.index("CHK-MUITOS")
+
+
+def test_achados_critico_nunca_sao_truncados_pelo_max_per_check(tmp_path):
+    """Um check com 10 achados CRITICO + --max-per-check 3 tem que mostrar
+    os 10 CRITICO (nunca trunca o que mais importa) -- so severidade menor
+    seria cortada por esse limite."""
+    root, _todo = _repo(tmp_path, TODO_OK)
+
+    def _muitos_criticos(ctx):
+        return [A.Finding(check_id="CHK-10CRIT", severity="CRÍTICO",
+                          message=f"critico {i}", line_no=i)
+                for i in range(10)]
+
+    fake = A.Check(id="CHK-10CRIT", title="10 criticos", profile="core",
+                   severity_default="CRÍTICO", run=_muitos_criticos)
+    res = A.run_audit(str(root), checks=[fake], max_per_check=3)
+    for i in range(10):
+        assert f"critico {i}" in res.report_text, f"critico {i} foi truncado"
+
+
+def test_max_per_check_ainda_trunca_severidade_menor(tmp_path):
+    """O relaxamento acima e SO para CRITICO -- IMPORTANTE/COSMETICO
+    continuam sendo truncados pelo limite normalmente (nao virou 'sem
+    limite para tudo' por engano)."""
+    root, _todo = _repo(tmp_path, TODO_OK)
+    fake = _check_muitos_importantes(n=10)
+    res = A.run_audit(str(root), checks=[fake], max_per_check=3)
+    assert "ocorrencia 0" in res.report_text
+    assert "ocorrencia 9" not in res.report_text
+    assert "+7" in res.report_text or "7 nao mostrada" in res.report_text.lower()
+
+
+def test_secao_declara_ocorrencias_do_mesmo_padrao(tmp_path):
+    """A secao de um check com N achados deixa explicito que sao N
+    ocorrencias do MESMO padrao (o titulo do check), nao N problemas
+    distintos -- reforca que agrupar != truncar (truncar esconde, agrupar
+    explica, conforme pedido do team-lead)."""
+    root, _todo = _repo(tmp_path, TODO_OK)
+    fake = _check_muitos_importantes(n=7)
+    res = A.run_audit(str(root), checks=[fake])
+    assert "7 ocorrencia" in res.report_text or "7 ocorrência" in res.report_text
+    assert "padr" in res.report_text.lower()  # "padrao"/"padrão"
+
+
+def test_chk00_nao_existe_mais_no_registro_de_producao():
+    """Trava a remocao (achado do team-lead, 28/07): CHK-00 era so o
+    exemplo de AUDIT-ENG; com os checks reais (CHK-01..11) ja registrados,
+    ele so somava ruido a qualquer auditoria real."""
+    assert not any(c.id == "CHK-00" for c in A.CHECKS)
