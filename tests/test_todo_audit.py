@@ -328,6 +328,7 @@ def test_help_exit0():
     r = _run(["--help"], cwd=REPO_ROOT)
     assert r.returncode == 0, r.stderr
     assert "--profile" in r.stdout
+    assert "--todo" in r.stdout
 
 
 def test_flag_desconhecida_e_erro(tmp_path):
@@ -498,3 +499,145 @@ def test_modulo_importa_em_outras_versoes_de_python_instaladas():
         r = subprocess.run([exe, "-c", script], capture_output=True, text=True)
         assert r.returncode == 0, (exe, r.stdout, r.stderr)
         assert "OK X" in r.stdout, (exe, r.stdout, r.stderr)
+
+
+# ------------------------------ --todo PATH (AUDIT-PATH) -----------------------
+#
+# `--todo PATH` audita um TODO.md que NAO precisa estar no cwd corrente nem
+# no mesmo repositorio git -- necessario para AC-REAL (W8) rodar --audit
+# contra as fixtures dos consumidores A/B, que vivem FORA deste repositorio
+# e nunca podem ser copiadas para dentro dele.
+
+def _repo_em(root_dir, todo_text=TODO_OK, com_git=True):
+    """Cria um TODO.md em `root_dir`; se `com_git`, inicializa um repo git
+    isolado (HOOKISO-1) ali tambem. Devolve o Path do TODO.md."""
+    root_dir.mkdir(parents=True, exist_ok=True)
+    if com_git:
+        _git_init_isolado(root_dir)
+    todo = root_dir / "TODO.md"
+    todo.write_text(todo_text, encoding="utf-8")
+    if com_git:
+        _git(root_dir, "add", "TODO.md")
+        _git(root_dir, "commit", "-qm", "tabela")
+    return todo
+
+
+def test_todo_flag_audita_arquivo_fora_do_cwd_atual(tmp_path):
+    """O cwd de invocacao nao e sequer repositorio git, e mesmo assim o
+    alvo (outro repo) e auditado corretamente via --todo."""
+    invocador = tmp_path / "invocador"
+    invocador.mkdir()
+    alvo_root = tmp_path / "alvo"
+    todo_alvo = _repo_em(alvo_root, TODO_ID_COM_ESPACO)
+
+    r = _run(["--todo", str(todo_alvo)], cwd=invocador)
+    assert r.returncode == 2, (r.stdout, r.stderr)   # CHK-00 acha o ID com espaco
+    assert "CHK-00" in r.stdout
+    assert str(todo_alvo) in r.stdout
+
+
+def test_todo_flag_read_only_hash_identico(tmp_path):
+    invocador = tmp_path / "invocador"
+    invocador.mkdir()
+    alvo_root = tmp_path / "alvo"
+    todo_alvo = _repo_em(alvo_root, TODO_ID_COM_ESPACO)
+    antes = _md5(todo_alvo)
+    _run(["--todo", str(todo_alvo)], cwd=invocador)
+    depois = _md5(todo_alvo)
+    assert antes == depois
+
+
+def test_todo_flag_arquivo_solto_sem_git_ainda_funciona_com_aviso(tmp_path):
+    """Alvo SEM nenhum repositorio git acima dele: checks estruturais
+    (CHK-00, que nao depende de git) continuam rodando; o motor DECLARA a
+    ausencia de contexto git explicitamente (no silent caps) em vez de
+    deixar CHK-09/CHK-10 falharem contexto por contexto sem explicacao
+    sistemica."""
+    invocador = tmp_path / "invocador"
+    invocador.mkdir()
+    alvo_root = tmp_path / "solto"
+    todo_alvo = _repo_em(alvo_root, TODO_ID_COM_ESPACO, com_git=False)
+
+    r = _run(["--todo", str(todo_alvo)], cwd=invocador)
+    assert r.returncode == 2, (r.stdout, r.stderr)
+    assert "CHK-00" in r.stdout
+    assert "repositorio git" in r.stdout.lower()
+
+
+def test_todo_flag_basename_diferente_de_todo_md_e_erro(tmp_path):
+    """Restricao deliberada: --todo so aceita um arquivo chamado EXATAMENTE
+    'TODO.md' (a mesma convencao hardcoded em L.find_todo). Sem isso,
+    CHK-11 (que re-descobre 'root/TODO.md' via todo_health.run(root=...))
+    compararia contra um arquivo diferente do auditado, ou nenhum -- e o
+    relatorio passaria a impressao de ter verificado algo que nao
+    verificou."""
+    invocador = tmp_path / "invocador"
+    invocador.mkdir()
+    alvo_root = tmp_path / "alvo"
+    alvo_root.mkdir()
+    outro = alvo_root / "pendencias.md"
+    outro.write_text(TODO_OK, encoding="utf-8")
+
+    r = _run(["--todo", str(outro)], cwd=invocador)
+    assert r.returncode == 1, (r.stdout, r.stderr)
+    assert r.stderr.strip() != ""
+    assert "TODO.md" in r.stderr
+
+
+def test_todo_flag_arquivo_inexistente_e_erro_sem_traceback_cru(tmp_path):
+    invocador = tmp_path / "invocador"
+    invocador.mkdir()
+    inexistente = tmp_path / "nao-existe" / "TODO.md"
+
+    r = _run(["--todo", str(inexistente)], cwd=invocador)
+    assert r.returncode == 1, (r.stdout, r.stderr)
+    assert "Traceback" not in r.stderr
+    assert r.stderr.strip() != ""
+
+
+def test_todo_flag_relativo_e_resolvido_para_absoluto(tmp_path):
+    _repo_em(tmp_path / "alvo", TODO_OK)
+    r = _run(["--todo", os.path.join("alvo", "TODO.md")], cwd=tmp_path)
+    assert r.returncode == 0, (r.stdout, r.stderr)
+
+
+def test_sem_todo_flag_continua_exigindo_repo_git_no_cwd(tmp_path):
+    """Preserva o comportamento ATUAL: sem --todo, o cwd precisa ser repo
+    git -- --todo e estritamente aditivo, nunca muda o caminho default."""
+    r = _run([], cwd=tmp_path)
+    assert r.returncode == 1, (r.stdout, r.stderr)
+
+
+def test_todo_flag_output_protegido_contra_o_repo_do_alvo_nao_do_cwd(tmp_path):
+    """--output continua proibido de escrever dentro do repo do ALVO (nao
+    do cwd de invocacao, que pode ser um repo totalmente diferente)."""
+    invocador = tmp_path / "invocador"
+    invocador.mkdir()
+    _git_init_isolado(invocador)
+    alvo_root = tmp_path / "alvo"
+    todo_alvo = _repo_em(alvo_root, TODO_OK)
+
+    dentro_do_alvo = alvo_root / "relatorio.txt"
+    r = _run(["--todo", str(todo_alvo), "--output", str(dentro_do_alvo)],
+             cwd=invocador)
+    assert r.returncode == 1, (r.stdout, r.stderr)
+    assert not dentro_do_alvo.exists()
+
+    fora = tmp_path / "relatorio-fora.txt"
+    r2 = _run(["--todo", str(todo_alvo), "--output", str(fora)], cwd=invocador)
+    assert r2.returncode == 0, (r2.stdout, r2.stderr)
+    assert fora.exists()
+
+
+def test_todo_flag_com_contexto_git_correto_chk10_nao_reclama_de_repo(tmp_path):
+    """CHK-10 roda `todo_sync.py` com cwd=raiz resolvida do ALVO -- se a
+    resolucao estiver correta (git auto-descobre a partir de QUALQUER
+    subdir da arvore), CHK-10 nunca deve embutir 'Nao e um repositorio
+    git' quando o alvo de fato mora dentro de um repo git valido."""
+    invocador = tmp_path / "invocador"
+    invocador.mkdir()
+    alvo_root = tmp_path / "alvo"
+    todo_alvo = _repo_em(alvo_root, TODO_OK)
+
+    r = _run(["--todo", str(todo_alvo)], cwd=invocador)
+    assert "Nao e um repositorio git" not in r.stdout

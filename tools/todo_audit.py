@@ -40,6 +40,19 @@ Uso:
   python3 todo_audit.py --profile casa       # override pontual do perfil
   python3 todo_audit.py --output <arquivo>   # tambem grava o relatorio (fora do repo)
   python3 todo_audit.py --max-per-check 0    # sem limite de achados por check
+  python3 todo_audit.py --todo <caminho>     # audita um TODO.md fora do cwd/repo
+
+AUDIT-PATH: `--todo <caminho>` audita um arquivo chamado EXATAMENTE "TODO.md"
+(convencao fixa de `todo_lib.find_todo`) que nao precisa estar no cwd atual
+nem no mesmo repositorio git de quem invoca -- necessario para auditar as
+fixtures de aceitacao de terceiros, que nunca podem ser copiadas para dentro
+deste repositorio. Sem a flag, o comportamento e IDENTICO ao anterior
+(descoberta automatica a partir do cwd, que precisa ser repositorio git).
+Quando o alvo esta fora de qualquer repositorio git resolvivel, os checks
+que dependem de `git` (CHK-09, CHK-10) perdem contexto -- eles proprios
+declaram isso por achado ("desconhecido"/erro), e o motor ADICIONA um aviso
+sistemico unico (no silent caps) em vez de deixar N achados soltos sem
+explicacao do porque.
 
 Exit codes (D-6): 0 = execucao ok e zero achados; 1 = erro de execucao
 (excecao nao tratada, TODO.md ilegivel, nao e repositorio git); 2 = execucao
@@ -303,9 +316,18 @@ def _read_todo(todo_path):
 
 
 def run_audit(root, checks=None, profile_override=None,
-              max_per_check=DEFAULT_MAX_PER_CHECK, verbose=False):
+              max_per_check=DEFAULT_MAX_PER_CHECK, verbose=False,
+              todo_path=None):
     """Nucleo testavel, sem argparse/sys.exit. Levanta `AuditError` (erro de
-    execucao real); nunca escreve no TODO.md (--audit e sempre read-only)."""
+    execucao real); nunca escreve no TODO.md (--audit e sempre read-only).
+
+    `todo_path`, quando informado, SOBREPOE a descoberta automatica
+    (`L.find_todo(root)`) -- e o que a CLI usa para `--todo <caminho>`
+    (AUDIT-PATH). Quando informado, `root` DEVE ser o diretorio que contem
+    esse arquivo (a CLI garante isso; ver `main()`) -- e o mesmo diretorio
+    de onde `.tab_pendencias.ini` e lido (D-10) e de onde os checks
+    dependentes de `git` (CHK-09/CHK-10) partem para deixar o proprio git
+    auto-descobrir a arvore (funciona de qualquer subdiretorio dela)."""
     checks = CHECKS if checks is None else list(checks)
     cfg, cfg_error = load_config(root)
     profile, origin = active_profile(cfg, profile_override)
@@ -314,7 +336,7 @@ def run_audit(root, checks=None, profile_override=None,
     if cfg_error:
         notices.append(cfg_error)
 
-    todo_path = L.find_todo(root)
+    todo_path = todo_path or L.find_todo(root)
     if not todo_path:
         report = _render(root, None, profile, origin, [], notices, checks, [])
         return AuditResult(findings=[], notices=notices, report_text=report,
@@ -324,6 +346,20 @@ def run_audit(root, checks=None, profile_override=None,
     table = L.parse_table(text)
     ctx = Context(root=root, todo_path=todo_path, text=text, table=table,
                   profile=profile, config=cfg)
+
+    if not L.git_dir(root):
+        # AUDIT-PATH: alvo fora de qualquer repositorio git resolvivel.
+        # CHK-09/CHK-10 ainda rodam (nao derrubam o motor -- cada um degrada
+        # gracilmente por conta propria, "desconhecido"/erro do git), mas
+        # sem este aviso sistemico UNICO o leitor veria N achados soltos
+        # sem entender que a causa e a MESMA em todos: nao ha contexto git
+        # nenhum para verificar (no silent caps).
+        notices.append(
+            f"Alvo fora de qualquer repositorio git resolvivel (raiz "
+            f"assumida: {root}) -- checks que dependem de `git` (CHK-09, "
+            "CHK-10) nao terao contexto: eles proprios declararao "
+            "'desconhecido'/erro do git por achado, nunca um veredito "
+            "real (no silent caps).")
 
     findings = []
     checks_run = []   # [(check, [Finding,...])] -- so os que rodaram de fato
@@ -467,6 +503,14 @@ def _build_parser():
         help="Acrescenta traceback completo em stderr/relatorio quando um "
              "check ou a leitura do TODO.md falha (default: so tipo + "
              "mensagem da excecao).")
+    p.add_argument(
+        "--todo", metavar="CAMINHO", default=None,
+        help="Audita este arquivo em vez de descobrir automaticamente a "
+             "partir do cwd. Nao precisa estar no cwd atual nem no mesmo "
+             "repositorio git (AUDIT-PATH) -- mas precisa se chamar "
+             "exatamente 'TODO.md'. Sem esta flag, o cwd continua "
+             "precisando ser um repositorio git (comportamento anterior, "
+             "inalterado).")
     return p
 
 
@@ -485,10 +529,34 @@ def _output_forbidden(path, root):
 
 def main(argv):
     args = _build_parser().parse_args(argv)
-    root = L.repo_root()
-    if not root:
-        print("Nao e um repositorio git.")
-        return 1
+
+    if args.todo:
+        # AUDIT-PATH: `root` = diretorio que contem o arquivo apontado --
+        # NAO exige que o cwd de invocacao seja repositorio git (o alvo
+        # pode ser de outro repositorio inteiramente, ou nao ter git
+        # nenhum). Restricao deliberada: o basename tem que ser
+        # EXATAMENTE "TODO.md" (mesma convencao hardcoded de
+        # `L.find_todo`) -- sem isso, CHK-11 (que re-descobre
+        # "root/TODO.md" via `todo_health.run(root=...)`, um caminho de
+        # codigo INDEPENDENTE do usado aqui) compararia contra um arquivo
+        # diferente do auditado (ou nenhum), e o relatorio passaria a
+        # impressao de ter verificado algo que nao verificou.
+        todo_path = os.path.abspath(args.todo)
+        base = os.path.basename(todo_path)
+        if base != "TODO.md":
+            print(
+                f"--todo deve apontar para um arquivo chamado exatamente "
+                f"'TODO.md' (convencao fixa do produto, ver "
+                f"todo_lib.find_todo) -- recebido {base!r}.",
+                file=sys.stderr)
+            return 1
+        root = os.path.dirname(todo_path)
+    else:
+        todo_path = None
+        root = L.repo_root()
+        if not root:
+            print("Nao e um repositorio git.")
+            return 1
 
     if args.output and _output_forbidden(args.output, root):
         print(
@@ -500,7 +568,7 @@ def main(argv):
     try:
         result = run_audit(root, profile_override=args.profile,
                            max_per_check=args.max_per_check,
-                           verbose=args.verbose)
+                           verbose=args.verbose, todo_path=todo_path)
     except AuditError as exc:
         print(str(exc), file=sys.stderr)
         if args.verbose:
