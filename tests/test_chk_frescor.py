@@ -239,7 +239,7 @@ def test_chk09_branch_sem_crase_nao_extrai_nome_fica_desconhecido(tmp_path, tmp_
 
 def test_chk09_branch_de_outro_repositorio_git_nao_verifica_contra_remoto_errado(
         tmp_path, tmp_path_factory):
-    """'consumidor A.wiki.git, branch `master`' cita a branch de OUTRO
+    """'outro-projeto.wiki.git, branch `master`' cita a branch de OUTRO
     repositorio (a wiki), nao do repo que este --audit esta rodando --
     verificar 'master' contra o remoto do repo principal e comparar coisas
     diferentes. O check tem que recusar a extracao (fica 'desconhecido'),

@@ -46,32 +46,54 @@ CAMADA 2 -- caminho de arquivo (defesa SECUNDARIA, opt-in, cobre o vetor
     mais comum de acidente: alguem larga o arquivo com o nome original do
     projeto-fonte). Nenhum CAMINHO versionado pode conter, case-insensitive,
     um dos termos proibidos -- os nomes dos projetos-fonte reais das
-    fixtures. IMPORTANTE (o motivo desta camada ser opt-in por design, nao
+    fixtures.
+
+CAMADA 3 -- conteudo de arquivo (defesa TERCIARIA, opt-in, mesma fonte de
+    termos da CAMADA 2; item LEAK-2). Cobre o vetor que a CAMADA 2 NAO
+    cobre: o nome do projeto-fonte real citado dentro do TEXTO de um
+    arquivo versionado (comentario, docstring, mensagem de teste) escrito
+    por um agente/sessao que tratou o nome como informacao tecnica
+    inofensiva -- foi exatamente assim que o incidente LEAK-2 aconteceu
+    (5 ocorrencias em comentarios/docstrings de teste, caminho de arquivo
+    limpo, conteudo vazando). Nenhuma LINHA de nenhum arquivo versionado
+    pode conter, case-insensitive, um dos termos proibidos. A designacao
+    correta em texto narrativo (TODO.md, TESTES.md, comentarios) e neutra
+    ("consumidor A"/"consumidor B"), nunca o nome real -- por isso esta
+    camada nao gera falso positivo com a documentacao legitima do proprio
+    guard: a documentacao correta simplesmente nao usa o termo proibido.
+
+IMPORTANTE (o motivo das CAMADAS 2 e 3 serem opt-in por design, nao
     hardcoded): uma lista literal desses nomes DENTRO deste guard seria o
     proprio guard vazando o que deveria proteger -- por isso os termos NUNCA
     sao literais neste arquivo. Eles vem de FORA, por ordem de precedencia:
-        1. variavel de ambiente TAB_PENDENCIAS_GUARD_FORBIDDEN_PATH_TERMS
+        1. variavel de ambiente TAB_PENDENCIAS_GUARD_FORBIDDEN_TERMS
            (lista separada por virgula);
         2. arquivo local nao versionado ".guard_forbidden_terms" na raiz do
            repo (um termo por linha, "#" inicia comentario, linhas vazias
            ignoradas) -- ja listado no .gitignore deste repo.
     Se NENHUMA das duas fontes existir (o caso normal em CI/clone publico,
-    que nunca tem os nomes reais configurados), a CAMADA 2 fica DESLIGADA e
-    o guard DECLARA isso explicitamente na saida (nunca em silencio) -- a
-    protecao real contra vazamento estrutural continua sendo a CAMADA 1,
-    que independe de qualquer configuracao.
-    Esta camada e checada no CAMINHO, nunca no CONTEUDO: o conteudo (docs
-    narrativos como TODO.md, TESTES.md) MENCIONA os projetos-fonte por
-    designacao neutra ("consumidor A"/"consumidor B") -- e a documentacao
-    correta do porque este guard existe, nao vazamento. Um grep de conteudo
-    daria falso positivo inclusive dentro deste projeto (comentario citando
-    um nome de arquivo de exemplo com pipe escapado, por exemplo -- nao e
-    fixture, e narrativa). Checar o CAMINHO em vez do conteudo evita essa
-    classe de falso positivo por construcao.
+    que nunca tem os nomes reais configurados), as CAMADAS 2 e 3 ficam
+    DESLIGADAS e o guard DECLARA isso explicitamente na saida (nunca em
+    silencio, e nunca deixando a linha "OK" sozinha sugerir cobertura que
+    nao existe) -- a protecao real contra vazamento estrutural continua
+    sendo a CAMADA 1, que independe de qualquer configuracao.
+    LIMITACAO HONESTA: como os termos so existem na maquina do autor (nunca
+    no CI publico, que nao pode conhece-los sem os proprios vazar), as
+    CAMADAS 2 e 3 SO protegem localmente, antes do push -- que e justamente
+    onde o vazamento e introduzido. Isto e uma escolha correta (a alternativa
+    seria commitar os termos, o proprio vazamento que se quer evitar), nao
+    uma falha, mas precisa estar escrito para ninguem supor cobertura no CI
+    publico que nao ha.
+    Auto-referencia: quando a CAMADA 3 acusa um achado, a saida do guard
+    reporta apenas arquivo:linha e uma versao MASCARADA do termo (ex.:
+    "g*****x"), nunca o termo em claro -- senao o proprio guard, ao relatar
+    o problema, seria o vazamento (e pior, em log de CI publico se alguem
+    rodar isto la com os termos configurados via env var por engano).
 
 Regra "no silent caps": se uma camada disparar, o guard aponta exatamente
-qual (arquivo:linha ou caminho) e por que; se a CAMADA 2 estiver desligada
-por falta de configuracao, o guard tambem declara isso, nunca falha mudo.
+qual (arquivo:linha ou caminho, termo mascarado) e por que; se as CAMADAS
+2/3 estiverem desligadas por falta de configuracao, o guard tambem declara
+isso de forma inequivoca (nunca falha mudo, nunca deixa "OK" ambiguo).
 
 Uso:
     python3 tools/ci/guard_no_real_fixtures.py
@@ -92,7 +114,7 @@ from pathlib import Path
 # ainda 1 ordem de grandeza abaixo das fixtures reais.
 LIMITE_LINHAS_DADOS = 100
 
-ENV_TERMOS_PROIBIDOS = "TAB_PENDENCIAS_GUARD_FORBIDDEN_PATH_TERMS"
+ENV_TERMOS_PROIBIDOS = "TAB_PENDENCIAS_GUARD_FORBIDDEN_TERMS"
 ARQUIVO_TERMOS_LOCAL = ".guard_forbidden_terms"
 
 
@@ -121,8 +143,19 @@ def _git_ls_files(root: Path) -> list[str]:
     return [line for line in result.stdout.splitlines() if line]
 
 
-def _load_forbidden_path_terms(root: Path) -> tuple[list[str], list[str]]:
-    """Carrega os termos proibidos de CAMADA 2 de fora do codigo-fonte.
+def _mask_term(termo: str) -> str:
+    """Mascara um termo proibido para relato seguro (nunca reproduz o termo
+    em claro na saida do guard -- ver "Auto-referencia" na docstring do
+    modulo). Mantem 1o/ultimo caractere como pista de comprimento/formato
+    sem reconstituir o termo; termos com 2 caracteres ou menos sao
+    mascarados por completo."""
+    if len(termo) <= 2:
+        return "*" * len(termo)
+    return termo[0] + "*" * (len(termo) - 2) + termo[-1]
+
+
+def _load_forbidden_terms(root: Path) -> tuple[list[str], list[str]]:
+    """Carrega os termos proibidos das CAMADAS 2/3 de fora do codigo-fonte.
 
     Devolve (termos, fontes_usadas) -- fontes_usadas e uma lista de strings
     descrevendo de onde cada termo veio, para o guard declarar explicitamente
@@ -212,10 +245,46 @@ def check_forbidden_path_names(tracked: list[str], termos_proibidos: list[str]) 
         for termo in termos_proibidos:
             if termo.lower() in low:
                 violations.append(
-                    f"{rel_path}: caminho contem '{termo}' -- termo proibido "
-                    f"configurado (nome de projeto-fonte de fixture real); "
-                    f"arquivo nao pode ser versionado com esse nome."
+                    f"{rel_path}: caminho contem termo proibido "
+                    f"(mascarado) '{_mask_term(termo)}' -- nome de "
+                    f"projeto-fonte de fixture real configurado; arquivo "
+                    f"nao pode ser versionado com esse nome no caminho."
                 )
+    return violations
+
+
+def check_forbidden_content(
+    root: Path, tracked: list[str], termos_proibidos: list[str]
+) -> list[str]:
+    """CAMADA 3 (item LEAK-2): acusa termo proibido dentro do TEXTO de
+    qualquer arquivo versionado -- comentario, docstring, mensagem de
+    teste. Nunca reproduz o termo em claro na mensagem de achado (so
+    arquivo:linha + termo mascarado) para o proprio guard nao virar o
+    vazamento que relata. `.guard_forbidden_terms` e sempre excluido do
+    escopo (defesa em profundidade -- ele e gitignored e nunca deveria
+    aparecer em `tracked`, mas exclui explicitamente mesmo assim)."""
+    violations: list[str] = []
+    termos_low = [t.lower() for t in termos_proibidos]
+    for rel_path in tracked:
+        if rel_path == ARQUIVO_TERMOS_LOCAL:
+            continue
+        path = root / rel_path
+        try:
+            text = path.read_text(encoding="utf-8", errors="strict")
+        except (UnicodeDecodeError, OSError):
+            continue  # binario ou ilegivel como texto: fora do escopo
+        lines = text.split("\n")
+        for i, line in enumerate(lines, start=1):
+            line_low = line.lower()
+            for termo, termo_low in zip(termos_proibidos, termos_low):
+                if termo_low in line_low:
+                    violations.append(
+                        f"{rel_path}:{i}: linha contem termo proibido "
+                        f"(mascarado) '{_mask_term(termo)}' -- nome de "
+                        f"projeto-fonte de fixture real configurado; use "
+                        f"designacao neutra ('consumidor A'/'consumidor B') "
+                        f"em texto narrativo."
+                    )
     return violations
 
 
@@ -231,19 +300,22 @@ def main(argv: list[str]) -> int:
         print(f"ERRO: nao foi possivel rodar 'git ls-files' em {root}: {exc}", file=sys.stderr)
         return 1
 
-    termos_proibidos, fontes = _load_forbidden_path_terms(root)
+    termos_proibidos, fontes = _load_forbidden_terms(root)
 
     violations = check_table_sizes(root, tracked)
     if termos_proibidos:
         violations += check_forbidden_path_names(tracked, termos_proibidos)
-        camada2_status = "ATIVA -- fonte(s): " + "; ".join(fontes)
+        violations += check_forbidden_content(root, tracked, termos_proibidos)
+        status_23 = "ATIVA -- fonte(s): " + "; ".join(fontes)
     else:
-        camada2_status = (
+        status_23 = (
             "DESLIGADA -- nenhum termo configurado (defina "
             f"{ENV_TERMOS_PROIBIDOS} ou crie {ARQUIVO_TERMOS_LOCAL} na raiz "
             "do repo, nunca versionado). A CAMADA 1 (estrutural) continua "
             "ativa independentemente disto."
         )
+    camada2_status = status_23
+    camada3_status = status_23
 
     if violations:
         print(f"guard_no_real_fixtures: {len(violations)} achado(s):\n")
@@ -257,10 +329,26 @@ def main(argv: list[str]) -> int:
             "o motivo no commit; nao adicione allowlist por nome de arquivo."
         )
         print(f"\nCAMADA 2 (caminho): {camada2_status}")
+        print(f"CAMADA 3 (conteudo): {camada3_status}")
         return 1
 
-    print(f"guard_no_real_fixtures: OK -- {len(tracked)} arquivo(s) rastreado(s) verificado(s).")
+    print(
+        f"guard_no_real_fixtures: OK -- {len(tracked)} arquivo(s) "
+        f"rastreado(s) verificado(s), 0 achado(s)."
+    )
+    print("CAMADA 1 (tamanho de tabela): ativa (sempre, independe de configuracao).")
     print(f"CAMADA 2 (caminho): {camada2_status}")
+    print(f"CAMADA 3 (conteudo): {camada3_status}")
+    if not termos_proibidos:
+        print(
+            "AVISO: CAMADAS 2 e 3 estao DESLIGADAS nesta execucao -- o 'OK' "
+            "acima cobre SOMENTE a protecao estrutural (CAMADA 1). Isto e "
+            "esperado em CI publico/clone fresco (os termos nunca existem "
+            "la, de proposito). Na maquina do autor, configure "
+            f"{ENV_TERMOS_PROIBIDOS} ou {ARQUIVO_TERMOS_LOCAL} ANTES de "
+            "commitar para ativar a protecao completa contra vazamento de "
+            "nome de projeto-fonte real, em caminho e em conteudo."
+        )
     return 0
 
 

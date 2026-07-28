@@ -105,7 +105,7 @@ _CFG_SECTION = "audit.chk09"
 # vem LOGO em seguida (no maximo 1 palavra "adjetivo" no meio, ex.: "branch
 # descartavel `nome`") -- a mesma convencao de code-span que o proprio
 # TODO.md ja usa para identificadores/caminhos/branches. Isto foi calibrado
-# em DUAS rodadas contra o corpus real de `consumidor A`
+# em DUAS rodadas contra o corpus real do consumidor A
 # (TAB_PENDENCIAS_FIXTURE_A), cada uma expondo uma classe de falso
 # positivo diferente:
 #   1) SEM exigir crase nenhuma: "branch novo"/"branch em runtime"/"branch
@@ -386,7 +386,7 @@ def _extract_branch_name(desc):
     """Primeiro nome de branch valido apos a palavra 'branch' (ver o
     comentario de `_BRANCH_TOKEN_RE` acima sobre exigir crase). Recusa
     tambem candidatos cujo contexto IMEDIATAMENTE anterior cite '.git'
-    (ex.: "consumidor A.wiki.git, branch `master`") -- a branch citada pertence
+    (ex.: "outro-projeto.wiki.git, branch `master`") -- a branch citada pertence
     a OUTRO repositorio (o da wiki), nao ao que este --audit esta rodando;
     verificar contra o remoto ERRADO e uma segunda classe de falso
     positivo medida no mesmo corpus real."""
