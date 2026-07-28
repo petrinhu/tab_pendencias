@@ -133,14 +133,52 @@ def _is_header(cells):
     return ("id" in low) and any(_STATUS_WORD.search(c) for c in low)
 
 
+def _starts_foreign_table(lines, n, row_ncols):
+    """SPRAWL-1/D-12: a linha `n` (que ja sabemos NAO ser separador nem
+    cabecalho ID+Status) comeca uma tabela de OUTRO schema quando a linha
+    SEGUINTE e um separador GFM valido (":-"/"-"/" ") com o MESMO numero de
+    celulas dela -- esse e o padrao estrutural cabecalho+separador de
+    qualquer tabela Markdown, e so ele (nunca so a contagem de colunas
+    bater, o que aconteceria toda vez que uma linha de DADO da propria
+    canonica for lida) distingue "comeco de tabela alheia" de "mais uma
+    linha de dado da tabela em curso"."""
+    if n + 1 >= len(lines):
+        return False
+    nxt = lines[n + 1].lstrip(BOM).strip()
+    if not nxt.startswith("|"):
+        return False
+    sep_cells = _cells(nxt)
+    return _is_separator(sep_cells) and len(sep_cells) == row_ncols
+
+
 def parse_table(text):
     """Retorna {'id_idx','status_idx','ncols','items':[{id,status,line_no}],
-    'lines':[..],'duplicate_ids':{id:[{line_no,status},...]}} ou None se nao
-    houver tabela com colunas ID e Status.
+    'lines':[..],'duplicate_ids':{id:[{line_no,status},...]},
+    'headings_crossed':[{line_no,text},...]} ou None se nao houver tabela
+    com colunas ID e Status.
 
     'lines' = text.split("\\n") (round-trip byte-exato com "\\n".join). So a 1a
-    tabela e considerada (para no 2o cabecalho). Linhas cujo nº de celulas != nº
-    de colunas do cabecalho sao IGNORADAS (defende escrita no lugar errado).
+    tabela e considerada. Linhas cujo nº de celulas != nº de colunas do
+    cabecalho sao IGNORADAS (defende escrita no lugar errado).
+
+    SPRAWL-1, revisado por D-12 (decisoes_lider.md, 2026-07-28): a D-6
+    original ("encerra no PROXIMO heading markdown, qualquer nivel")
+    destruia 201 dos 215 itens de um consumidor real que organiza a MESMA
+    tabela canonica sob ~20 subtitulos de organizacao visual -- recriando o
+    incidente fundador do projeto por outro caminho. A regra correta: um
+    heading NUNCA encerra a tabela por si so (por isso so e registrado em
+    'headings_crossed', para o futuro --audit/CHK-03 relatar o span mesmo
+    quando o parser decide atravessar); quem encerra e a ESTRUTURA que
+    aparece em qualquer ponto da varredura: (i) uma 2a linha de cabecalho
+    ID+Status (comportamento pre-existente, mantido), ou (ii) o comeco de
+    uma tabela de OUTRO schema -- via `_starts_foreign_table` -- mesmo
+    quando o nº de colunas dela COINCIDE por acaso com o da canonica (o
+    SPRAWL-1 original de verdade: uma tabela alheia contada como itens
+    fantasmas so porque o nº de celulas batia). Uma tabela alheia com nº de
+    colunas DIFERENTE nunca precisou de deteccao especial: suas linhas ja
+    sao ignoradas pela guarda de ncols de sempre, sem encerrar nada -- e
+    isso e o que permite atravessar secoes inteiras de organizacao visual
+    (consumidor B) sem reabrir a porta do bug.
 
     BUG-1': ID duplicado NAO trava o nucleo (ADR-0001 b.5, mesma politica do
     'malformed' -- descarte/ambiguidade nunca e fatal aqui). 'items' preserva
@@ -153,8 +191,12 @@ def parse_table(text):
     lines = text.split("\n")
     id_idx = status_idx = ncols = None
     items = []
+    headings_crossed = []
     for n, line in enumerate(lines):
         s = line.lstrip(BOM).strip()       # tolera BOM (so na 1a linha) e \r
+        if id_idx is not None and s.startswith("#"):
+            headings_crossed.append({"line_no": n, "text": s})
+            continue
         if not s.startswith("|"):
             continue
         cells = _cells(s)
@@ -168,8 +210,10 @@ def parse_table(text):
             continue
         if _is_separator(cells):
             continue
-        if _is_header(cells):              # 2a tabela: encerra a canonica
+        if _is_header(cells):              # 2a tabela ID+Status: encerra
             break
+        if len(cells) == ncols and _starts_foreign_table(lines, n, len(cells)):
+            break                           # D-12: tabela alheia, ncols colide
         if len(cells) != ncols:            # linha malformada: ignora (seguro)
             continue
         iid = cells[id_idx]
@@ -185,6 +229,7 @@ def parse_table(text):
     duplicate_ids = {iid: occs for iid, occs in occurrences_by_id.items()
                       if len(occs) > 1}
     return {"id_idx": id_idx, "status_idx": status_idx, "ncols": ncols,
+            "headings_crossed": headings_crossed,
             "items": items, "lines": lines, "duplicate_ids": duplicate_ids}
 
 

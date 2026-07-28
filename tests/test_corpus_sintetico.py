@@ -32,10 +32,12 @@ autor. Os fixtures moram em `tests/corpus/*.md`, um arquivo por conteudo:
   defeito_bom.md                        -- BOM UTF-8 na 1a linha.
   defeito_sprawl.md                     -- tabela canonica seguida de heading
                                             markdown + uma 2a tabela de 9
-                                            celulas sem colunas ID/Status: o
-                                            nucleo hoje ENGOLE as linhas dessa
-                                            2a tabela como itens fantasmas
-                                            (revela SPRAWL-1, xfail).
+                                            celulas sem colunas ID/Status:
+                                            SPRAWL-1 consertado (D-12) -- o
+                                            nucleo agora encerra a canonica ao
+                                            detectar o comeco da tabela alheia,
+                                            mesmo com nº de colunas coincidindo
+                                            por acaso.
 
 Os testes que revelam bug real do nucleo NAO consertam `tools/` -- ficam
 `xfail` citando o item do TODO.md que vai consertar (regra da fatia CORP-0).
@@ -199,36 +201,20 @@ def test_bom_tolerado_na_primeira_linha():
     assert "\n".join(tbl["lines"]) == text     # BOM preservado no round-trip
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "SPRAWL-1 (TODO.md): parse_table (todo_lib.py:130-146) so encerra a "
-        "tabela canonica no 2o cabecalho ID+Status; uma tabela SEM colunas "
-        "ID/Status, mesmo depois de um heading markdown, e engolida como "
-        "itens fantasmas porque so o numero de celulas e checado. Este teste "
-        "documenta o comportamento CORRETO (parar no 1o heading markdown, D-6 "
-        "+ ADR-1 secao b.4) e falha hoje de proposito -- vira xpass quando "
-        "SPRAWL-1 for consertado."
-    ),
-)
-def test_sprawl_nao_deveria_engolir_tabela_de_outra_secao():
+def test_sprawl_nao_engole_mais_a_tabela_de_outra_secao():
+    """SPRAWL-1 consertado, sob a regra revisada D-12 (decisoes_lider.md):
+    a tabela canonica encerra ao encontrar o comeco de uma tabela de OUTRO
+    schema (aqui, "Metric/Baseline/Target/..." depois do heading "##
+    Appendix"), mesmo com o nº de colunas coincidindo por acaso com o da
+    canonica -- esse e o caso perigoso de verdade (linhas contadas como
+    itens fantasmas se nao fosse detectado). Promovido de xfail(strict) para
+    teste normal: XPASS confirmado e investigado (nao e falso sinal -- a
+    contagem 116/215 das fixtures reais do CONTR-1 nao mudou, e o heading
+    por si so NUNCA encerra -- so a estrutura de tabela alheia que segue)."""
     text = _read("defeito_sprawl.md")
     tbl = L.parse_table(text)
     ids = [it["id"] for it in tbl["items"]]
     assert ids == ["#01", "#02", "#03"]
-
-
-def test_sprawl_hoje_engole_itens_fantasmas_da_2a_tabela():
-    """Espelho NAO-xfail do teste acima: documenta o comportamento ATUAL (o
-    bug em si), para o teste de regressao existir mesmo antes do conserto."""
-    text = _read("defeito_sprawl.md")
-    tbl = L.parse_table(text)
-    ids = [it["id"] for it in tbl["items"]]
-    assert ids[:3] == ["#01", "#02", "#03"]
-    assert len(ids) > 3, (
-        "se este assert falhar, SPRAWL-1 ja foi consertado: promova o teste "
-        "xfail acima removendo o marcador e apague este espelho.")
-    assert "Throughput" in ids or "Metric" in ids
 
 
 @pytest.mark.xfail(
