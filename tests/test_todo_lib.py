@@ -35,6 +35,38 @@ def test_parse_table_sem_tabela():
     assert L.parse_table("# nada\n texto") is None
 
 
+TODO_MALFORMED = (
+    "| ID | Onda | Grupo | Descrição | Prioridade | Pré-requisito | "
+    "Dificuldade | Status | Estado Auditado |\n"
+    "| :- | :- | :- | :- | :- | :- | :- | :- | :- |\n"
+    "| V-01 | W1 | Core | Fund | Alta | — | Média | ✅ Concluído | ✓ |\n"
+    "| V-02 | W1 | Core | Truncado | Alta\n"
+    "| V-03 | W2 | Auth | Login | Alta | — | Média | ⏳ Pendente | — |\n"
+)
+
+
+def test_parse_table_expoe_malformed_para_linha_com_ncols_errado():
+    """ADR-0001 (b).5: chave ADITIVA -- 'items'/'ncols'/etc. continuam
+    exatamente como hoje (V-02 nao aparece em 'items', descartada pela
+    guarda de ncols de sempre), mas a linha descartada agora deixa rastro
+    em 'malformed' em vez de sumir em silencio."""
+    t = L.parse_table(TODO_MALFORMED)
+    ids = [it["id"] for it in t["items"]]
+    assert ids == ["V-01", "V-03"]          # comportamento pre-existente mantido
+    assert "malformed" in t
+    assert len(t["malformed"]) == 1
+    m = t["malformed"][0]
+    assert m["line_no"] == 3                # 0-based, "V-02 | ... | Alta"
+    assert m["expected_ncols"] == 9
+    assert m["got_ncols"] == 5
+    assert "V-02" in m["raw"]
+
+
+def test_parse_table_malformed_vazio_quando_tabela_bem_formada():
+    t = L.parse_table(TODO_9)
+    assert t["malformed"] == []
+
+
 def test_set_status_cell_preserva_resto_e_troca_so_status():
     t = L.parse_table(TODO_9)
     v12 = next(it for it in t["items"] if it["id"] == "V-12")

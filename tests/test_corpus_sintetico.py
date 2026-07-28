@@ -217,17 +217,12 @@ def test_sprawl_nao_engole_mais_a_tabela_de_outra_secao():
     assert ids == ["#01", "#02", "#03"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "AUDIT-ENG/ADR-1 secao b.5: o contrato do parser preve uma chave "
-        "ADITIVA 'malformed' (lista de {line_no, raw, expected_ncols, "
-        "got_ncols}) para toda linha descartada por celula a mais/a menos -- "
-        "ainda nao implementada (todo_audit.py nao existe neste repo). Este "
-        "teste fica xfail ate a chave nascer."
-    ),
-)
-def test_parse_table_ainda_nao_expoe_malformed():
+def test_parse_table_agora_expoe_malformed():
+    """AUDIT-ENG/CHK-CORE, ADR-0001 (b).5: a chave ADITIVA 'malformed'
+    (lista de {line_no, raw, expected_ncols, got_ncols}) nasceu em
+    todo_lib.py -- toda linha descartada por celula a mais/a menos passa a
+    deixar rastro. Promovido de xfail(strict) para teste normal: XPASS
+    confirmado e investigado, nao falso sinal."""
     text = _read("defeito_pipe_cru_nao_escapado.md") + _read(
         "defeito_fragmento_truncado.md")
     tbl = L.parse_table(text)

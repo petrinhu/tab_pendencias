@@ -154,12 +154,17 @@ def _starts_foreign_table(lines, n, row_ncols):
 def parse_table(text):
     """Retorna {'id_idx','status_idx','ncols','items':[{id,status,line_no}],
     'lines':[..],'duplicate_ids':{id:[{line_no,status},...]},
-    'headings_crossed':[{line_no,text},...]} ou None se nao houver tabela
-    com colunas ID e Status.
+    'headings_crossed':[{line_no,text},...],
+    'malformed':[{line_no,raw,expected_ncols,got_ncols},...]} ou None se nao
+    houver tabela com colunas ID e Status.
 
     'lines' = text.split("\\n") (round-trip byte-exato com "\\n".join). So a 1a
     tabela e considerada. Linhas cujo nº de celulas != nº de colunas do
-    cabecalho sao IGNORADAS (defende escrita no lugar errado).
+    cabecalho sao IGNORADAS -- defende escrita no lugar errado, mas deixam
+    rastro ADITIVO em 'malformed' (ADR-0001 b.5): nenhum consumidor que so
+    le id_idx/status_idx/ncols/items/lines muda de comportamento; e
+    --audit/CHK-02 que consome 'malformed' para diagnosticar a causa
+    provavel (pipe cru? celula faltando? fragmento truncado?).
 
     SPRAWL-1, revisado por D-12 (decisoes_lider.md, 2026-07-28): a D-6
     original ("encerra no PROXIMO heading markdown, qualquer nivel")
@@ -192,6 +197,7 @@ def parse_table(text):
     id_idx = status_idx = ncols = None
     items = []
     headings_crossed = []
+    malformed = []
     for n, line in enumerate(lines):
         s = line.lstrip(BOM).strip()       # tolera BOM (so na 1a linha) e \r
         if id_idx is not None and s.startswith("#"):
@@ -214,7 +220,13 @@ def parse_table(text):
             break
         if len(cells) == ncols and _starts_foreign_table(lines, n, len(cells)):
             break                           # D-12: tabela alheia, ncols colide
-        if len(cells) != ncols:            # linha malformada: ignora (seguro)
+        if len(cells) != ncols:            # linha malformada: ignora (seguro),
+            # mas ADR-0001 (b).5 exige rastro -- chave ADITIVA 'malformed'
+            # (nenhum consumidor que so le id_idx/status_idx/ncols/items/
+            # lines muda de comportamento; --audit/CHK-02 e quem consome
+            # isto para diagnosticar a causa provavel).
+            malformed.append({"line_no": n, "raw": line,
+                              "expected_ncols": ncols, "got_ncols": len(cells)})
             continue
         iid = cells[id_idx]
         if not iid or iid in ("-", "—"):
@@ -229,7 +241,7 @@ def parse_table(text):
     duplicate_ids = {iid: occs for iid, occs in occurrences_by_id.items()
                       if len(occs) > 1}
     return {"id_idx": id_idx, "status_idx": status_idx, "ncols": ncols,
-            "headings_crossed": headings_crossed,
+            "headings_crossed": headings_crossed, "malformed": malformed,
             "items": items, "lines": lines, "duplicate_ids": duplicate_ids}
 
 

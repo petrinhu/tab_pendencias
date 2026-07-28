@@ -328,22 +328,17 @@ def test_todo_parser_bug_deveria_ser_visivel_mas_nao_e_hoje():
     assert "TODO-PARSER-BUG" in ids
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "ADR-0001 (b).5: parse_table ainda NAO tem a chave aditiva "
-        "'malformed' (fatia futura, fora do escopo de CONTR-1) -- hoje o "
-        "fragmento truncado/duplicado do item ATOM-3 (consumidor B) e "
-        "descartado pela guarda de ncols SEM deixar "
-        "rastro nenhum no dict devolvido por parse_table. Quando a chave "
-        "'malformed' existir (SPRAWL-1/CHK-02), este teste vira XPASS/erro: "
-        "sinal para atualizar/remover."
-    ),
-)
-def test_fragmento_truncado_de_atom3_ainda_sem_rastro_no_parser():
+def test_fragmento_truncado_de_atom3_agora_com_rastro_no_parser():
+    """CHK-CORE/ADR-0001 (b).5: a chave 'malformed' nasceu em todo_lib.py --
+    o fragmento truncado/duplicado adjacente a ATOM-3 (consumidor B) deixa
+    de ser invisivel: aparece em 'malformed' com o numero da linha, mesmo
+    continuando fora de 'items' (a guarda de ncols do nucleo nao mudou, so
+    deixou de ser silenciosa). Promovido de xfail(strict) para teste normal
+    -- XPASS investigado, nao falso sinal."""
     text = _read_fixture(FIXTURE_ENV_B)
     tbl = L.parse_table(text)
     assert "malformed" in tbl
+    assert len(tbl["malformed"]) >= 1
 
 
 def test_atom3_resolve_hoje_para_a_linha_completa_apesar_do_fragmento_adjacente():
