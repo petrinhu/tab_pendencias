@@ -14,11 +14,9 @@ Skill do Claude Code que gerencia a tabela de pendências/planejamento de projet
 padrão `TODO.md` tabular: cabeçalho fixo, ordem de execução (dependência + valor),
 símbolos de status visuais, auditoria opcional.
 
-> **Sobre esta seção:** o que está aqui é o que já é comportamento fechado e
-> verificado no código. O comando `--audit`/`--fix` (auditoria estrutural da própria
-> tabela e correção mecânica de defeitos) está em implementação; a documentação
-> detalhada dele entra quando as fatias que o constroem fecharem. Não documentamos
-> aqui nada que ainda não foi verificado no código.
+> **Sobre esta seção:** o que está aqui é comportamento fechado e verificado
+> executando o código -- nunca descrito por antecipação. Se um comando ainda
+> não existir, isso é dito explicitamente, nunca omitido.
 
 ### Duas camadas: núcleo genérico e convenções da casa
 
@@ -50,7 +48,7 @@ Manual via tool `Skill`:
 Skill: tab_pendencias
 ```
 
-Ou comando slash: `/tab_pendencias [--create | --reorder | --show | --main | --add_tests_audit]`
+Ou comando slash: `/tab_pendencias [--create | --reorder | --show | --main | --add_tests_audit | --audit]`
 
 ### Matriz de instalação e degradação
 
@@ -122,26 +120,120 @@ há valor a preencher.
 | `--show` | Exibe tabela completa (incluindo `✅ Concluído`) |
 | `--main` | Exibe só pendentes (filtra fora `✅`) |
 | `--add_tests_audit` | Acrescenta itens de teste/auditoria aplicáveis ao stack, sem perguntar |
+| `--audit` | Audita a integridade estrutural do próprio `TODO.md` (read-only); ver seção dedicada abaixo |
 
 Sem argumento, usa linguagem natural: "mostrar pendências" para `--main`, "tabela
 completa" para `--show`, "criar tabela" para `--create`, "reordenar"/"minimizar
-retrabalho" para `--reorder`.
+retrabalho" para `--reorder`, "auditar a tabela" para `--audit`.
 
-### `--audit` e `--fix` (em implementação)
+### `--audit`
 
-Decisões já fechadas para estes dois comandos (ver ADR-0001 linkado acima):
+Motor de auditoria estrutural do próprio `TODO.md` (`tools/todo_audit.py`, camada
+núcleo genérico, decisão de arquitetura em
+[`docs/adr/0001-fronteira-nucleo-generico-e-convencoes-da-casa.md`](docs/adr/0001-fronteira-nucleo-generico-e-convencoes-da-casa.md)):
+roda offline, sem LLM/rede e sem orquestrar nenhum agent. Chame via `/tab_pendencias
+--audit` ou diretamente:
 
-- `--audit` é **sempre read-only**: nunca escreve no `TODO.md`, nunca muda estado de
-  git.
-- `--fix` aplica **só** correção mecânica e byte-preserving (ex.: escapar `|` cru,
-  remover fragmento duplicado, consolidar tabela fragmentada preservando
-  ID/Status/Estado Auditado). Nunca muda `Status`, nunca reordena, nunca toca
-  branch/commit.
-- **Exit codes fixos**: `0` = execução ok, zero achados; `1` = erro de execução;
-  `2` = execução ok, com pelo menos um achado (de qualquer severidade).
+```bash
+python3 tools/todo_audit.py [--profile core|casa] [--todo <caminho>] \
+  [--max-per-check N] [--output <arquivo>] [-v]
+```
 
-O restante do comportamento (lista de checks, formato do relatório, opções de CLI)
-ainda está sendo implementado e será documentado aqui quando fechar.
+- **Sempre read-only.** Nenhum caminho de código abre o `TODO.md` em modo de
+  escrita, nem muta estado de git. A única escrita possível é a de `--output`
+  (relatório opcional em arquivo à parte), e ela é bloqueada com erro se o
+  caminho resolver para dentro do repositório auditado.
+- **`--todo <caminho>`**: audita um arquivo fora do repositório corrente (não
+  precisa estar no diretório atual nem no mesmo repositório git de quem invoca).
+  O arquivo precisa se chamar exatamente `TODO.md`; qualquer outro nome sai com
+  erro explicando a restrição.
+- **`--profile core|casa`** e o arquivo `.tab_pendencias.ini` na raiz do repo
+  auditado (seção `[profile]`, chave `name = casa`; formato INI lido com
+  `configparser` da stdlib, escolhido para não exigir Python 3.11+). O perfil
+  `core` é o default. **A camada casa é aditiva, nunca substitutiva**: sob
+  `casa` rodam os 11 checks do núcleo **mais** os 3 da casa (14 no total);
+  quem não ativa `casa` não perde nenhum check do núcleo, só não ganha os 3
+  extras.
+- **`--max-per-check N`** (default 5; `N<=0` = sem limite): amostra no máximo N
+  achados por check no relatório. Achados **CRÍTICO nunca são truncados**; o
+  corte incide só sobre severidade menor, e o que ficou de fora é sempre
+  contado e declarado.
+- **`--output <arquivo>`**: também grava o relatório nesse arquivo. Nunca pode
+  apontar para dentro do repositório auditado.
+- **Exit codes**: `0` = execução ok e zero achados; `1` = erro de execução (não
+  é repositório git quando exigido, `TODO.md` ilegível, flag inválida); `2` =
+  execução ok e há 1+ achado, de qualquer severidade, inclusive só cosmético.
+
+Catálogo de checks (11 do núcleo + 3 da camada casa, opt-in):
+
+| Check | Título | Severidade (default) | Perfil |
+|---|---|---|---|
+| `CHK-01` | ID duplicado | Crítico | core |
+| `CHK-02` | nº de células ≠ cabeçalho (diagnóstico) | Crítico | core |
+| `CHK-03` | Tabela fragmentada + span da canônica | Crítico | core |
+| `CHK-04` | ncols divergente entre tabelas ID+Status | Crítico | core |
+| `CHK-05` | Pré-requisito citando ID inexistente | Importante | core |
+| `CHK-06` | Ciclo de dependência | Crítico | core |
+| `CHK-07` | Onda inconsistente com a dependência | Importante | core |
+| `CHK-08` | Status fora do vocabulário canônico | Importante | core |
+| `CHK-09` | Claims obsoletas na Descrição (contra o git real) | Importante | core |
+| `CHK-10` | Proposta do `todo_sync.py` (sem `--apply`) anexada | Cosmético | core |
+| `CHK-11` | Reconciliação de contagem (`todo_health`) | Crítico | core |
+| `CHK-12` | TST-\*/AUD-\* agendado antes do que cobre | Crítico | **casa** |
+| `CHK-13` | INBOX: ID duplicado da tabela ou formato inválido | Importante | **casa** |
+| `CHK-14` | Item de Wiki + doc para iniciante ausente na última onda | Cosmético | **casa** |
+
+### `--fix`
+
+Motor de correção mecânica (`tools/todo_fix.py`), consumindo só o que os checks
+do `--audit` já marcaram `[auto-fixável]` -- nunca redecide o que é seguro
+corrigir. Chame direto:
+
+```bash
+python3 tools/todo_fix.py [--apply CLASSE [CLASSE ...]] [-v]
+```
+
+- **Dry-run por padrão.** Sem `--apply`, só mostra o plano de correção (com o
+  diff de cada mudança proposta) e nunca escreve no arquivo.
+- **`--apply <classe...>`** aplica só as classes nomeadas, ou `--apply all`
+  para todas as detectadas naquela execução.
+- **Duas classes de correção existem hoje**: `escapar_pipe_cru` (de `CHK-02`:
+  escapa um `|` cru localizado sem ambiguidade dentro de um code span) e
+  `remover_fragmento_duplicado` (de `CHK-01`: remove a ocorrência de um ID
+  duplicado que a heurística reconhece como fragmento/lixo óbvio). **O
+  `ADR-0001` previa quatro classes** (as outras duas seriam consolidar tabela
+  fragmentada e corrigir claim obsoleta na Descrição) -- elas **não existem**
+  porque nenhum check do catálogo hoje marca `CHK-03`/`CHK-04`/`CHK-09` como
+  `[auto-fixável]`. Isso é decisão registrada, não lacuna esquecida: o motor
+  só aplica o que o `--audit` já decidiu ser seguro, e mesmo dentro de
+  `escapar_pipe_cru` o motor é mais conservador que o check -- recusa aplicar
+  (marcando `[NÃO APLICÁVEL]` no relatório, com o motivo) sempre que a posição
+  do pipe cru não é inequívoca.
+- **Proteções, na ordem em que agem**: (1) `--apply` aborta com erro **antes de
+  qualquer escrita** se a working tree do `TODO.md` não estiver limpa
+  (`git status --porcelain` não-vazio) -- nunca mistura com edição em voo de
+  outra sessão/agente; (2) escrita **atômica** (arquivo temporário no mesmo
+  diretório + `os.replace`), então uma falha no meio do processo não deixa o
+  `TODO.md` pela metade; (3) antes de gravar, o motor **prova os invariantes**
+  (round-trip byte-a-byte de toda linha não tocada, e a contagem de itens
+  resultante bate com o valor calculado antes de aplicar) contra o texto novo
+  em memória -- se a prova falhar, aborta sem tocar o arquivo real.
+- **O que `--fix` nunca faz**: mudar `Status`, reordenar linhas, tocar
+  branch/commit do repositório.
+- **Exit codes**: `0` = execução ok, nada a corrigir; `1` = erro de execução
+  (não é repositório git, `TODO.md` ilegível, working tree suja ao aplicar,
+  falha de escrita); `2` = execução ok, há 1+ correção disponível (mostrada em
+  dry-run ou aplicada).
+
+**Riscos conhecidos (declarados, não escondidos):** dois processos de
+`--fix --apply` rodando ao mesmo tempo no mesmo repositório se sobrescreveriam
+sem aviso -- a checagem de working tree limpa protege contra editar em cima de
+uma mudança já commitada ou pendente no início da execução, mas não contra uma
+corrida entre dois processos que passam por essa checagem quase simultaneamente
+(não há trava de sistema operacional). Existe uma janela inerente entre ler e
+escrever o arquivo sem lock de SO. O comportamento em Windows contra um destino
+somente-leitura não tem prova empírica nesta fatia (não testado nessa
+plataforma).
 
 ## Testes e auditorias automáticos
 
@@ -234,11 +326,9 @@ Claude Code skill that manages the project pendencies/planning table in `TODO.md
 tabular standard: fixed header, execution order (dependency + value), visual status
 symbols, optional audit column.
 
-> **About this section:** what's documented here is behavior already closed and
-> verified in code. The `--audit`/`--fix` command (structural audit of the table
-> itself and mechanical defect fixing) is under implementation; detailed docs for it
-> land once the slices that build it close. We never document behavior the code
-> hasn't been verified to do.
+> **About this section:** what's documented here is behavior already closed
+> and verified by running the code -- never described ahead of time. If a
+> command doesn't exist yet, that's stated explicitly, never left out.
 
 ### Two layers: generic core and house conventions
 
@@ -269,7 +359,7 @@ Manual via `Skill` tool:
 Skill: tab_pendencias
 ```
 
-Or slash command: `/tab_pendencias [--create | --reorder | --show | --main | --add_tests_audit]`
+Or slash command: `/tab_pendencias [--create | --reorder | --show | --main | --add_tests_audit | --audit]`
 
 ### Installation and degradation matrix
 
@@ -341,26 +431,122 @@ value to fill in.
 | `--show` | Displays full table (including `✅ Concluído`) |
 | `--main` | Displays only pending items (filters out `✅`) |
 | `--add_tests_audit` | Adds applicable test/audit items for the stack, without asking |
+| `--audit` | Audits the structural integrity of the `TODO.md` itself (read-only); see the dedicated section below |
 
 Without argument, uses natural language: "show pendencies" for `--main`, "full table"
 for `--show`, "create table" for `--create`, "reorder"/"minimize rework" for
-`--reorder`.
+`--reorder`, "audit the table" for `--audit`.
 
-### `--audit` and `--fix` (under implementation)
+### `--audit`
 
-Decisions already closed for these two commands (see ADR-0001 linked above):
+Structural audit engine for the `TODO.md` itself (`tools/todo_audit.py`,
+generic-core layer, architecture decision in
+[`docs/adr/0001-fronteira-nucleo-generico-e-convencoes-da-casa.md`](docs/adr/0001-fronteira-nucleo-generico-e-convencoes-da-casa.md)):
+runs offline, no LLM/network, no agent orchestration. Call it via
+`/tab_pendencias --audit` or directly:
 
-- `--audit` is **always read-only**: never writes to `TODO.md`, never mutates git
-  state.
-- `--fix` applies **only** mechanical, byte-preserving corrections (e.g., escaping a
-  raw `|`, removing a duplicated fragment, consolidating a fragmented table while
-  preserving ID/Status/Audit State). Never changes `Status`, never reorders, never
-  touches branch/commit.
-- **Fixed exit codes**: `0` = ran ok, zero findings; `1` = execution error; `2` = ran
-  ok, at least one finding (of any severity).
+```bash
+python3 tools/todo_audit.py [--profile core|casa] [--todo <path>] \
+  [--max-per-check N] [--output <file>] [-v]
+```
 
-The rest of the behavior (check list, report format, CLI options) is still being
-implemented and will be documented here once it closes.
+- **Always read-only.** No code path opens `TODO.md` in write mode, nor
+  mutates git state. The only possible write is `--output` (an optional
+  report file), and it's blocked with an error if the path resolves inside
+  the audited repository.
+- **`--todo <path>`**: audits a file outside the current repository (doesn't
+  need to be in the current directory nor in the same git repository as the
+  caller). The file must be named exactly `TODO.md`; any other name exits
+  with an error explaining the restriction.
+- **`--profile core|casa`** and the `.tab_pendencias.ini` file at the root of
+  the audited repo (`[profile]` section, `name = casa` key; INI format read
+  with the stdlib `configparser`, chosen so it doesn't require Python 3.11+).
+  `core` is the default profile. **The house layer is additive, never
+  substitutive**: under `casa`, the 11 core checks run **plus** the 3 house
+  checks (14 total); not enabling `casa` never removes a core check, it just
+  skips the 3 extras.
+- **`--max-per-check N`** (default 5; `N<=0` = no limit): samples at most N
+  findings per check in the report. **CRITICAL findings are never
+  truncated**; the cut only applies to lower severities, and whatever is left
+  out is always counted and declared.
+- **`--output <file>`**: also writes the report to this file. Can never point
+  inside the audited repository.
+- **Exit codes**: `0` = ran ok, zero findings; `1` = execution error (not a
+  git repository when required, unreadable `TODO.md`, invalid flag); `2` =
+  ran ok, 1+ finding of any severity, including cosmetic-only.
+
+Check catalog (11 core + 3 opt-in house-layer checks):
+
+| Check | Title | Severity (default) | Profile |
+|---|---|---|---|
+| `CHK-01` | Duplicate ID | Critical | core |
+| `CHK-02` | Cell count != header (diagnosis) | Critical | core |
+| `CHK-03` | Fragmented table + canonical span | Critical | core |
+| `CHK-04` | ncols diverges between ID+Status tables | Critical | core |
+| `CHK-05` | Prerequisite citing a nonexistent ID | Important | core |
+| `CHK-06` | Dependency cycle | Critical | core |
+| `CHK-07` | Wave inconsistent with the dependency | Important | core |
+| `CHK-08` | Status outside the canonical vocabulary | Important | core |
+| `CHK-09` | Stale claims in the Description (against real git) | Important | core |
+| `CHK-10` | `todo_sync.py` proposal (without `--apply`) attached | Cosmetic | core |
+| `CHK-11` | Count reconciliation (`todo_health`) | Critical | core |
+| `CHK-12` | TST-\*/AUD-\* scheduled before what it covers | Critical | **house** |
+| `CHK-13` | INBOX: duplicate table ID or invalid format | Important | **house** |
+| `CHK-14` | Missing Wiki + beginner-doc item in the last wave | Cosmetic | **house** |
+
+### `--fix`
+
+Mechanical-correction engine (`tools/todo_fix.py`), consuming only what the
+`--audit` checks already marked `[auto-fixable]` -- it never re-decides what's
+safe to fix. Call it directly:
+
+```bash
+python3 tools/todo_fix.py [--apply CLASS [CLASS ...]] [-v]
+```
+
+- **Dry-run by default.** Without `--apply`, it only shows the fix plan (with
+  a diff for each proposed change) and never writes to the file.
+- **`--apply <class...>`** applies only the named classes, or `--apply all`
+  for every class detected in that run.
+- **Two correction classes exist today**: `escapar_pipe_cru` (from `CHK-02`:
+  escapes a raw `|` found unambiguously inside a code span) and
+  `remover_fragmento_duplicado` (from `CHK-01`: removes the occurrence of a
+  duplicate ID the heuristic recognizes as an obvious fragment/leftover).
+  **ADR-0001 anticipated four classes** (the other two would be consolidating
+  a fragmented table and fixing a stale claim in the Description) -- they
+  **don't exist** because no check in the catalog currently marks
+  `CHK-03`/`CHK-04`/`CHK-09` as `[auto-fixable]`. This is a recorded decision,
+  not a forgotten gap: the engine only applies what `--audit` already decided
+  is safe, and even within `escapar_pipe_cru` the engine is more conservative
+  than the check -- it refuses to apply (flagging `[NOT APPLICABLE]` in the
+  report, with the reason) whenever the raw pipe's position isn't
+  unambiguous.
+- **Protections, in the order they act**: (1) `--apply` aborts with an error
+  **before any write** if the `TODO.md` working tree isn't clean
+  (`git status --porcelain` non-empty) -- it never mixes with an edit in
+  flight from another session/agent; (2) **atomic** write (temp file in the
+  same directory + `os.replace`), so a mid-process failure never leaves
+  `TODO.md` half-written; (3) before writing, the engine **proves the
+  invariants** (byte-exact round-trip of every untouched line, and the
+  resulting item count matches the value computed before applying) against
+  the new in-memory text -- if the proof fails, it aborts without touching the
+  real file.
+- **What `--fix` never does**: change `Status`, reorder rows, touch the
+  repository's branch/commit.
+- **Exit codes**: `0` = ran ok, nothing to fix; `1` = execution error (not a
+  git repository, unreadable `TODO.md`, dirty working tree when applying,
+  write failure); `2` = ran ok, 1+ correction available (shown in dry-run or
+  applied).
+
+**Known risks (disclosed, not hidden):** two `--fix --apply` processes
+running at the same time on the same repository would overwrite each other
+without warning -- the clean-working-tree check protects against writing over
+a change already committed or pending at the start of the run, but not
+against a race between two processes that both pass that check nearly
+simultaneously (there's no OS-level lock). There's an inherent window between
+reading and writing the file with no OS lock. Behavior on Windows against a
+read-only destination has no empirical proof in this slice (not tested on
+that platform).
 
 ## Automatic tests and audits
 
