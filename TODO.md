@@ -11,7 +11,7 @@
 | ID | Onda | Grupo | Descrição Técnica | Prioridade | Pré-requisito | Dificuldade | Status | Estado Auditado |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | W0-DEC | — | Governança | Kickoff `/bigtech`: porte early classificado por Cósimo, mapa de ativação aprovado, e as 8 decisões **D-1..D-8** resolvidas pelo líder (registro em `decisoes_lider.md`). Gate anti-OE do `--create` decidido por Cósimo: **thread direta** + 1 passe de ADR. | Alta | — | Baixa | ✅ Concluído | — |
-| ADR-1 | W1 | Arquitetura | ADR da fronteira **núcleo genérico × convenções da casa** (nenhum check do núcleo pode depender do perfil "casa"), do contrato do parser (round-trip byte-exato, compat 8/9 colunas) e dos limites de `--audit`/`--fix`. Executor: `software-architect`. É o risco arquitetural real do projeto e precisa existir ANTES dos consertos, não como auditoria tardia. | Alta | — | Média | ⏳ Pendente | — |
+| ADR-1 | W1 | Arquitetura | ADR da fronteira **núcleo genérico × convenções da casa** (nenhum check do núcleo pode depender do perfil "casa"), do contrato do parser (round-trip byte-exato, compat 8/9 colunas) e dos limites de `--audit`/`--fix`. Executor: `software-architect`. É o risco arquitetural real do projeto e precisa existir ANTES dos consertos, não como auditoria tardia. Entregue em `docs/adr/0001-*.md`; gerou as decisões D-9/D-10/D-11. | Alta | — | Média | 🔍 Pendente verificação | — |
 | SCAF-1 | W1 | Scaffold | Clonar o repo em `Projects/tab_pendencias/`, montar o layout monorepo da D-4 (`tools/`, `tools/hooks/`, `tests/`, `references/`) preservando os 21 commits, **e relicenciar o repo inteiro para GPL-3.0-or-later** (D-3): trocar `LICENSE`, cabeçalhos dos fontes, purgar menção residual à PolyForm no README/SKILL.md. Publicação de licença é irreversível na prática. | Alta | — | Média | 🔍 Pendente verificação | — |
 | ABS-1 | W2 | Scaffold | Absorver de `~/.claude/githooks/`: os 4 scripts (`todo_lib`, `todo_sync`, `todo_health`, `todo_freshness`) para `tools/`, e `_chain.sh` + os 7 shims POSIX para `tools/hooks/`; mover a suíte pytest (**41 testes**) para `tests/` e deixá-la 100% verde no novo layout. Atômico: absorver os `.py` sem os testes deixa o repo vermelho. | Alta | SCAF-1 | Média | 🔍 Pendente verificação | — |
 | DOC-FRESH | W2 | Docs | Internalizar em `references/` a parte NORMATIVA das regras de frescor (D-2), hoje só em `~/.claude/docs/tabela-pendencias-frescor.md`; o vault fica com o histórico/racional. Sem isto, quem clona não recebe a norma que a skill exige. | Média | SCAF-1 | Baixa | 🔍 Pendente verificação | — |
@@ -48,7 +48,7 @@
 
 <!-- 1 linha por descoberta: `- <ID tentativo ou —>: descrição curta`. Drenada por --create/--reorder. -->
 
-_(vazia)_
+- SKILL-PATH: `SKILL.md:56` referencia três vezes o caminho absoluto `~/.claude/githooks/` (dois comandos + o README do toolkit). A skill distribuída aponta para a máquina do autor, contra o princípio-mestre de zero acoplamento (§4.0) e contra a D-4 (os scripts agora vivem em `tools/` do próprio repo). Achado por `DOC-FRESH` em 28/07 e confirmado na fonte. Candidato natural a entrar em `SKILL-AUDIT` ou `README-1`.
 
 ---
 
