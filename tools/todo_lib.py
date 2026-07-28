@@ -135,11 +135,21 @@ def _is_header(cells):
 
 def parse_table(text):
     """Retorna {'id_idx','status_idx','ncols','items':[{id,status,line_no}],
-    'lines':[..]} ou None se nao houver tabela com colunas ID e Status.
+    'lines':[..],'duplicate_ids':{id:[{line_no,status},...]}} ou None se nao
+    houver tabela com colunas ID e Status.
 
     'lines' = text.split("\\n") (round-trip byte-exato com "\\n".join). So a 1a
     tabela e considerada (para no 2o cabecalho). Linhas cujo nº de celulas != nº
-    de colunas do cabecalho sao IGNORADAS (defende escrita no lugar errado)."""
+    de colunas do cabecalho sao IGNORADAS (defende escrita no lugar errado).
+
+    BUG-1': ID duplicado NAO trava o nucleo (ADR-0001 b.5, mesma politica do
+    'malformed' -- descarte/ambiguidade nunca e fatal aqui). 'items' preserva
+    TODAS as ocorrencias, sem filtrar nem decidir qual "vence" -- quem decide
+    e o consumidor (`parse_status_map` mantem o comportamento pre-existente
+    de ultima linha vence) ou o `--audit`/CHK-01 (via a chave aditiva
+    'duplicate_ids', so com os IDs que aparecem 2+ vezes -- vazio quando nao
+    ha duplicata). Chave ADITIVA: nenhum consumidor que so le
+    id_idx/status_idx/ncols/items/lines muda de comportamento."""
     lines = text.split("\n")
     id_idx = status_idx = ncols = None
     items = []
@@ -168,8 +178,14 @@ def parse_table(text):
         items.append({"id": iid, "status": cells[status_idx], "line_no": n})
     if id_idx is None:
         return None
+    occurrences_by_id = {}
+    for it in items:
+        occurrences_by_id.setdefault(it["id"], []).append(
+            {"line_no": it["line_no"], "status": it["status"]})
+    duplicate_ids = {iid: occs for iid, occs in occurrences_by_id.items()
+                      if len(occs) > 1}
     return {"id_idx": id_idx, "status_idx": status_idx, "ncols": ncols,
-            "items": items, "lines": lines}
+            "items": items, "lines": lines, "duplicate_ids": duplicate_ids}
 
 
 def parse_status_map(text):
