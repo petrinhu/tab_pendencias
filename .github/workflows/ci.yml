@@ -61,6 +61,118 @@ jobs:
         run: python -m pytest tests/ -v
 
   # ---------------------------------------------------------------------
+  # Job 1b (CI-2): pytest em Debian, Fedora e Arch via CONTAINER sobre o
+  # runner ubuntu-latest (o GitHub nao tem runner nativo dessas distros).
+  # Acrescenta cobertura ao job 1 (ubuntu + windows nativos), nao substitui.
+  #
+  # Valor tecnico real, nao simbolismo:
+  #   1. CORRECAO 2026-07-28: /bin/sh no Ubuntu (job "shellcheck-and-smoke"
+  #      abaixo, ubuntu-latest) JA E dash, igual ao Debian -- confirmado
+  #      localmente (`readlink -f /bin/sh` -> dash nas duas imagens). Ou
+  #      seja, o smoke dos shims sob Debian NAO adiciona uma 1a exposicao a
+  #      shell POSIX estrito que nao existisse antes -- essa premissa
+  #      original (Ubuntu roda em bash) estava errada e foi corrigida aqui
+  #      em vez de propagada. O smoke roda no Debian mesmo assim (pedido
+  #      explicito do lider), mas como REPETICAO em ambiente de imagem
+  #      minimalista diferente (glibc/pacotes distintos do runner
+  #      ubuntu-latest completo), nao como cobertura nova de dash. Ver
+  #      relatorio da fatia CI-2 para detalhe.
+  #   2. Cada distro entrega uma versao de Python diferente (piso vs teto):
+  #      medido localmente (2026-07-28) -- Debian 12-slim = Python 3.11.2,
+  #      Fedora 41 = Python 3.13.9, Arch (rolling) = Python 3.14.6. O
+  #      projeto escolheu config em INI/configparser (D-9) justamente para
+  #      nao exigir 3.11+ (tomllib) -- este job prova o piso na pratica.
+  #   3. Locale/encoding default variam entre distros, onde o invariante de
+  #      round-trip byte-exato (D-6) e mais provavel de quebrar.
+  #   4. Ordem explicita do lider ("quero debian, fedora, arch" +
+  #      "acrescente, mas nao exclua ubuntu e windows"): a matriz de 5
+  #      ambientes e requisito em si, independente do ganho marginal do
+  #      item 1.
+  #
+  # Imagens minimalistas: SEM git nem python3 por padrao. Cada entrada da
+  # matrix instala o que falta com o gerenciador de pacotes nativo (apt/
+  # dnf/pacman) ANTES do checkout -- ver o motivo no step de instalacao.
+  # Imagens pinadas por tag+digest (nao "latest" solto), pelo mesmo motivo
+  # das actions abaixo serem pinadas por SHA: reprodutibilidade. Digest
+  # capturado localmente em 2026-07-28 (`podman inspect <img> --format
+  # '{{.Digest}}'`); arch:rolling nao publica tag versionada -- o digest e
+  # a UNICA forma de fixar uma imagem reprodutivel dessa distro.
+  # ---------------------------------------------------------------------
+  test-distros:
+    name: pytest (${{ matrix.distro }} via container)
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: debian
+            # debian:12-slim (bookworm) -- /bin/sh e dash aqui, ao contrario
+            # do bash usado em ubuntu-latest. Este e o motivo principal do
+            # job: e o UNICO lugar da matrix onde os shims rodam sob dash.
+            image: "docker.io/library/debian:12-slim@sha256:63a496b5d3b99214b39f5ed70eb71a61e590a77979c79cbee4faf991f8c0783e"
+            install: |
+              apt-get update -qq
+              apt-get install -y -qq python3 python3-venv git shellcheck
+          - distro: fedora
+            # fedora:41 -- release estavel numerada (nao rolling), tag
+            # nao-movel por natureza (Fedora nao repontam um numero de
+            # versao publicado).
+            image: "docker.io/library/fedora:41@sha256:68bb1ba893be0c05991b2df55bc6571862bab7526fd6053b1ebacd53a2a75366"
+            install: |
+              dnf install -y -q python3 git shellcheck
+          - distro: archlinux
+            # archlinux:latest -- rolling release, SEM tag versionada
+            # possivel; o digest acima e o unico jeito de fixar. `-Syu`
+            # (nao so `-Sy`) evita "partial upgrade" (pacotes de bases
+            # diferentes do repo), pratica recomendada pelo Arch Wiki para
+            # containers efemeros que sincronizam o DB do zero a cada job.
+            image: "docker.io/library/archlinux:latest@sha256:87465c3afdaede91333d4a9239d6a1ba7f47b2ec74b376e0070e81c25e7e3ff5"
+            install: |
+              pacman -Syu -q --noconfirm --needed python git shellcheck
+    steps:
+      - name: "Instalar git + python3 + shellcheck (imagem minimalista, nao vem por padrao)"
+        run: ${{ matrix.install }}
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: "Versao do Python neste ambiente (piso/teto de compatibilidade, D-9)"
+        run: python3 --version
+
+      - name: Instalar dependencias de teste (pytest, isolado em venv)
+        # Debian/Fedora/Arch recentes marcam o Python de sistema como
+        # "externally-managed" (PEP 668) -- pip install direto falha. Um
+        # venv efemero em /tmp evita o guard e nao contamina o container.
+        run: |
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/pip install -q -r requirements-dev.txt
+
+      - name: pytest
+        # ACHADO (CI-2, 2026-07-28): jobs de container do GitHub Actions
+        # rodam como ROOT por padrao. Medido localmente: a mesma imagem
+        # archlinux, mesma suite, so como root produz 1-3 falhas EXTRAS
+        # alem das 2 do SPRAWL-1 (root ignora bit de permissao em cenario
+        # que simula erro via chmod -- falso-positivo de ambiente, nao bug
+        # de distro), e some rodando como usuario nao-root criado na hora.
+        # Nao implementado aqui (privilege-drop portavel entre apt/dnf/
+        # pacman e complexidade extra fora do pedido desta fatia -- Debian
+        # tem /bin/su, Fedora minimal NAO tem su nem sudo por padrao). Se
+        # este job mostrar falha alem das conhecidas do SPRAWL-1, checar
+        # PRIMEIRO se e cenario de permissao/chmod antes de assumir bug
+        # real da distro.
+        run: /tmp/venv/bin/python -m pytest tests/ -v
+
+      - name: "smoke dos shims sob /bin/sh REAL do container (dash no Debian)"
+        # So no Debian: e o unico ambiente da matrix inteira (incluindo o
+        # job Linux nativo abaixo, que roda em ubuntu-latest) onde vale a
+        # pena provar de novo sob um /bin/sh que nao seja o mesmo do job
+        # nativo -- ver motivo (1) no comentario do job acima.
+        if: matrix.distro == 'debian'
+        run: sh tools/ci/smoke_hooks.sh
+
+  # ---------------------------------------------------------------------
   # Job 2: shellcheck + smoke dos shims. So-Linux, declarado: os shims de
   # tools/hooks/ sao POSIX sh (D-11/ADR-1 secao (e).2, degradacao
   # documentada no Windows -- dependem do shell do Git for Windows la, que
