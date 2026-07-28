@@ -155,11 +155,24 @@ import checks.chk_graph as _chk_graph  # noqa: E402 -- import tardio de
 # (nao no topo do arquivo), entao nao ha ciclo de importacao de verdade --
 # so a ordem de leitura aqui reflete que o registro (CHK-GRAPH) vem DEPOIS
 # das classes que ele consome.
+import checks.chk_core as _chk_core  # noqa: E402 -- mesmo padrao (CHK-CORE:
+# CHK-01/02/03/04/08/11, `checks/chk_core.py`).
 
 CHECKS: list[Check] = [
     Check(id="CHK-00", title="[exemplo] ID com espaco em branco",
           profile="core", severity_default="COSMÉTICO",
           run=_chk00_id_com_espaco),
+    Check(id="CHK-01", title="ID duplicado", profile="core",
+          severity_default="CRÍTICO", run=_chk_core._chk01_id_duplicado),
+    Check(id="CHK-02", title="nº de células ≠ cabeçalho (diagnóstico)",
+          profile="core", severity_default="CRÍTICO",
+          run=_chk_core._chk02_ncols_diverge),
+    Check(id="CHK-03", title="Tabela fragmentada + span da canônica",
+          profile="core", severity_default="CRÍTICO",
+          run=_chk_core._chk03_tabela_fragmentada),
+    Check(id="CHK-04", title="ncols divergente entre tabelas ID+Status",
+          profile="core", severity_default="CRÍTICO",
+          run=_chk_core._chk04_ncols_divergente_entre_tabelas),
     Check(id="CHK-05", title="Pré-requisito citando ID inexistente",
           profile="core", severity_default="IMPORTANTE",
           run=_chk_graph.chk05),
@@ -169,6 +182,12 @@ CHECKS: list[Check] = [
     Check(id="CHK-07", title="Onda inconsistente com a dependência",
           profile="core", severity_default="IMPORTANTE",
           run=_chk_graph.chk07),
+    Check(id="CHK-08", title="Status fora do vocabulário canônico",
+          profile="core", severity_default="IMPORTANTE",
+          run=_chk_core._chk08_status_fora_do_vocabulario),
+    Check(id="CHK-11", title="Reconciliação de contagem (todo_health)",
+          profile="core", severity_default="CRÍTICO",
+          run=_chk_core._chk11_reconciliacao_contagem),
 ]
 
 
