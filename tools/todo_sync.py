@@ -36,12 +36,51 @@ NAO varre o historico: a linha de base passa a ser HEAD (citacao antiga de item
 ainda pendente viraria flip indevido). Para ler o passado de proposito, passe
 --since <ref> explicitamente. --apply e sempre explicito.
 """
+import argparse
 import os
 import sys
 
 import todo_lib as L
 
 NEW_STATUS = "🔍 Pendente verificação"
+
+
+class _Parser(argparse.ArgumentParser):
+    """Contrato de exit code (D-6/CLI-1): erro de parsing (flag desconhecida,
+    valor faltando) sai 1 ('erro de execucao'), NAO 2 -- o 2 e reservado ao
+    resultado do sync (ha item(ns) elegivel(is)), senao um typo de flag e uma
+    sincronizacao bem-sucedida ficariam indistinguiveis para o CI."""
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        self.exit(1, f"{self.prog}: error: {message}\n")
+
+
+def _build_parser():
+    p = _Parser(
+        prog="todo_sync.py",
+        description=(
+            "Sync mecanico e deterministico da TODO.md (offline, sem LLM, "
+            "sem rede): le os commits desde o ultimo sync, acha os IDs "
+            "citados e propoe avancar itens ⏳ Pendente/🔄 Em andamento para "
+            "🔍 Pendente verificacao. NUNCA seta ✅ e NUNCA reordena."
+        ),
+        epilog=(
+            "Exit codes: 0 = ok, nada a sincronizar; 1 = erro de execucao "
+            "(nao e repositorio git); 2 = ha item(ns) elegivel(is), "
+            "proposto(s) ou aplicado(s)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument(
+        "--apply", action="store_true",
+        help="Aplica no TODO.md e grava o ref de sync incremental "
+             "(default: so mostra o que faria, nao escreve).")
+    p.add_argument(
+        "--since", metavar="REF",
+        help="Janela explicita de commits (ex.: uma tag ou commit); ignora "
+             "o ref incremental salvo e varre o passado de proposito.")
+    return p
 
 
 def _ref_path(root):
@@ -185,8 +224,15 @@ def run(argv, root=None):
 
 
 def main(argv):
-    rc, _, _ = run(argv)
-    return rc
+    """CLI (D-6/CLI-1): argparse so valida flags/--help; run() mantem o
+    parsing proprio (usado tambem pelos testes que chamam run() direto).
+    O exit code de 'achados' (2) e decidido aqui, sem mudar o contrato
+    interno de run() (rc 0/1), que outros testes/consumidores ja dependem."""
+    _build_parser().parse_args(argv)
+    rc, to_flip, _ = run(argv)
+    if rc != 0:
+        return rc
+    return 2 if to_flip else 0
 
 
 if __name__ == "__main__":

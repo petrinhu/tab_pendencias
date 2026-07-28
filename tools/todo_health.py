@@ -26,6 +26,7 @@ Da o dado para "medir antes de escalar":
 
 Uso: python3 todo_health.py
 """
+import argparse
 import os
 import sys
 
@@ -35,6 +36,33 @@ try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
+
+
+class _Parser(argparse.ArgumentParser):
+    """Contrato de exit code (D-6/CLI-1): erro de parsing sai 1 ('erro de
+    execucao'), NAO 2 (reservado a 'ha item(ns) preso(s) em verificacao')."""
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        self.exit(1, f"{self.prog}: error: {message}\n")
+
+
+def _build_parser():
+    p = _Parser(
+        prog="todo_health.py",
+        description=(
+            "Relatorio local de saude/frescor da TODO.md (offline, sem LLM, "
+            "sem rede): itens presos em 🔍 Pendente verificacao (falso-done "
+            "residual), tamanho da INBOX, e adesao a citar ID nos commits."
+        ),
+        epilog=(
+            "Exit codes: 0 = ok, nenhum item preso em verificacao; 1 = erro "
+            "de execucao (nao e repositorio git); 2 = ha item(ns) preso(s) "
+            "em 🔍 Pendente verificacao."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    return p
 
 
 def _adesao(root):
@@ -98,9 +126,19 @@ def run(root=None):
             "aguardando_verificacao": len(verif), "inbox": len(inbox)}
 
 
-def main():
-    return 0 if run() is not None else 1
+def main(argv):
+    """CLI (D-6/CLI-1). run() mantem seu contrato (None em qualquer falha);
+    aqui e decidido o exit code visivel: 'nao e repo git' e erro de execucao
+    (1), mas 'sem TODO.md'/'sem tabela' e estado valido (0, nada a reportar)
+    -- consistente com todo_sync.py, que ja faz essa mesma distincao. Chama
+    L.repo_root() de novo (2o subprocess git) so para desambiguar a causa da
+    falha sem mudar a assinatura/contrato ja existente de run()."""
+    _build_parser().parse_args(argv)
+    res = run()
+    if res is not None:
+        return 2 if res["aguardando_verificacao"] > 0 else 0
+    return 1 if L.repo_root() is None else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

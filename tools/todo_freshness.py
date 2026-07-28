@@ -29,6 +29,7 @@ Dois avisos, so quando ha lacuna acionavel (silencioso caso contrario):
 
 Registra adesao em $GIT_DIR/todo-freshness.log para medir antes de automatizar.
 """
+import argparse
 import os
 import sys
 from datetime import datetime, timezone
@@ -39,6 +40,34 @@ try:
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
+
+
+class _AlwaysZeroParser(argparse.ArgumentParser):
+    """Excecao de contrato (D-6/CLI-1): freshness roda como git hook
+    warn-only, e um exit != 0 quebraria o commit de quem instalou. Ao
+    contrario de todo_sync.py/todo_health.py, aqui NENHUM caminho do
+    argparse (--help, flag desconhecida, valor faltando) pode alterar o
+    exit code do processo -- so decide o texto impresso."""
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, sys.stderr)
+        sys.exit(0)
+
+
+def _build_parser():
+    p = _AlwaysZeroParser(
+        prog="todo_freshness.py",
+        description=(
+            "Git hook post-commit (Camada 2 local) de frescor da TODO.md: "
+            "avisa, sem NUNCA bloquear o commit, quando o commit tocou "
+            "codigo sem citar ID do TODO.md, ou cita um ID cujo Status "
+            "ainda esta pendente."
+        ),
+        epilog="Exit code: sempre 0 (warn-only; avisos vao para stderr).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    return p
 
 # Re-export (compat de testes + clareza).
 parse_todo = L.parse_status_map
@@ -83,7 +112,8 @@ def _log_adesao(root, touched, n_cited, n_warns):
         pass
 
 
-def main():
+def main(argv=None):
+    _build_parser().parse_args(sys.argv[1:] if argv is None else argv)
     root = L.repo_root()
     if not root:
         return 0
@@ -110,4 +140,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
