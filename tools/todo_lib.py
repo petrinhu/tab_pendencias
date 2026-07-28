@@ -162,31 +162,104 @@ def parse_status_map(text):
     return {it["id"]: it["status"] for it in tbl["items"]} if tbl else {}
 
 
+# Vocabulario de status (D-1, decisoes_lider.md): a celula pertence a
+# exatamente um dos 7 kinds abaixo, decidido pelo PRIMEIRO caractere
+# nao-espaco da celula (o emoji-prefixo) -- nunca por procura de substring no
+# texto livre que vem depois do emoji (esse texto e do usuario: pode conter
+# "verificar", "pendente", "concluido" como parte de qualquer frase, sem que
+# isso mude a classificacao). Corrige a classe de bug BUG-5/SUB-1/SUB-2:
+# "✅ Concluído ... VERIFICADO ..." classificado como preso em verificacao,
+# "🔴 Bloqueado (dependente de X)" classificado como pendente (substring de
+# "pendente" dentro de "dependente"), e "⏳ Pendente (verificar
+# disponibilidade)" barrado de um flip legitimo (substring de "verifica").
+_EMOJI_KIND = {
+    "✅": "done",
+    "🔄": "andamento",
+    "🟡": "parcial",
+    "⏳": "pendente",
+    "💡": "decisao",
+    "🎨": "design",
+    "🔍": "verificacao",
+}
+
+
+def _status_kind(status):
+    """Kind do vocabulario fechado (D-1) pelo emoji-prefixo, ou None quando a
+    celula nao comeca com nenhum dos 7 -- o UNICO caso em que os predicados
+    abaixo caem no fallback substring/word-boundary (ADR-0001 secao (d)):
+    tabela legada sem emoji, ou emoji fora do vocabulario controlado (ex.:
+    🔴 de um esquema proprio do usuario, tratado como 'sem emoji
+    reconhecido', nao como um 8o kind)."""
+    s = status.lstrip(BOM).strip()
+    for emoji, kind in _EMOJI_KIND.items():
+        if s.startswith(emoji):
+            return kind
+    return None
+
+
+def _has_word(text, word):
+    """Substring com fronteira de palavra (\\b) na frente, nunca substring
+    crua -- e o que faz 'pendente' NAO casar dentro de 'dependente' e
+    'conclu' NAO casar dentro de 'inconclusivo'. So fronteira de palavra na
+    FRENTE (nao atras): o vocabulario e um radical pt-br que aceita flexao
+    (Concluído/concluida, verificação/verificar), so a palavra anterior
+    grudada e que e o falso-positivo. Opera sobre o vocabulario fechado de
+    status (ADR-0001 (d): esta celula NAO e conteudo livre do usuario)."""
+    return re.search(r"\b" + word, text.lower()) is not None
+
+
+def status_classification_via(status):
+    """Como a celula foi classificada -- gancho informativo para o futuro
+    `--audit`/CHK-08 (AUDIT-ENG, ainda nao implementado) reportar tabela
+    legada sem emoji, sem duplicar a deteccao aqui: "emoji" (contrato D-1, o
+    caminho correto), "fallback" (sem nenhum dos 7 emojis, mas o vocabulario
+    de texto puro foi reconhecido por word-boundary) ou "unknown" (nem
+    emoji nem fallback reconheceram -- candidato a achado de CHK-08, "status
+    fora do vocabulario"). Nenhum predicado abaixo (is_pending/is_done/...)
+    consulta esta funcao para decidir; ela existe so para relato."""
+    if _status_kind(status) is not None:
+        return "emoji"
+    if any(_has_word(status, w) for w in
+           ("pendente", "andamento", "conclu", "verifica", "design")):
+        return "fallback"
+    return "unknown"
+
+
 def is_pending(status):
     """⏳/🔄/🎨 = ainda nao concluido nem em verificacao. Usado em warnings/
     contagem (onde 'nao entregue' inclui 'pendente design')."""
-    s = status.lower()
-    if "verifica" in s:
+    kind = _status_kind(status)
+    if kind is not None:
+        return kind in ("pendente", "andamento", "design")
+    if _has_word(status, "verifica"):
         return False
-    return ("pendente" in s) or ("andamento" in s)
+    return _has_word(status, "pendente") or _has_word(status, "andamento")
 
 
 def is_flip_eligible(status):
     """Elegivel a avancar para 🔍 num sync mecanico: SO ⏳ Pendente e
     🔄 Em andamento. Exclui 🎨 Pendente design (design nem existe), 🔍 (ja
     entregue), 🟡 Parcial, 💡, ✅ (ambiguos/ja resolvidos -> nao auto-flipar)."""
-    s = status.lower()
-    if "verifica" in s or "design" in s:
+    kind = _status_kind(status)
+    if kind is not None:
+        return kind in ("pendente", "andamento")
+    if _has_word(status, "verifica") or _has_word(status, "design"):
         return False
-    return ("pendente" in s) or ("andamento" in s)
+    return _has_word(status, "pendente") or _has_word(status, "andamento")
 
 
 def is_awaiting_verification(status):
-    return "verifica" in status.lower()
+    kind = _status_kind(status)
+    if kind is not None:
+        return kind == "verificacao"
+    return _has_word(status, "verifica")
 
 
 def is_done(status):
-    return "conclu" in status.lower()
+    kind = _status_kind(status)
+    if kind is not None:
+        return kind == "done"
+    return _has_word(status, "conclu")
 
 
 def cited_ids(message, ids):
