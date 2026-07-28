@@ -48,12 +48,12 @@ A ordem das linhas (de cima para baixo) É a ordem de execução recomendada. A 
 
 ## Frescor: manter a tabela viva no sprint
 
-Para a tabela não apodrecer durante o sprint, separe SEMPRE duas operações de naturezas opostas (detalhe canônico em `~/.claude/docs/tabela-pendencias-frescor.md`):
+Para a tabela não apodrecer durante o sprint, separe SEMPRE duas operações de naturezas opostas (detalhe canônico em `references/frescor-da-tabela.md`):
 
 - **Sincronizar status** (barato, frequente, no commit): ao fechar trabalho, toque a coluna `Status` do item no MESMO PR, com o ID que o projeto JÁ tem (não renumerar). Implementação entregue vira `🔍 Pendente verificação` (NUNCA `✅` direto); `✅ Concluído` só após a onda `TST-*`/`AUD-*` correspondente. **Marcar status nunca dispara o time de agents.**
 - **Reordenar** (caro, raro, julgamento): só via `--reorder`, e só quando um input de priorização muda (nova dependência, item ficou urgente, INBOX não-vazia). Nunca por passagem de tempo, loop ou monitor contínuo.
 
-A parte mecânica (sincronizar status) tem executores LOCAIS e determinísticos, **offline, sem agents/LLM** (rodam fora desta skill): `python3 ~/.claude/githooks/todo_sync.py [--apply]` avança itens entregues `⏳`/`🔄` → `🔍` a partir dos IDs citados nos commits (nunca `✅`, nunca reordena); `python3 ~/.claude/githooks/todo_health.py` reporta presos em `🔍`, INBOX e adesão. Esta skill cobre o **planejamento** (`--reorder`, julgamento); a sincronização mecânica vive nesses scripts. Ver `~/.claude/githooks/README.md`.
+A parte mecânica (sincronizar status) tem executores LOCAIS e determinísticos, **offline, sem agents/LLM** (rodam fora desta skill, no próprio repo do projeto que usa a skill): `python3 tools/todo_sync.py [--apply]` avança itens entregues `⏳`/`🔄` → `🔍` a partir dos IDs citados nos commits (nunca `✅`, nunca reordena); `python3 tools/todo_health.py` reporta presos em `🔍`, INBOX e adesão. Esta skill cobre o **planejamento** (`--reorder`, julgamento); a sincronização mecânica vive nesses scripts. Ver `tools/README.md`.
 
 ### INBOX (captura agora, prioriza depois)
 
