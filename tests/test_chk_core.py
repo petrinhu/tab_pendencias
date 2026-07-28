@@ -185,7 +185,7 @@ def test_chk02_detecta_defeito_isolado_mesmo_perto_de_tabela_alheia():
     assert "truncad" in achados[0].message.lower()
 
 
-def test_chk02_roda_em_fixture_real_so_acusa_os_2_defeitos_publicos_conhecidos(monkeypatch=None):
+def test_chk02_roda_em_fixture_real_so_acusa_os_2_defeitos_publicos_conhecidos():
     """Contra a fixture B (consumidor B): CHK-02 tem 41 entradas cruas em
     'malformed', mas 39 pertencem a 3 tabelas alheias legitimas (WSJF de 8
     colunas, 2 checklists de assets de 5/4 colunas, 1 tabela de motivo de 2
