@@ -236,12 +236,16 @@ que usa a skill; `--audit` cobre a *integridade da própria tabela*).
   auditado (seção `[profile]`, chave `name = casa`): perfil `core` é o default
   (ausência de arquivo ou de chave); `--profile` na linha de comando sobrepõe o
   arquivo para uma execução pontual. Config lido com `configparser` da stdlib (D-9/
-  D-10 -- INI, não TOML, para não exigir Python 3.11+). Hoje **nenhum check do
-  catálogo é `profile = casa`**: o subpacote `tools/casa/` ainda não tem checks
-  implementados (`CHK-12`/`CHK-13`/`CHK-14` são item futuro, `CHK-CASA` na
-  tabela), então `--profile casa` roda idêntico a `core` neste momento -- a
-  infraestrutura de perfil já está pronta e testável, só falta o primeiro check
-  que dependa dela.
+  D-10 -- INI, não TOML, para não exigir Python 3.11+). **A camada casa é
+  aditiva, nunca substitutiva**: sob `casa` rodam os 11 checks do núcleo **mais**
+  os 3 da casa (14 no total); quem não ativa `casa` não perde nenhum check do
+  núcleo, só não ganha os 3 extras. Medido ao vivo: sob `core` (default), os 11
+  checks do núcleo executam e cada check `profile = casa` é **declarado como não
+  executado** nos avisos do motor (`"CHK-12 (convencao da casa) nao executado --
+  perfil ativo = core. Habilite com --profile casa ou .tab_pendencias.ini
+  [profile] name = casa."`, um por check pulado) -- nunca silenciado. Sob
+  `--profile casa`, os 14 checks executam e nenhum aviso de check pulado
+  aparece.
 - **`--max-per-check N`** (default 5; `N<=0` = sem limite): amostra no máximo N
   achados por check no relatório impresso. Achados de severidade **CRÍTICO nunca
   são truncados**; o corte incide só sobre IMPORTANTE/COSMÉTICO, e o que ficou de
@@ -258,24 +262,34 @@ que usa a skill; `--audit` cobre a *integridade da própria tabela*).
   qualquer severidade, inclusive só COSMÉTICO**. Isto é o que permite usar
   `--audit` em automação/CI: um pipeline que quer tolerar cosmético filtra por
   severidade dentro do relatório, não pelo exit code.
-- **Catálogo de checks hoje** (todos `profile = core`; severidade indicada é o
-  default do registro -- alguns checks emitem achados com severidade diferente
-  conforme o caso concreto, ex.: `CHK-08` cobre tanto COSMÉTICO quanto
-  IMPORTANTE):
+- **Catálogo de checks hoje** (11 do núcleo + 3 da casa = 14 registrados;
+  severidade indicada é o default do registro -- alguns checks emitem achados
+  com severidade diferente conforme o caso concreto, ex.: `CHK-08` cobre tanto
+  COSMÉTICO quanto IMPORTANTE). A coluna `Perfil` diz se o check roda sempre
+  (`core`) ou só quando `casa` está ativo:
 
-  | Check | Título | Severidade (default) |
-  |---|---|---|
-  | `CHK-01` | ID duplicado | CRÍTICO |
-  | `CHK-02` | nº de células ≠ cabeçalho (diagnóstico) | CRÍTICO |
-  | `CHK-03` | Tabela fragmentada + span da canônica | CRÍTICO |
-  | `CHK-04` | ncols divergente entre tabelas ID+Status | CRÍTICO |
-  | `CHK-05` | Pré-requisito citando ID inexistente | IMPORTANTE |
-  | `CHK-06` | Ciclo de dependência | CRÍTICO |
-  | `CHK-07` | Onda inconsistente com a dependência | IMPORTANTE |
-  | `CHK-08` | Status fora do vocabulário canônico | IMPORTANTE |
-  | `CHK-09` | Claims obsoletas na Descrição (contra o git real) | IMPORTANTE |
-  | `CHK-10` | Proposta do `todo_sync.py` (sem `--apply`) anexada | COSMÉTICO |
-  | `CHK-11` | Reconciliação de contagem (`todo_health`) | CRÍTICO |
+  | Check | Título | Severidade (default) | Perfil |
+  |---|---|---|---|
+  | `CHK-01` | ID duplicado | CRÍTICO | core |
+  | `CHK-02` | nº de células ≠ cabeçalho (diagnóstico) | CRÍTICO | core |
+  | `CHK-03` | Tabela fragmentada + span da canônica | CRÍTICO | core |
+  | `CHK-04` | ncols divergente entre tabelas ID+Status | CRÍTICO | core |
+  | `CHK-05` | Pré-requisito citando ID inexistente | IMPORTANTE | core |
+  | `CHK-06` | Ciclo de dependência | CRÍTICO | core |
+  | `CHK-07` | Onda inconsistente com a dependência | IMPORTANTE | core |
+  | `CHK-08` | Status fora do vocabulário canônico | IMPORTANTE | core |
+  | `CHK-09` | Claims obsoletas na Descrição (contra o git real) | IMPORTANTE | core |
+  | `CHK-10` | Proposta do `todo_sync.py` (sem `--apply`) anexada | COSMÉTICO | core |
+  | `CHK-11` | Reconciliação de contagem (`todo_health`) | CRÍTICO | core |
+  | `CHK-12` | TST-*/AUD-* agendado antes do que cobre | CRÍTICO | **casa** |
+  | `CHK-13` | INBOX: ID duplicado da tabela ou formato inválido | IMPORTANTE | **casa** |
+  | `CHK-14` | Item de Wiki + doc para iniciante ausente na última onda | COSMÉTICO | **casa** |
+
+  Os 3 checks de perfil `casa` moram em `tools/casa/chk_casa.py` (não mais
+  vazio) e implementam, respectivamente, a ordem inviolável de teste/auditoria
+  (ver "Testes e auditoria: ordem inviolavel" acima), a higiene da seção INBOX,
+  e a regra da casa de item fixo de Wiki+doc-iniciante como última onda
+  pós-tag.
 
   Alvo (`--todo`) fora de qualquer repositório git resolvível: `CHK-09`/`CHK-10`
   (os únicos que dependem de `git`) degradam sozinhos por achado
