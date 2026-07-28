@@ -39,6 +39,17 @@ dinamico via `importlib.import_module("nome_construido_em_runtime")` nao e
 detectado -- nenhum modulo deste projeto faz isso hoje (verificavel por
 grep de `importlib` no proprio guard, que roda antes deste check).
 
+Distincao INTERNO x TERCEIRO (GUARD-FP): um import absoluto e "deste
+projeto" quando resolve, componente a componente, para um arquivo REAL sob
+a raiz varrida -- exatamente como o importador do Python resolveria a
+partir do topo do `sys.path` (`tools/`, aqui): cada componente do nome
+dotted precisa ser um pacote (`<parte>/__init__.py`) para descer ao
+proximo, e o ULTIMO precisa ser um modulo (`<parte>.py`) ou tambem um
+pacote. Isto e estrutural e verificavel por `Path.is_file()` -- nao uma
+lista de nomes permitidos que envelhece a cada novo subpacote (essa
+deriva ja mordeu este projeto: o guard so nao pegava `tools/checks/`
+porque nunca foi exercitado contra a propria estrutura).
+
 Uso:
     python3 tools/ci/guard_stdlib_imports.py [RAIZ ...]
 
@@ -61,15 +72,35 @@ def _iter_py_files(root: Path):
         yield path
 
 
-def _local_module_names(root: Path) -> set[str]:
-    """Nomes (sem .py) de todo arquivo .py sob `root`, para permitir import
-    absoluto flat entre irmaos (ex.: todo_sync.py fazendo `import todo_lib`).
-    """
-    return {p.stem for p in _iter_py_files(root)}
+def _resolves_to_local_file(module_name: str, root: Path) -> bool:
+    """`module_name` (dotted, ex.: 'checks.chk_graph') resolve para um
+    arquivo REAL sob `root`, seguindo a mesma regra de resolucao de pacote
+    que o importador do Python usaria a partir de `root` no `sys.path`?
+
+    Cada componente, exceto o ultimo, precisa ser um pacote
+    (`<parte>/__init__.py`) para a resolucao continuar descendo. O ultimo
+    componente e valido como modulo (`<parte>.py`) OU como pacote (mesma
+    regra). Isto cobre tanto o import de subpacote (`checks.chk_graph`,
+    com `tools/checks/__init__.py` existindo) quanto o layout flat sem
+    pacote (`import todo_lib` com `tools/todo_lib.py` irmao)."""
+    current = root
+    parts = module_name.split(".")
+    for i, part in enumerate(parts):
+        is_last = i == len(parts) - 1
+        pkg_init = current / part / "__init__.py"
+        if pkg_init.is_file():
+            current = current / part
+            continue
+        if is_last:
+            return (current / f"{part}.py").is_file()
+        return False
+    return True
 
 
-def check_file(path: Path, local_modules: set[str]) -> list[str]:
-    """Retorna lista de mensagens de violacao (vazia se limpo)."""
+def check_file(path: Path, root: Path) -> list[str]:
+    """Retorna lista de mensagens de violacao (vazia se limpo). `root` e a
+    raiz varrida (a mesma passada a `main`/`_iter_py_files`), usada para
+    resolver import absoluto interno vs. dependencia de terceiro."""
     violations: list[str] = []
     try:
         source = path.read_text(encoding="utf-8")
@@ -81,7 +112,7 @@ def check_file(path: Path, local_modules: set[str]) -> list[str]:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 top = alias.name.split(".")[0]
-                if top in STDLIB or top in local_modules:
+                if top in STDLIB or _resolves_to_local_file(alias.name, root):
                     continue
                 violations.append(
                     f"{path}:{node.lineno}: import fora da stdlib -- '{alias.name}'"
@@ -94,7 +125,7 @@ def check_file(path: Path, local_modules: set[str]) -> list[str]:
             if node.module is None:
                 continue
             top = node.module.split(".")[0]
-            if top in STDLIB or top in local_modules:
+            if top in STDLIB or _resolves_to_local_file(node.module, root):
                 continue
             violations.append(
                 f"{path}:{node.lineno}: import fora da stdlib -- 'from {node.module} import ...'"
@@ -111,10 +142,9 @@ def main(argv: list[str]) -> int:
         if not root.is_dir():
             print(f"ERRO: raiz '{root}' nao existe ou nao e diretorio.", file=sys.stderr)
             return 1
-        local_modules = _local_module_names(root)
         for path in _iter_py_files(root):
             files_checked += 1
-            all_violations.extend(check_file(path, local_modules))
+            all_violations.extend(check_file(path, root))
 
     if all_violations:
         print(f"guard_stdlib_imports: {len(all_violations)} violacao(oes) em "
