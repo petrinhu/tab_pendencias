@@ -129,8 +129,15 @@ def main(argv=None):
     if not items:
         return 0
     message = L.git(["log", "-1", "--format=%B"], cwd=root)
+    # ROOT-1: sem --root, 'git diff-tree' devolve saida VAZIA quando HEAD e o
+    # commit RAIZ (sem pai) -- confirmado ao vivo com git real. Sem isto,
+    # touched_code(files) era sempre False no 1o commit de qualquer repo, e o
+    # aviso "tocou codigo mas nao citou ID" nunca disparava ali. --root so
+    # afeta o caso do commit sem pai (trata-o como diff contra a arvore
+    # vazia); nenhum outro commit muda de comportamento.
     files = [f for f in L.git(
-        ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"], cwd=root
+        ["diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "HEAD"],
+        cwd=root
     ).splitlines() if f]
     warns, cited = build_warnings(message, files, items)
     _log_adesao(root, touched_code(files), len(cited), len(warns))

@@ -22,7 +22,7 @@ import os
 import subprocess
 import sys
 
-import pytest
+from conftest import git_init_isolado as _git_init_isolado
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS_DIR = os.path.join(REPO_ROOT, "tools")
@@ -43,21 +43,8 @@ def _git(cwd, *args, check=True):
                           capture_output=True, text=True, check=check)
 
 
-def _git_init_isolado(cwd):
-    """`git init` + desliga hook LOCAL a este repo: esta maquina tem
-    `core.hooksPath` GLOBAL apontando para `~/.claude/githooks/` (ver
-    `~/.gitconfig`), entao todo commit num repo temporario dispararia o
-    hook AMBIENTE de verdade por baixo dos panos -- poluindo
-    `$GIT_DIR/todo-freshness.log` e corrompendo a contagem deterministica
-    destes testes, alem de rodar uma versao possivelmente DIFERENTE do
-    script sob teste (ver MIG-DIFF na INBOX do TODO.md). Um
-    `core.hooksPath` LOCAL (config do proprio repo temporario, NUNCA
-    `--global`) para um diretorio vazio sobrescreve o global sem alterar
-    nada fora do tmp_path."""
-    _git(cwd, "init", "-q")
-    hooks_vazio = os.path.join(str(cwd), ".git", "hooks-vazio-teste")
-    os.makedirs(hooks_vazio, exist_ok=True)
-    _git(cwd, "config", "core.hooksPath", hooks_vazio)
+# _git_init_isolado (protecao HOOKISO-1 contra o core.hooksPath GLOBAL desta
+# maquina) mora em conftest.py e e IMPORTADA acima -- nao duplicar aqui.
 
 
 def _row(iid, status):
@@ -282,35 +269,18 @@ def test_e2e_exit0_com_help(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# ACHADO (nao consertado -- fora do escopo desta fatia, e edicao em
-# tools/ e do outro agente): `git diff-tree --no-commit-id --name-only -r
-# HEAD` SEM `--root` devolve lista VAZIA de arquivos quando HEAD e o commit
-# RAIZ do repositorio (sem pai) -- confirmado ao vivo com o git de verdade.
-# Consequencia real em todo_freshness.py:132-134: no PRIMEIRO commit de
-# qualquer repositorio, `files` fica sempre vazio, `touched_code(files)` e
-# sempre False, e o aviso "commit tocou codigo mas nao citou ID" NUNCA
-# dispara -- mesmo que o commit raiz toque um arquivo de codigo inteiro sem
-# citar nenhum ID. xfail(strict=True): se um dia `--root` for adicionado (ou
-# o diff for feito contra a arvore vazia por outro mecanismo), este teste
-# vira XPASS/erro -- sinal para promove-lo a teste normal.
+# ROOT-1 (consertado): `git diff-tree --no-commit-id --name-only -r HEAD`
+# SEM `--root` devolvia lista VAZIA de arquivos quando HEAD e o commit RAIZ
+# do repositorio (sem pai) -- confirmado ao vivo com o git de verdade.
+# Consequencia real (todo_freshness.py, antes do conserto): no PRIMEIRO
+# commit de qualquer repositorio, `files` ficava sempre vazio,
+# `touched_code(files)` era sempre False, e o aviso "commit tocou codigo mas
+# nao citou ID" NUNCA disparava -- mesmo que o commit raiz tocasse um
+# arquivo de codigo inteiro sem citar nenhum ID. Promovido de xfail(strict)
+# para teste normal: `--root` foi adicionado a chamada de diff-tree.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "tools/todo_freshness.py:132-134 chama 'git diff-tree --no-commit-id "
-        "--name-only -r HEAD' SEM '--root'. No commit RAIZ de um repositorio "
-        "(sem pai), esse comando devolve saida VAZIA -- confirmado ao vivo "
-        "com git real (ver sessao de investigacao desta fatia, GAP-2). "
-        "Resultado: o commit raiz nunca gera o aviso 'tocou codigo sem citar "
-        "ID', mesmo quando toca codigo de verdade sem citar nada. NAO "
-        "consertado aqui (edicao em tools/ e de outro agente nesta sessao); "
-        "reportado ao team-lead para virar item de conserto (ex.: acoplar a "
-        "SPRAWL-1/ENC-1 ou item novo). Quando o -- root' entrar, este teste "
-        "vira XPASS: e o sinal para promove-lo."
-    ),
-)
-def test_e2e_commit_raiz_toca_codigo_sem_citar_deveria_avisar_mas_nao_avisa(tmp_path):
+def test_e2e_commit_raiz_toca_codigo_sem_citar_avisa(tmp_path):
     _git_init_isolado(tmp_path)
     (tmp_path / "TODO.md").write_text(
         _HEADER_9 + _row("V-12", "⏳ Pendente"), encoding="utf-8")
@@ -320,5 +290,8 @@ def test_e2e_commit_raiz_toca_codigo_sem_citar_deveria_avisar_mas_nao_avisa(tmp_
 
     r = _run_fresh(tmp_path)
     assert r.returncode == 0, (r.stdout, r.stderr)
-    # comportamento CORRETO esperado (falha hoje -- ver reason acima):
     assert "nao citou nenhum ID" in r.stderr
+
+    log = open(_log_path(tmp_path), encoding="utf-8").read().splitlines()
+    assert len(log) == 1
+    assert "code=1 cited=0 warns=1" in log[0]
