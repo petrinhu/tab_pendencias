@@ -8,22 +8,25 @@ ver `docs/adr/0001-fronteira-nucleo-generico-e-convencoes-da-casa.md` secao
 itens sumirem de um TODO.md real em silencio -- o mesmo incidente ("93% de
 uma tabela invisivel") que originou o projeto inteiro.
 
-REGRA DE PRIVACIDADE, SEM EXCECAO (`prompt_inicial.md` SS4.0.1 e o brief de
-CONTR-1): as fixtures abaixo sao TODO.md de projetos PRIVADOS do autor, fora
-deste repo, e NUNCA entram aqui -- nem em trecho, nem em snapshot de dado
-(id/status/descricao real). Consequencias praticas neste arquivo:
+REGRA DE PRIVACIDADE, SEM EXCECAO: as fixtures abaixo sao TODO.md de
+projetos PRIVADOS do autor, fora deste repo, e NUNCA entram aqui -- nem em
+trecho, nem em snapshot de dado (id/status/descricao real), nem em nome ou
+caminho literal. Consequencias praticas neste arquivo:
 
-  - Os caminhos sao lidos em tempo de execucao; `pytest.skip` com mensagem
-    clara quando o arquivo nao existe -- o caminho NORMAL em qualquer clone
-    publico ou job de CI, que nunca tem estes arquivos na maquina.
+  - Os caminhos NAO sao literais neste codigo: vem de variavel de ambiente
+    (`TAB_PENDENCIAS_FIXTURE_A` / `TAB_PENDENCIAS_FIXTURE_B`), lidas em
+    tempo de execucao. `pytest.skip` com mensagem clara quando a variavel
+    nao esta definida OU quando o caminho nao existe -- o caminho NORMAL em
+    qualquer clone publico ou job de CI, que nunca tem essas variaveis
+    configuradas.
   - Nenhum ID ou trecho de descricao real e hardcoded aqui, com A UNICA
     excecao de "TODO-PARSER-BUG" e "ATOM-3": esses dois IDs ja sao PUBLICOS
-    neste mesmo repo, citados verbatim em `prompt_inicial.md` (commit
-    `06c1718`, ja versionado) como os 2 defeitos vivos conhecidos do
-    consumidor B -- usa-los aqui como PONTEIRO de localizacao nao adiciona
-    nenhuma informacao nova ao repo. Toda outra amostra de linha (ex.: para
-    o teste de `set_status_cell`) e DESCOBERTA em tempo de execucao (por
-    propriedade, tipo "linha com pipe escapado"), nunca por ID literal.
+    neste mesmo repo (citados no historico de decisao do projeto) como os
+    2 defeitos vivos conhecidos do consumidor B -- usa-los aqui como
+    PONTEIRO de localizacao nao adiciona nenhuma informacao nova ao repo.
+    Toda outra amostra de linha (ex.: para o teste de `set_status_cell`) e
+    DESCOBERTA em tempo de execucao (por propriedade, tipo "linha com pipe
+    escapado"), nunca por ID literal.
   - O invariante "mapa de status congelado" usa o CACHE LOCAL do proprio
     pytest (`.pytest_cache/`, ja no `.gitignore` deste repo) como baseline
     -- nunca um arquivo versionado. Ausencia de baseline (1a execucao nesta
@@ -38,37 +41,42 @@ import pytest
 import todo_lib as L
 
 
-consumidor A_TODO = (
-    "<caminho-local>/"
-    "consumidor A/TODO.md"
-)
-# Medido nesta sessao (28/07/2026) por DOIS caminhos independentes --
-# L.parse_table() e a recontagem escape-aware escrita do zero abaixo -- e
-# bate com o numero do brief. Nao houve divergencia a reportar.
-consumidor A_ITEM_COUNT = 116
+FIXTURE_ENV_A = "TAB_PENDENCIAS_FIXTURE_A"
+FIXTURE_ENV_B = "TAB_PENDENCIAS_FIXTURE_B"
 
-consumidor B_TODO = (
-    "<caminho-local>/"
-    "consumidor B/TODO.md"
-)
-# Idem: medido, bate com o brief (215). Nao houve divergencia a reportar.
-consumidor B_ITEM_COUNT = 215
+# Contagem de itens esperada em cada fixture real -- e informacao tecnica
+# LEGITIMA (evidencia de regressao de contrato), diferente do CAMINHO/nome
+# do projeto-fonte (que e privado e nunca e literal neste arquivo).
+# Medido em sessao de auditoria por DOIS caminhos independentes --
+# L.parse_table() e a recontagem escape-aware escrita do zero abaixo -- sem
+# divergencia a reportar.
+FIXTURE_A_ITEM_COUNT = 116
+FIXTURE_B_ITEM_COUNT = 215
 
 _FIXTURES = [
-    pytest.param(consumidor A_TODO, consumidor A_ITEM_COUNT, "consumidor A", id="consumidor A"),
-    pytest.param(consumidor B_TODO, consumidor B_ITEM_COUNT, "consumidor B", id="consumidor B"),
+    pytest.param(FIXTURE_ENV_A, FIXTURE_A_ITEM_COUNT, "consumidor_a", id="consumidor_a"),
+    pytest.param(FIXTURE_ENV_B, FIXTURE_B_ITEM_COUNT, "consumidor_b", id="consumidor_b"),
 ]
 
 
-def _read_fixture(path):
-    """Le a fixture real com newline="" (nunca normaliza CRLF/LF na leitura --
-    ADR-0001 (e).3) ou pula o teste com motivo explicito se ela nao existir
-    nesta maquina (o caso normal em CI/clone publico)."""
+def _read_fixture(env_name):
+    """Resolve o caminho da fixture real pela variavel de ambiente `env_name`
+    e le com newline="" (nunca normaliza CRLF/LF na leitura -- ADR-0001
+    (e).3). Pula o teste com motivo explicito se a variavel nao estiver
+    definida OU se o caminho nao existir (o caso NORMAL em CI/clone
+    publico, que nunca tem fixture real nem a variavel configurada)."""
+    path = os.environ.get(env_name, "").strip()
+    if not path:
+        pytest.skip(
+            f"variavel de ambiente {env_name} nao definida -- fixture real "
+            "e SOMENTE LOCAL (nunca commitada; ver docstring deste "
+            "arquivo). Exporte-a apontando para o TODO.md do consumidor "
+            "real para exercitar este teste nesta maquina."
+        )
     if not os.path.isfile(path):
         pytest.skip(
-            f"fixture real ausente nesta maquina: {path} -- esperado em "
-            "CI/clone publico (fixtures reais sao LOCAIS, nunca commitadas; "
-            "ver docstring deste arquivo)"
+            f"{env_name}={path!r} nao aponta para um arquivo existente -- "
+            "confira o caminho exportado."
         )
     with open(path, encoding="utf-8", newline="") as fh:
         return fh.read()
@@ -78,8 +86,8 @@ def _read_fixture(path):
 # Recontagem escape-aware INDEPENDENTE de todo_lib.parse_table -- escrita do
 # zero (nao reusa _cells/_split_row do modulo sob teste) para nao confiar so
 # no codigo sob teste. grep/awk ingenuo quebra no MESMO pipe escapado que o
-# parser trata (prompt_inicial.md SS8, armadilha #1: "aconteceu na propria
-# auditoria: o awk acusou o arquivo errado").
+# parser trata -- ja aconteceu numa auditoria manual anterior: o awk ingenuo
+# acusou o arquivo errado por nao conhecer o escape GFM `\|`.
 # ----------------------------------------------------------------------------
 _SEP_INDEPENDENTE = re.compile(r"(?<!\\)\|")
 
@@ -282,27 +290,27 @@ def _check_status_map_estavel(cache, key, path):
     )
 
 
-def test_mapa_status_congelado_consumidor A(cache):
-    _check_status_map_estavel(cache, "consumidor A", consumidor A_TODO)
+def test_mapa_status_congelado_consumidor_a(cache):
+    _check_status_map_estavel(cache, "consumidor_a", FIXTURE_ENV_A)
 
 
-def test_mapa_status_congelado_consumidor B(cache):
-    _check_status_map_estavel(cache, "consumidor B", consumidor B_TODO)
+def test_mapa_status_congelado_consumidor_b(cache):
+    _check_status_map_estavel(cache, "consumidor_b", FIXTURE_ENV_B)
 
 
 # ----------------------------------------------------------------------------
-# Estado ATUAL dos 2 defeitos vivos conhecidos do consumidor B (prompt_inicial.md
-# SS3.5, IDs ja PUBLICOS neste repo via `prompt_inicial.md`). NAO conserta
-# nada aqui -- so documenta o comportamento hoje, marcado xfail(strict=True):
-# quando a onda AC-REAL (--audit/CHK-02) inverter a expectativa, o proprio
-# xfail vira erro (XPASS), que e o sinal para atualizar/remover o marcador.
+# Estado ATUAL dos 2 defeitos vivos conhecidos do consumidor B (IDs ja
+# PUBLICOS neste repo -- ver TODO.md/AC-REAL). NAO conserta nada aqui -- so
+# documenta o comportamento hoje, marcado xfail(strict=True): quando a onda
+# AC-REAL (--audit/CHK-02) inverter a expectativa, o proprio xfail vira erro
+# (XPASS), que e o sinal para atualizar/remover o marcador.
 # ----------------------------------------------------------------------------
 
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "defeito vivo conhecido (prompt_inicial.md SS3.5): o item que "
-        "DESCREVE o bug do pipe cru esta ele proprio invisivel -- o texto "
+        "defeito vivo conhecido (consumidor B, ver TODO.md/AC-REAL): o item "
+        "que DESCREVE o bug do pipe cru esta ele proprio invisivel -- o texto "
         "da propria linha tem '|' cru (nao escapado), a contagem de celulas "
         "diverge do cabecalho e a linha e descartada pela guarda de ncols "
         "(ADR-0001 b.5, 'descarte silencioso e o comportamento do nucleo "
@@ -314,7 +322,7 @@ def test_mapa_status_congelado_consumidor B(cache):
     ),
 )
 def test_todo_parser_bug_deveria_ser_visivel_mas_nao_e_hoje():
-    text = _read_fixture(consumidor B_TODO)
+    text = _read_fixture(FIXTURE_ENV_B)
     tbl = L.parse_table(text)
     ids = {it["id"] for it in tbl["items"]}
     assert "TODO-PARSER-BUG" in ids
@@ -325,15 +333,15 @@ def test_todo_parser_bug_deveria_ser_visivel_mas_nao_e_hoje():
     reason=(
         "ADR-0001 (b).5: parse_table ainda NAO tem a chave aditiva "
         "'malformed' (fatia futura, fora do escopo de CONTR-1) -- hoje o "
-        "fragmento truncado/duplicado do item ATOM-3 (consumidor B, prompt_"
-        "inicial.md SS3.5) e descartado pela guarda de ncols SEM deixar "
+        "fragmento truncado/duplicado do item ATOM-3 (consumidor B) e "
+        "descartado pela guarda de ncols SEM deixar "
         "rastro nenhum no dict devolvido por parse_table. Quando a chave "
         "'malformed' existir (SPRAWL-1/CHK-02), este teste vira XPASS/erro: "
         "sinal para atualizar/remover."
     ),
 )
 def test_fragmento_truncado_de_atom3_ainda_sem_rastro_no_parser():
-    text = _read_fixture(consumidor B_TODO)
+    text = _read_fixture(FIXTURE_ENV_B)
     tbl = L.parse_table(text)
     assert "malformed" in tbl
 
@@ -345,7 +353,7 @@ def test_atom3_resolve_hoje_para_a_linha_completa_apesar_do_fragmento_adjacente(
     SPRAWL-1/FIX-ENG nao pode regredir (ex.: um fix de consolidacao mal
     filtrado poderia acidentalmente contar as DUAS linhas como duas
     entregas de ATOM-3)."""
-    text = _read_fixture(consumidor B_TODO)
+    text = _read_fixture(FIXTURE_ENV_B)
     tbl = L.parse_table(text)
     atom3 = [it for it in tbl["items"] if it["id"] == "ATOM-3"]
     assert len(atom3) == 1, (

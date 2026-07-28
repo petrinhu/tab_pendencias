@@ -122,7 +122,7 @@ def test_sync_nao_flipa_design_e2e(tmp_path):
 #
 # Achado no consumidor A (2026-07-27): 6 linhas da tabela citavam comando de
 # shell com pipe DENTRO de code span, escapado corretamente como '\|' pelo GFM
-# (ex.: `nm libconsumidor A.a \| grep gl`). O split("|") cru contava celula demais,
+# (ex.: `nm libexemplo.a \| grep gl`). O split("|") cru contava celula demais,
 # a guarda de ncols descartava a linha, e o item ficava INVISIVEL ao sync e ao
 # health -- silenciosamente. O parser tem de conhecer o escape; e o
 # set_status_cell tem de contar do MESMO jeito, senao escreveria o status na

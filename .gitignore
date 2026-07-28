@@ -1,3 +1,16 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Material interno de planejamento do autor (SANIT-1): repo publico, nao
+# pertencem a ele -- mas a sessao de trabalho local precisa destes arquivos
+# em disco, entao nunca usar `git rm` puro sobre eles (so --cached).
+/prompt_inicial.md
+/decisoes_lider.md
+/.bigtech-porte
+
+# Config local opcional do guard anti-vazamento de fixture real (CAMADA 2 --
+# ver tools/ci/guard_no_real_fixtures.py): termos proibidos (nomes de
+# projeto real do lider), um por linha. Nunca versionado -- e o proprio dado
+# que o guard existe para proteger.
+/.guard_forbidden_terms

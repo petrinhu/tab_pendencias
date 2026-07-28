@@ -161,5 +161,5 @@ jobs:
       - name: "Guard: nenhum import fora da stdlib em tools/"
         run: python3 tools/ci/guard_stdlib_imports.py tools
 
-      - name: "Guard: anti-vazamento de fixture real (consumidor A/consumidor B)"
+      - name: "Guard: anti-vazamento de fixture real (consumidores reais do lider)"
         run: python3 tools/ci/guard_no_real_fixtures.py
