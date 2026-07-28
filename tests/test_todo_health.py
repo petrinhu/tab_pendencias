@@ -28,6 +28,7 @@ import sys
 
 import pytest
 
+from conftest import git_init_isolado as _git_init_isolado
 import todo_health as H
 import todo_lib as L
 
@@ -51,21 +52,8 @@ def _git(cwd, *args):
                    check=True)
 
 
-def _git_init_isolado(cwd):
-    """`git init` + desliga qualquer hook LOCAL a este repo, sem tocar
-    config global nenhuma: esta maquina tem `core.hooksPath` GLOBAL
-    apontando para `~/.claude/githooks/` (ver `~/.gitconfig`), entao todo
-    commit num repo temporario dispararia o hook AMBIENTE de verdade
-    (potencialmente uma versao diferente da deste repo -- ver MIG-DIFF na
-    INBOX do TODO.md) e poluiria `$GIT_DIR/todo-freshness.log` por baixo
-    dos panos, quebrando o isolamento e a determinacao destes testes. Um
-    `core.hooksPath` LOCAL (config do proprio repo temporario, nao
-    `--global`) para um diretorio vazio sobrescreve o global sem alterar
-    nada fora do tmp_path."""
-    _git(cwd, "init", "-q")
-    hooks_vazio = os.path.join(str(cwd), ".git", "hooks-vazio-teste")
-    os.makedirs(hooks_vazio, exist_ok=True)
-    _git(cwd, "config", "core.hooksPath", hooks_vazio)
+# _git_init_isolado (protecao HOOKISO-1 contra o core.hooksPath GLOBAL desta
+# maquina) mora em conftest.py e e IMPORTADA acima -- nao duplicar aqui.
 
 
 def _row(iid, status):

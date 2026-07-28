@@ -12,6 +12,8 @@ import os
 import subprocess
 import sys
 
+from conftest import git_init_isolado as _git_init_isolado
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS_DIR = os.path.join(REPO_ROOT, "tools")
 SYNC = os.path.join(TOOLS_DIR, "todo_sync.py")
@@ -33,8 +35,13 @@ def _git(cwd, *a):
 
 
 def _repo(tmp_path, status_v12="⏳ Pendente"):
-    """Repo git com TODO.md de 1 item (V-12); devolve (root, todo_path, base_sha)."""
-    _git(tmp_path, "init", "-q")
+    """Repo git com TODO.md de 1 item (V-12); devolve (root, todo_path, base_sha).
+
+    HOOKISO-1: usa `git_init_isolado` (conftest.py), nao `git init` cru --
+    esta maquina tem `core.hooksPath` GLOBAL apontando para
+    `~/.claude/githooks/`, e sem a protecao cada commit feito aqui
+    dispararia o hook AMBIENTE de verdade por baixo dos panos."""
+    _git_init_isolado(tmp_path)
     todo = tmp_path / "TODO.md"
     todo.write_text(
         "| ID | Onda | Grupo | Descrição | Prioridade | Pré-requisito | "
@@ -153,7 +160,7 @@ def test_health_exit1_fora_de_repo(tmp_path):
 def test_health_exit0_repo_git_sem_todo_md(tmp_path):
     """Repo git valido sem TODO.md: estado valido (nada a reportar), NAO erro
     -- consistente com todo_sync.py, que ja trata 'sem TODO.md' como exit 0."""
-    _git(tmp_path, "init", "-q")
+    _git_init_isolado(tmp_path)
     (tmp_path / "readme.txt").write_text("x")
     _git(tmp_path, "add", "readme.txt")
     _git(tmp_path, "commit", "-qm", "init")
@@ -179,3 +186,55 @@ def test_freshness_exit0_mesmo_com_aviso_real(tmp_path):
     assert r.returncode == 0, (r.stdout, r.stderr)
     assert "V-12" in r.stderr  # o aviso existe...
     # ...mas nao muda o exit code (warn-only, invariante de contrato).
+
+
+# ------------------------------ HOOKISO-1: prova da protecao -------------------
+#
+# Esta maquina tem `core.hooksPath` GLOBAL (`~/.gitconfig`) apontando para
+# `~/.claude/githooks/` -- sem `git_init_isolado` (conftest.py), o commit
+# abaixo (toca codigo E cita V-12, o gatilho mais forte que existe) faria o
+# hook AMBIENTE de verdade escrever em `$GIT_DIR/todo-freshness.log` por
+# baixo dos panos. Prova positiva: o arquivo nao existe depois do commit.
+# Continua valida (trivialmente) em maquinas/CI sem esse hook global
+# configurado -- o que ela garante e que a protecao NUNCA introduz o
+# efeito colateral, com ou sem hook ambiente presente.
+
+def test_hookiso1_hook_ambiente_nao_escreve_log_dentro_da_fixture(tmp_path):
+    root, todo, base = _repo(tmp_path)
+    (root / "auth.py").write_text("x")
+    _git(root, "add", "auth.py")
+    _git(root, "commit", "-qm", "feat: termina login V-12")
+
+    gd = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=root,
+                        capture_output=True, text=True).stdout.strip()
+    gd = gd if os.path.isabs(gd) else os.path.join(str(root), gd)
+    log = os.path.join(gd, "todo-freshness.log")
+    assert not os.path.exists(log), (
+        "o hook AMBIENTE (core.hooksPath global) escreveu dentro do repo de "
+        "teste -- a protecao HOOKISO-1 (git_init_isolado) falhou"
+    )
+
+
+def test_hookiso1_core_hookspath_local_sobrescreve_o_global(tmp_path):
+    """Prova estrutural, independente de o hook ambiente existir ou nao
+    nesta maquina: dentro da fixture, `core.hooksPath` resolve para um
+    diretorio LOCAL ao repo de teste, nunca para o valor global."""
+    root, todo, base = _repo(tmp_path)
+    global_path = subprocess.run(
+        ["git", "config", "--global", "--get", "core.hooksPath"],
+        capture_output=True, text=True
+    ).stdout.strip()
+    local_path = subprocess.run(
+        ["git", "config", "core.hooksPath"], cwd=root,
+        capture_output=True, text=True
+    ).stdout.strip()
+    assert local_path != "", "core.hooksPath local nao foi configurado na fixture"
+    assert str(root) in local_path, (
+        f"core.hooksPath local ({local_path!r}) nao aponta para dentro do "
+        f"repo de teste ({root!r})"
+    )
+    if global_path:  # so faz sentido comparar se esta maquina tem hook global
+        assert local_path != global_path, (
+            "core.hooksPath dentro da fixture ainda resolve para o global "
+            f"({global_path!r}) -- a protecao HOOKISO-1 nao sobrescreveu"
+        )
