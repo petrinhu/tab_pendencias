@@ -1,0 +1,65 @@
+# .markdownlint-cli2.yaml -- config do job de lint de Markdown do CI-1
+#
+# Base: todas as regras do markdownlint ligadas ("default: true"), com um
+# disable EXPLICITO e documentado por regra -- nunca um "desliga tudo e
+# reconfigura do zero" (regra "no silent caps" do projeto: toda excecao
+# fica visivel e com motivo, no arquivo, nao so na cabeca de quem escreveu).
+#
+# Medido localmente (npx markdownlint-cli2) contra o estado real do repo em
+# 2026-07-28: sem estes disables, o job falharia com ~150 achados vindos
+# quase todos de convencao de prosa/tabela JA em uso nos docs existentes
+# (SKILL.md, TESTES.md, references/*.md, SECURITY.md, prompt_inicial.md,
+# docs/adr/*.md) -- nao de conteudo novo deste item (CI-1). Cada regra
+# abaixo foi conferida individualmente contra a saida real antes de entrar
+# nesta lista.
+config:
+  default: true
+
+  # MD013 (line-length): as tabelas GFM deste projeto (TODO.md, TESTES.md,
+  # SKILL.md, decisoes_lider.md) tem celulas de descricao tecnica longas por
+  # desenho -- quebrar linha dentro de uma celula de tabela markdown corrompe
+  # a tabela. Padrao incompativel com o formato de dado deste repo.
+  MD013: false
+
+  # MD060 (table-column-style "compact"): o projeto usa consistentemente
+  # pipe sem espaco de padding nas tabelas ("|X|Y|", nao "| X | Y |") --
+  # e o estilo em uso em TODO.md/SKILL.md/TESTES.md/references, nao um erro.
+  MD060: false
+
+  # MD022/MD031/MD032 (blank lines ao redor de heading/fence/lista): estilo
+  # de espacamento ja em uso (ex.: TESTES.md, SKILL.md) que este item nao
+  # teve mandato de reescrever.
+  MD022: false
+  MD031: false
+  MD032: false
+
+  # MD027 (espaco duplo apos blockquote) e MD037 (espaco dentro de enfase):
+  # nitpicks tipograficos pontuais em SKILL.md, nao relacionados a CI-1.
+  MD027: false
+  MD037: false
+
+  # MD034 (bare URL): dispara em endereco de email nu (SECURITY.md), nao em
+  # URL real; falso positivo do ponto de vista do conteudo real.
+  MD034: false
+
+  # MD033 (inline HTML): o projeto usa `<placeholder>` em angulos na prosa
+  # tecnica (ex.: SKILL.md) como convencao de espaco reservado, nao HTML.
+  MD033: false
+
+  # MD040 (fenced code sem linguagem): 1 ocorrencia pontual em SKILL.md,
+  # fora do escopo deste item.
+  MD040: false
+
+  # MD036 (enfase usada como heading) e MD038 (espaco dentro de code span):
+  # ocorrencias pontuais em prompt_inicial.md e docs/adr/0001-*.md -- docs
+  # de outros itens/agents em paralelo (ADR-1); nao e mandato de CI-1
+  # reescrever prosa alheia para o lint passar.
+  MD036: false
+  MD038: false
+
+# tests/corpus/**: corpus SINTETICO de teste (CORP-0) com markdown
+# deliberadamente malformado (pipe cru, tabela fragmentada, BOM, CRLF) --
+# sao fixtures que EXISTEM para estar quebradas; lintar prosa ali contradiz
+# o proposito do arquivo.
+ignores:
+  - "tests/corpus/**"

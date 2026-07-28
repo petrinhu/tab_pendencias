@@ -1,0 +1,8 @@
+# requirements-dev.txt -- dependencias de DESENVOLVIMENTO/CI (CI-1)
+#
+# O runtime do produto (tools/) e stdlib pura por desenho -- ver
+# tools/ci/guard_stdlib_imports.py e as notas de montagem do TODO.md. Este
+# arquivo cobre APENAS a ferramenta de teste (pytest), nunca importada por
+# codigo de tools/. Versao pinada (nao ">=") por reprodutibilidade: mesmo
+# input, mesmo output, no CI e na maquina de qualquer contribuidor.
+pytest==9.0.3
