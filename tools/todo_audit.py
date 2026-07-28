@@ -149,10 +149,26 @@ def _chk00_id_com_espaco(ctx):
     return out
 
 
+import checks.chk_graph as _chk_graph  # noqa: E402 -- import tardio de
+# proposito (depois de Check/Finding definidos): `checks.chk_graph` importa
+# `Finding` de volta deste modulo dentro do CORPO das suas funcoes de check
+# (nao no topo do arquivo), entao nao ha ciclo de importacao de verdade --
+# so a ordem de leitura aqui reflete que o registro (CHK-GRAPH) vem DEPOIS
+# das classes que ele consome.
+
 CHECKS: list[Check] = [
     Check(id="CHK-00", title="[exemplo] ID com espaco em branco",
           profile="core", severity_default="COSMÉTICO",
           run=_chk00_id_com_espaco),
+    Check(id="CHK-05", title="Pré-requisito citando ID inexistente",
+          profile="core", severity_default="IMPORTANTE",
+          run=_chk_graph.chk05),
+    Check(id="CHK-06", title="Ciclo de dependência",
+          profile="core", severity_default="CRÍTICO",
+          run=_chk_graph.chk06),
+    Check(id="CHK-07", title="Onda inconsistente com a dependência",
+          profile="core", severity_default="IMPORTANTE",
+          run=_chk_graph.chk07),
 ]
 
 
