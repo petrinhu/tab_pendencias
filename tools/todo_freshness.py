@@ -28,10 +28,17 @@ Dois avisos, so quando ha lacuna acionavel (silencioso caso contrario):
    de teste/auditoria).
 
 Registra adesao em $GIT_DIR/todo-freshness.log para medir antes de automatizar.
+
+ENC-1: warn-only continua exit 0 SEMPRE, mas a excecao na leitura do TODO.md
+deixa de ser engolida em silencio -- vai para stderr (tipo + mensagem) e para
+o log de adesao (linha "erro=leitura_todo:<Tipo>", nunca "code=..."/"cited=..."
+para nao contaminar a metrica de _adesao do todo_health.py). --verbose
+acrescenta o traceback completo em stderr, sem mudar o exit code.
 """
 import argparse
 import os
 import sys
+import traceback
 from datetime import datetime, timezone
 
 import todo_lib as L
@@ -67,6 +74,11 @@ def _build_parser():
         epilog="Exit code: sempre 0 (warn-only; avisos vao para stderr).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    p.add_argument(
+        "-v", "--verbose", action="store_true",
+        help="Alem da linha curta (tipo + mensagem), imprime o traceback "
+             "completo de uma excecao na leitura do TODO.md em stderr. Nao "
+             "muda o exit code (warn-only continua sempre 0).")
     return p
 
 # Re-export (compat de testes + clareza).
@@ -112,8 +124,33 @@ def _log_adesao(root, touched, n_cited, n_warns):
         pass
 
 
+def _warn_leitura_falhou(root, exc, verbose):
+    """ENC-1: a leitura do TODO.md pode falhar (arquivo ilegivel, encoding
+    invalido, TODO.md e um diretorio etc.). O nucleo aqui continua warn-only
+    (exit 0 SEMPRE -- isto NUNCA muda), mas a excecao deixa de ser engolida
+    em silencio: uma linha curta (tipo + mensagem) sempre vai para stderr, e
+    uma entrada para o log de adesao (formato "erro=leitura_todo:<Tipo>",
+    deliberadamente sem os campos "code="/"cited="/"warns=" para o
+    todo_health.py._adesao no filtrar por "code=1" continuar ignorando-a sem
+    contorno especial). --verbose acrescenta o traceback completo."""
+    print(f"[todo-fresh] leitura do TODO.md falhou ({type(exc).__name__}: "
+          f"{exc}); avisos de frescor pulados neste commit.", file=sys.stderr)
+    if verbose:
+        traceback.print_exc(file=sys.stderr)
+    gd = L.git_dir(root)
+    if not gd:
+        return
+    try:
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with open(os.path.join(gd, "todo-freshness.log"), "a",
+                  encoding="utf-8") as fh:
+            fh.write(f"{stamp} erro=leitura_todo:{type(exc).__name__}\n")
+    except Exception:
+        pass
+
+
 def main(argv=None):
-    _build_parser().parse_args(sys.argv[1:] if argv is None else argv)
+    args = _build_parser().parse_args(sys.argv[1:] if argv is None else argv)
     root = L.repo_root()
     if not root:
         return 0
@@ -123,7 +160,8 @@ def main(argv=None):
     try:
         with open(todo, encoding="utf-8") as fh:
             text = fh.read()
-    except Exception:
+    except Exception as exc:
+        _warn_leitura_falhou(root, exc, args.verbose)
         return 0
     items = L.parse_status_map(text)
     if not items:

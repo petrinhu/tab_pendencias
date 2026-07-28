@@ -11,9 +11,9 @@ Invariante inegociavel testado em TODOS os cenarios, inclusive erro:
 `todo_freshness` e warn-only -- exit code SEMPRE 0. Um exit != 0 quebraria
 o commit de quem instalou o hook.
 
-Documenta tambem, sem tentar consertar (fora do escopo desta fatia -- ver
-ENC-1 no TODO.md): a politica atual de engolir QUALQUER excecao de leitura
-em silencio.
+Cobre tambem ENC-1: a excecao na leitura do TODO.md nao e mais engolida em
+silencio (aparece em stderr + log de adesao), com --verbose acrescentando o
+traceback completo -- sem nunca mudar o exit code (warn-only permanece 0).
 
 Nada de rede, nada de sleep: cada teste e determinístico e limpa o proprio
 tmp_path (pytest ja faz isso no teardown).
@@ -212,7 +212,8 @@ def test_e2e_log_acumula_entre_commits_sucessivos(tmp_path):
 
 # ---------------------------------------------------------------------------
 # Warn-only: exit SEMPRE 0, inclusive fora de repo, repo sem TODO.md, e
-# TODO.md ilegivel (excecao de leitura engolida -- ENC-1 ainda em aberto).
+# TODO.md ilegivel (ENC-1: a excecao de leitura aparece em stderr/log, mas
+# o exit code continua 0).
 # ---------------------------------------------------------------------------
 
 def test_e2e_exit0_fora_de_repositorio_git(tmp_path):
@@ -231,24 +232,63 @@ def test_e2e_exit0_repo_git_sem_todo_md(tmp_path):
     assert r.stderr.strip() == ""
 
 
-def test_e2e_exit0_todo_md_ilegivel_excecao_engolida_em_silencio(tmp_path):
-    """Documenta o comportamento ATUAL (nao conserta -- ENC-1 no TODO.md):
-    todo_freshness.main() engole QUALQUER excecao na leitura do TODO.md
-    (`todo_freshness.py:123-127`, `except Exception: return 0`) e devolve 0
-    sem nenhum log/aviso -- mesmo padrao para arquivo ilegivel, encoding
-    invalido ou, como aqui, um diretorio no lugar do arquivo (IsADirectoryError
-    e uma excecao concreta e determinista para forcar esse caminho sem
-    depender de bits de permissao especificos do SO)."""
+def _commit_todo_md_com_bytes_invalidos(tmp_path):
+    """Grava um TODO.md com bytes que nao decodificam como UTF-8 e commita.
+
+    ACHADO desta fatia (ENC-1): a fixture original desta suite usava
+    `os.mkdir(tmp_path / "TODO.md")` (IsADirectoryError) para forcar a
+    excecao de leitura -- mas `L.find_todo()` usa `os.path.isfile(p)`, que
+    e False para um diretorio, entao `main()` retornava 0 no ramo "sem
+    TODO.md" (`if not todo: return 0`) SEM NUNCA chegar no `open()`/`try`
+    que este ENC-1 conserta. O teste antigo passava pelo motivo ERRADO --
+    provado ao vivo (`os.path.isfile` sobre um diretorio: False). Bytes
+    UTF-8 invalidos sao deterministicos, cross-platform (nao dependem de
+    bits de permissao POSIX) e batem `os.path.isfile` (e um arquivo
+    regular), forcando `UnicodeDecodeError` de verdade dentro do `try`."""
     _git_init_isolado(tmp_path)
-    os.mkdir(tmp_path / "TODO.md")   # TODO.md e um DIRETORIO -> open() falha
-    (tmp_path / "TODO.md" / "nada.txt").write_text("x", encoding="utf-8")
-    _git(tmp_path, "add", "-A")
-    _git(tmp_path, "commit", "-qm", "TODO.md e um diretorio, de proposito")
+    with open(tmp_path / "TODO.md", "wb") as fh:
+        fh.write(b"| ID | Status |\n| :- | :- |\n| V-1 | \xff\xfe invalido |\n")
+    _git(tmp_path, "add", "TODO.md")
+    _git(tmp_path, "commit", "-qm", "TODO.md com bytes invalidos, de proposito")
+
+
+def test_e2e_exit0_todo_md_ilegivel_excecao_nao_e_mais_engolida_em_silencio(tmp_path):
+    """ENC-1 (consertado): todo_freshness continua warn-only (exit 0 SEMPRE,
+    nunca quebra o commit de quem instalou o hook), mas a excecao na leitura
+    do TODO.md deixa de ser engolida em silencio -- aparece em stderr (tipo +
+    mensagem da excecao) e uma entrada e gravada no log de adesao (para nao
+    desaparecer de estatisticas agregadas)."""
+    _commit_todo_md_com_bytes_invalidos(tmp_path)
+
+    r = _run_fresh(tmp_path)
+    assert r.returncode == 0, (r.stdout, r.stderr)  # warn-only: exit continua 0
+    assert "UnicodeDecodeError" in r.stderr
+
+    log = open(_log_path(tmp_path), encoding="utf-8").read().splitlines()
+    assert len(log) == 1
+    assert "erro=leitura_todo:UnicodeDecodeError" in log[0]
+
+
+def test_e2e_verbose_acrescenta_traceback_da_excecao_engolida(tmp_path):
+    """--verbose (ENC-1): alem da linha curta, imprime o traceback completo
+    em stderr -- mas o exit code continua 0 (warn-only nao muda com verbose)."""
+    _commit_todo_md_com_bytes_invalidos(tmp_path)
+
+    r = subprocess.run([sys.executable, FRESH, "--verbose"], cwd=tmp_path,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert "UnicodeDecodeError" in r.stderr
+    assert "Traceback (most recent call last)" in r.stderr
+
+
+def test_e2e_sem_verbose_nao_ha_traceback(tmp_path):
+    """Sem --verbose, so a linha curta -- sem o traceback completo."""
+    _commit_todo_md_com_bytes_invalidos(tmp_path)
 
     r = _run_fresh(tmp_path)
     assert r.returncode == 0, (r.stdout, r.stderr)
-    assert r.stderr.strip() == ""  # excecao engolida: nenhum aviso, nenhum crash
-    assert not os.path.isfile(_log_path(tmp_path))  # nem chegou a logar adesao
+    assert "UnicodeDecodeError" in r.stderr
+    assert "Traceback (most recent call last)" not in r.stderr
 
 
 def test_e2e_exit0_mesmo_com_flag_desconhecida(tmp_path):

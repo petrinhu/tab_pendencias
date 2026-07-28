@@ -35,10 +35,15 @@ Ref de sync incremental em $GIT_DIR/todo-sync-ref. Primeira execucao sem ref
 NAO varre o historico: a linha de base passa a ser HEAD (citacao antiga de item
 ainda pendente viraria flip indevido). Para ler o passado de proposito, passe
 --since <ref> explicitamente. --apply e sempre explicito.
+
+ENC-1: falha de leitura do TODO.md (encoding invalido, permissao, etc.) vira
+mensagem CLARA em stderr + exit 1 (erro de execucao, D-6/CLI-1) -- nunca
+traceback cru. --verbose acrescenta o traceback completo.
 """
 import argparse
 import os
 import sys
+import traceback
 
 import todo_lib as L
 
@@ -80,6 +85,10 @@ def _build_parser():
         "--since", metavar="REF",
         help="Janela explicita de commits (ex.: uma tag ou commit); ignora "
              "o ref incremental salvo e varre o passado de proposito.")
+    p.add_argument(
+        "-v", "--verbose", action="store_true",
+        help="Se a leitura do TODO.md falhar, acrescenta o traceback "
+             "completo em stderr (default: so tipo + mensagem da excecao).")
     return p
 
 
@@ -152,6 +161,7 @@ def _commits_since(root, since):
 def run(argv, root=None):
     """Nucleo testavel. Retorna (rc, to_flip, applied)."""
     apply = "--apply" in argv
+    verbose = "--verbose" in argv or "-v" in argv
     since = None
     if "--since" in argv:
         try:
@@ -166,8 +176,17 @@ def run(argv, root=None):
     if not todo:
         print("Sem TODO.md na raiz; nada a sincronizar.")
         return 0, [], False
-    with open(todo, encoding="utf-8", newline="") as fh:  # preserva CRLF/LF
-        text = fh.read()
+    try:
+        with open(todo, encoding="utf-8", newline="") as fh:  # preserva CRLF/LF
+            text = fh.read()
+    except Exception as exc:
+        # ENC-1: erro de execucao (D-6/CLI-1) -- mensagem clara em stderr,
+        # nunca o traceback cru do Python. --verbose acrescenta o traceback.
+        print(f"Falha ao ler TODO.md ({type(exc).__name__}): {exc}",
+              file=sys.stderr)
+        if verbose:
+            traceback.print_exc(file=sys.stderr)
+        return 1, [], False
     tbl = L.parse_table(text)
     if not tbl or not tbl["items"]:
         print("Sem tabela de itens no TODO.md.")

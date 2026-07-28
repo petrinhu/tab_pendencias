@@ -25,10 +25,15 @@ Da o dado para "medir antes de escalar":
   - adesao a citar ID nos commits (do $GIT_DIR/todo-freshness.log)
 
 Uso: python3 todo_health.py
+
+ENC-1: falha de leitura do TODO.md (encoding invalido, permissao, etc.) vira
+mensagem CLARA em stderr + exit 1 (erro de execucao, D-6/CLI-1) -- nunca
+traceback cru. --verbose acrescenta o traceback completo.
 """
 import argparse
 import os
 import sys
+import traceback
 
 import todo_lib as L
 
@@ -62,6 +67,10 @@ def _build_parser():
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    p.add_argument(
+        "-v", "--verbose", action="store_true",
+        help="Se a leitura do TODO.md falhar, acrescenta o traceback "
+             "completo em stderr (default: so tipo + mensagem da excecao).")
     return p
 
 
@@ -83,8 +92,21 @@ def _adesao(root):
     return f"{len(citaram)}/{len(code)} commits de codigo citaram ID ({pct}%)"
 
 
-def run(root=None):
-    """Nucleo testavel. Retorna um dict com as metricas."""
+# ENC-1: sentinela DISTINTO de None -- `run()` ja devolve None para dois
+# estados VALIDOS ("nao e repo git", "sem TODO.md"/"sem tabela": nada a
+# reportar, main() os desambigua via L.repo_root()). Uma leitura que FALHOU
+# (erro de execucao, D-6) nao pode reusar esse mesmo None generico: main()
+# precisaria adivinhar a causa, e um falso "sem TODO.md" sairia exit 0
+# quando deveria ser 1. `is ERRO_LEITURA` (identidade de objeto, nunca
+# confundido com um dict de sucesso nem com None) resolve isso sem mudar o
+# contrato dos dois `None` ja existentes.
+ERRO_LEITURA = object()
+
+
+def run(root=None, verbose=False):
+    """Nucleo testavel. Retorna um dict com as metricas, None (estado valido
+    sem dado: nao e repo git / sem TODO.md / sem tabela) ou ERRO_LEITURA
+    (leitura do TODO.md falhou -- erro de execucao, D-6/ENC-1)."""
     root = root or L.repo_root()
     if not root:
         print("Nao e um repositorio git.")
@@ -93,8 +115,15 @@ def run(root=None):
     if not todo:
         print("Sem TODO.md na raiz.")
         return None
-    with open(todo, encoding="utf-8") as fh:
-        text = fh.read()
+    try:
+        with open(todo, encoding="utf-8") as fh:
+            text = fh.read()
+    except Exception as exc:
+        print(f"Falha ao ler TODO.md ({type(exc).__name__}): {exc}",
+              file=sys.stderr)
+        if verbose:
+            traceback.print_exc(file=sys.stderr)
+        return ERRO_LEITURA
     tbl = L.parse_table(text)
     if not tbl:
         print("Sem tabela no TODO.md.")
@@ -127,14 +156,18 @@ def run(root=None):
 
 
 def main(argv):
-    """CLI (D-6/CLI-1). run() mantem seu contrato (None em qualquer falha);
-    aqui e decidido o exit code visivel: 'nao e repo git' e erro de execucao
-    (1), mas 'sem TODO.md'/'sem tabela' e estado valido (0, nada a reportar)
-    -- consistente com todo_sync.py, que ja faz essa mesma distincao. Chama
-    L.repo_root() de novo (2o subprocess git) so para desambiguar a causa da
-    falha sem mudar a assinatura/contrato ja existente de run()."""
-    _build_parser().parse_args(argv)
-    res = run()
+    """CLI (D-6/CLI-1). run() devolve dict (sucesso), None (estado valido
+    sem dado) ou ERRO_LEITURA (ENC-1: leitura falhou); aqui e decidido o
+    exit code visivel: 'nao e repo git' e falha de leitura sao erro de
+    execucao (1), mas 'sem TODO.md'/'sem tabela' e estado valido (0, nada a
+    reportar) -- consistente com todo_sync.py, que ja faz essa mesma
+    distincao. Chama L.repo_root() de novo (2o subprocess git) so para
+    desambiguar a causa da falha sem mudar a assinatura/contrato ja
+    existente de run()."""
+    args = _build_parser().parse_args(argv)
+    res = run(verbose=args.verbose)
+    if res is ERRO_LEITURA:
+        return 1
     if res is not None:
         return 2 if res["aguardando_verificacao"] > 0 else 0
     return 1 if L.repo_root() is None else 0
