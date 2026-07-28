@@ -51,6 +51,23 @@ def _git(cwd, *args):
                    check=True)
 
 
+def _git_init_isolado(cwd):
+    """`git init` + desliga qualquer hook LOCAL a este repo, sem tocar
+    config global nenhuma: esta maquina tem `core.hooksPath` GLOBAL
+    apontando para `~/.claude/githooks/` (ver `~/.gitconfig`), entao todo
+    commit num repo temporario dispararia o hook AMBIENTE de verdade
+    (potencialmente uma versao diferente da deste repo -- ver MIG-DIFF na
+    INBOX do TODO.md) e poluiria `$GIT_DIR/todo-freshness.log` por baixo
+    dos panos, quebrando o isolamento e a determinacao destes testes. Um
+    `core.hooksPath` LOCAL (config do proprio repo temporario, nao
+    `--global`) para um diretorio vazio sobrescreve o global sem alterar
+    nada fora do tmp_path."""
+    _git(cwd, "init", "-q")
+    hooks_vazio = os.path.join(str(cwd), ".git", "hooks-vazio-teste")
+    os.makedirs(hooks_vazio, exist_ok=True)
+    _git(cwd, "config", "core.hooksPath", hooks_vazio)
+
+
 def _row(iid, status):
     return (f"| {iid} | W1 | Grupo | Descrição | Média | — | Baixa | "
             f"{status} | — |\n")
@@ -58,7 +75,7 @@ def _row(iid, status):
 
 def _repo(tmp_path, todo_text):
     """Repo git local com o TODO.md dado ja commitado. Devolve o path."""
-    _git(tmp_path, "init", "-q")
+    _git_init_isolado(tmp_path)
     (tmp_path / "TODO.md").write_text(todo_text, encoding="utf-8")
     _git(tmp_path, "add", "TODO.md")
     _git(tmp_path, "commit", "-qm", "tabela")
@@ -275,7 +292,7 @@ def test_run_tabela_legada_8_colunas(tmp_path):
 
 
 def test_run_sem_todo_md_devolve_none(tmp_path, capsys):
-    _git(tmp_path, "init", "-q")
+    _git_init_isolado(tmp_path)
     (tmp_path / "readme.txt").write_text("x", encoding="utf-8")
     _git(tmp_path, "add", "readme.txt")
     _git(tmp_path, "commit", "-qm", "init")
@@ -325,7 +342,7 @@ def test_cli_exit2_com_item_preso(tmp_path):
 
 
 def test_cli_exit0_repo_git_sem_todo_md(tmp_path):
-    _git(tmp_path, "init", "-q")
+    _git_init_isolado(tmp_path)
     (tmp_path / "x.txt").write_text("x", encoding="utf-8")
     _git(tmp_path, "add", "x.txt")
     _git(tmp_path, "commit", "-qm", "init")
