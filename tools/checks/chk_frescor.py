@@ -511,6 +511,10 @@ def chk09(ctx):
 
 # ------------------------------- CHK-10 ------------------------------------
 
+# SYMLINK-1 (avaliação, não alterado): `__file__` é o caminho deste módulo
+# na própria instalação, não input de usuário/CLI -- sem superfície de
+# ataque, `abspath` permanece (mesma razão de `TOOLS_DIR`/`_check_run_file`
+# em todo_audit.py).
 _TOOLS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _TODO_SYNC_PATH = os.path.join(_TOOLS_DIR, "todo_sync.py")
 

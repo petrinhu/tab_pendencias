@@ -340,6 +340,15 @@ def _working_tree_status(root, todo_path):
         return True, (
             "não é um repositório git resolvível a partir daqui -- --apply "
             "exige git para provar a working tree limpa antes de escrever")
+    # SYMLINK-1 (avaliação, não alterado): `abspath`, não `realpath`.
+    # `todo_path` aqui é sempre `L.find_todo(root)` = `root/TODO.md`
+    # literal -- `todo_fix.py` (CLI, `main()`) não tem flag `--todo`/
+    # `--output`, então não há caminho de linha de comando controlável
+    # por quem invoca; a única forma de `todo_path` ser um link é o
+    # próprio usuário ter tornado o SEU `TODO.md` um symlink na SUA
+    # máquina, o que não é uma fronteira que este código deva policiar.
+    # Diferente de `todo_audit.py` (`--output`/`--todo` recebem caminho
+    # arbitrário do chamador), aqui não há superfície de ataque a fechar.
     rel = os.path.relpath(os.path.abspath(todo_path), rr)
     try:
         r = subprocess.run(["git", "status", "--porcelain", "--", rel],
@@ -453,7 +462,14 @@ def _escrever_atomico(todo_path, novo_texto):
     temporário no MESMO diretório (mesmo filesystem -- `os.replace` atômico
     de verdade) + fsync + releitura byte-a-byte ANTES do swap. Se qualquer
     passo falhar, o arquivo temporário é removido e o TODO.md real NUNCA é
-    tocado -- (ok, motivo_ou_None)."""
+    tocado -- (ok, motivo_ou_None).
+
+    SYMLINK-1 (avaliação, não alterado): mesma razão do comentário em
+    `_working_tree_status` -- `todo_path` não vem de flag de CLI aqui, só
+    de `L.find_todo(root)`. `os.replace(tmp_path, todo_path)` (abaixo)
+    segue o link se `todo_path` for um symlink e substitui o ALVO, que é
+    o comportamento que o próprio usuário escolheu ao symlinkar o seu
+    TODO.md -- não uma fronteira de repositório sendo furada."""
     d = os.path.dirname(os.path.abspath(todo_path)) or "."
     tmp_path = None
     try:

@@ -369,6 +369,76 @@ def test_output_fora_do_repo_escreve_relatorio(tmp_path):
             fora.unlink()
 
 
+def test_output_symlink_de_fora_apontando_pra_dentro_e_recusado(tmp_path):
+    """SYMLINK-1: `--output` recebe um caminho que fica FORA do repo em
+    string crua (abspath), mas cujo symlink resolve para DENTRO dele.
+    `os.path.abspath` normaliza a string sem seguir o link -- passava
+    incolume pela checagem antiga e o `open(path, "w")` seguinte escrevia
+    de verdade dentro do repositorio auditado, violando a promessa de
+    --audit ser sempre read-only (README/SKILL.md/ADR-0001 c)."""
+    root, _todo = _repo(tmp_path, TODO_OK)
+    fora_dir = tmp_path.parent / f"fora-{tmp_path.name}"
+    fora_dir.mkdir()
+    alvo_dentro = root / "pwned.txt"
+    link = fora_dir / "evil-link.txt"
+    os.symlink(alvo_dentro, link)
+    try:
+        r = _run(["--output", str(link)], cwd=root)
+        assert r.returncode == 1, (r.stdout, r.stderr)
+        assert not alvo_dentro.exists(), (
+            "BUG SYMLINK-1: escreveu dentro do repo auditado via symlink "
+            "criado fora dele")
+        assert not link.is_symlink() or not os.path.exists(link), (
+            "o proprio arquivo apontado pelo link tambem nao pode existir")
+    finally:
+        if link.exists() or link.is_symlink():
+            link.unlink()
+
+
+def test_todo_symlink_de_fora_nao_destrava_output_no_repo_real(tmp_path):
+    """SYMLINK-1 (gemeo): `--todo` seguindo um symlink cujo caminho CRU
+    fica fora do repo real faz `root` (usado por `_output_forbidden`) ser
+    calculado a partir do diretorio do LINK, nao do repo de verdade --
+    destravando o `--output` para escrever DIRETO no repo real, sem nem
+    precisar symlinkar o proprio --output."""
+    root, todo_real = _repo(tmp_path, TODO_OK)
+    fora_dir = tmp_path.parent / f"fora-todo-{tmp_path.name}"
+    fora_dir.mkdir()
+    link = fora_dir / "TODO.md"
+    os.symlink(todo_real, link)
+    alvo_dentro = root / "pwned2.txt"
+    try:
+        r = _run(["--todo", str(link), "--output", str(alvo_dentro)],
+                 cwd=fora_dir)
+        assert r.returncode == 1, (r.stdout, r.stderr)
+        assert not alvo_dentro.exists(), (
+            "BUG SYMLINK-1: --todo via symlink calculou 'root' errado e "
+            "destravou escrita direta no repo real")
+    finally:
+        if alvo_dentro.exists():
+            alvo_dentro.unlink()
+
+
+def test_output_fora_do_repo_continua_permitido_apos_o_conserto(tmp_path):
+    """Uso legitimo nao pode virar dano colateral do SYMLINK-1: escrever
+    num diretorio de scratch fora do repo, inclusive quando esse scratch
+    em si e alcancado por um symlink cujo alvo tambem fica fora."""
+    root, _todo = _repo(tmp_path, TODO_ID_DUPLICADO)
+    scratch_real = tmp_path.parent / f"scratch-real-{tmp_path.name}"
+    scratch_real.mkdir()
+    link_scratch = tmp_path.parent / f"scratch-link-{tmp_path.name}"
+    os.symlink(scratch_real, link_scratch)
+    fora = link_scratch / "relatorio.txt"
+    try:
+        r = _run(["--output", str(fora)], cwd=root)
+        assert r.returncode == 2, (r.stdout, r.stderr)
+        assert fora.exists()
+        assert "CHK-01" in fora.read_text(encoding="utf-8")
+    finally:
+        if fora.exists():
+            fora.unlink()
+
+
 # ------------------------------ CLI / exit codes (D-6) --------------------------
 
 def test_help_exit0():

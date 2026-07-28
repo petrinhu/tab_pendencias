@@ -79,6 +79,13 @@ from dataclasses import dataclass
 import todo_lib as L
 
 TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
+# SYMLINK-1 (avaliacao, nao alterado): `abspath` aqui e proposital, nao um
+# descuido gemeo do achado. `__file__` e o caminho deste MODULO na propria
+# instalacao do produto (nunca input de usuario/CLI), usado so por
+# `core_boundary_violations` para comparar contra o arquivo-fonte de onde
+# um Check foi registrado -- uma invariante de ARQUITETURA em tempo de
+# import, nao uma fronteira de seguranca contra caminho hostil. Trocar por
+# `realpath` aqui nao fecha ataque nenhum (nada neste calculo vem de fora).
 CASA_DIR = os.path.join(TOOLS_DIR, "casa")
 
 _PROFILES = ("core", "casa")
@@ -219,7 +226,15 @@ CHECKS: list[Check] = [
 
 
 def _check_run_file(check):
-    """Caminho absoluto do arquivo-fonte onde `check.run` foi definido."""
+    """Caminho absoluto do arquivo-fonte onde `check.run` foi definido.
+
+    SYMLINK-1 (avaliacao, nao alterado): mesma razao de `TOOLS_DIR` acima
+    -- `inspect.getsourcefile` devolve o caminho do MODULO Python de onde
+    o check foi registrado (decidido pelo autor do check em `CHECKS`,
+    nunca por argumento de CLI/caminho hostil); e consumido so por
+    `core_boundary_violations`, um teste de arquitetura em tempo de
+    import, nao uma fronteira contra escrita indevida. Sem superficie de
+    ataque, `abspath` permanece."""
     fn = check.run
     path = inspect.getsourcefile(fn) or inspect.getfile(fn)
     return os.path.abspath(path)
@@ -563,11 +578,31 @@ def _build_parser():
 
 
 def _output_forbidden(path, root):
-    """True se `path` (apos abspath) fica DENTRO de `root` -- --output nunca
+    """True se `path` (apos realpath) fica DENTRO de `root` -- --output nunca
     pode escrever no repo do usuario (ADR-0001 c: saida em arquivo e sempre
-    fora do repo)."""
-    ap = os.path.abspath(path)
-    rp = os.path.abspath(root)
+    fora do repo).
+
+    SYMLINK-1 (achado da auditoria pre-tag v1.0.0): `os.path.abspath` so
+    normaliza a STRING do caminho ("..", "." , barra dupla) -- NAO resolve
+    link simbolico. Um symlink criado fora do repo mas apontando para
+    DENTRO dele passava incolume por essa checagem (abspath do symlink
+    continua "de fora"), e o `open(path, "w")` seguinte resolvia o link de
+    verdade e escrevia dentro do repositorio auditado -- violando a
+    promessa de --audit ser sempre read-only (README, SKILL.md, ADR-0001
+    c). `os.path.realpath` resolve o link ANTES da comparacao, fechando
+    essa classe. Mesmo raciocinio vale para `root` (linha abaixo): se o
+    caminho do repo em si passar por um link simbolico em algum segmento,
+    comparar contra a string nao-resolvida tambem mascara a fronteira
+    real.
+
+    O que este `realpath` NAO cobre (ver relatorio da fatia): hardlink
+    (que `realpath` nao resolve -- dois nomes apontando pro MESMO inode,
+    sem indirecao de path; permanece em aberto) e TOCTOU classico
+    (o alvo poderia, em tese, ser trocado por um link entre esta checagem
+    e o `open()` em `main()` -- janela de tempo, nao de simbologia; fora
+    do escopo desta fatia)."""
+    ap = os.path.realpath(path)
+    rp = os.path.realpath(root)
     try:
         common = os.path.commonpath([ap, rp])
     except ValueError:      # discos diferentes no Windows: nunca "dentro"
@@ -589,7 +624,15 @@ def main(argv):
         # codigo INDEPENDENTE do usado aqui) compararia contra um arquivo
         # diferente do auditado (ou nenhum), e o relatorio passaria a
         # impressao de ter verificado algo que nao verificou.
-        todo_path = os.path.abspath(args.todo)
+        #
+        # SYMLINK-1 (gemeo do achado em `_output_forbidden`): `realpath`,
+        # nao `abspath`. `root` (linha abaixo) alimenta DIRETO a checagem
+        # de seguranca do --output -- se `args.todo` for (ou passar por)
+        # um link simbolico, `abspath` preservava o caminho "de fora" e
+        # `root` saia ERRADO (o diretorio do link, nao o do repo real),
+        # destravando o --output pra escrever no repo de verdade sem nem
+        # precisar symlinkar o --output em si (PoC no relatorio da fatia).
+        todo_path = os.path.realpath(args.todo)
         base = os.path.basename(todo_path)
         if base != "TODO.md":
             print(
