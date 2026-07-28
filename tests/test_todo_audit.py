@@ -74,6 +74,23 @@ def test_check_sem_profile_e_typeerror():
                 run=lambda ctx: [])
 
 
+def test_check_nenhum_campo_tem_default_estrutural():
+    """Mais forte que o teste acima: NENHUM campo de `Check` pode ter
+    default, verificado via introspeccao de `dataclasses.fields()` -- nao
+    depende de uma chamada de construtor especifica (que so testa UMA
+    combinacao de argumentos omitidos). Isto pega de forma direta e
+    declarativa qualquer regressao futura que reintroduza um default em
+    QUALQUER campo (nao so `profile`), seja por reordenacao de campos ou
+    por edicao direta -- e o jeito mais robusto de provar a garantia."""
+    import dataclasses
+    for f in dataclasses.fields(A.Check):
+        assert f.default is dataclasses.MISSING, (
+            f"Check.{f.name} tem default ({f.default!r}) -- viola a "
+            "obrigatoriedade de declaracao explicita (ADR-0001 a)")
+        assert f.default_factory is dataclasses.MISSING, (
+            f"Check.{f.name} tem default_factory -- idem")
+
+
 def test_check_profile_invalido_e_valueerror():
     with pytest.raises(ValueError):
         A.Check(id="CHK-X", title="t", profile="bogus",
@@ -378,3 +395,106 @@ def test_dogfood_fixture_real_read_only(env_var):
     depois = _md5(path)
     assert antes == depois
     assert r.returncode in (0, 2), (r.stdout, r.stderr)
+
+
+# --------------------- compatibilidade de sintaxe (piso de Python) -------------
+#
+# D-9 fixa que o produto nao pode exigir Python 3.11+ (tomllib); o piso real
+# (RHEL9 = 3.9, Ubuntu 22.04 = 3.10) nunca foi testado em CI nem declarado em
+# lugar nenhum do repo (achado do proprio team-lead, ADR-0001 nao fecha essa
+# lacuna). Estes testes NAO fecham essa lacuna (fatia de outro item) -- so
+# provam que `todo_audit.py`, especificamente, nao introduz sintaxe PEP 604
+# (`int | None`, `list[X]`) que quebraria SEM o `from __future__ import
+# annotations` presente no topo do arquivo.
+
+def test_future_annotations_presente():
+    """`from __future__ import annotations` e o que torna `int | None` e
+    `list[X]` seguros em Python < 3.10 (PEP 563: a anotacao vira string,
+    nunca e avaliada como expressao em runtime) -- sem ele, os `X | None`
+    usados neste modulo quebrariam na IMPORTACAO em 3.9/3.10."""
+    with open(AUDIT, encoding="utf-8") as fh:
+        conteudo = fh.read()
+    assert "from __future__ import annotations" in conteudo
+
+
+def test_uniao_pep604_so_aparece_em_posicao_de_anotacao():
+    """Mais forte que so checar a presenca do future import: prova, via AST,
+    que todo uso de `|` (BitOr) no modulo esta em posicao de ANOTACAO
+    (protegida pelo future import), nunca como expressao avaliada em
+    runtime (isso SIM quebraria em Python < 3.10, mesmo com o future
+    import -- PEP 563 so protege anotacoes, nao expressao qualquer)."""
+    import ast
+
+    with open(AUDIT, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename=AUDIT)
+
+    anotacoes = set()
+
+    class _ColetaAnotacoes(ast.NodeVisitor):
+        def visit_AnnAssign(self, node):
+            anotacoes.add(id(node.annotation))
+            self.generic_visit(node)
+
+        def _visit_func(self, node):
+            for a in list(node.args.args) + list(node.args.posonlyargs) + \
+                    list(node.args.kwonlyargs):
+                if a.annotation is not None:
+                    anotacoes.add(id(a.annotation))
+            if node.returns is not None:
+                anotacoes.add(id(node.returns))
+            self.generic_visit(node)
+
+        visit_FunctionDef = _visit_func
+        visit_AsyncFunctionDef = _visit_func
+
+    _ColetaAnotacoes().visit(tree)
+
+    # BitOr pode aparecer ANINHADO dentro de uma anotacao maior (ex.: o
+    # BinOp de "int | None" e filho do no de anotacao coletado, nao o
+    # proprio no) -- por isso marca todo DESCENDENTE (incl. ele mesmo) de
+    # cada anotacao coletada como "protegido", antes de procurar BitOr
+    # fora dessa marca.
+    dentro = set()
+    for node in ast.walk(tree):
+        if id(node) in anotacoes:
+            for sub in ast.walk(node):
+                dentro.add(id(sub))
+
+    fora_de_anotacao = [
+        node.lineno for node in ast.walk(tree)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr)
+        and id(node) not in dentro
+    ]
+
+    assert fora_de_anotacao == [], (
+        f"BitOr ('|') fora de posicao de anotacao nas linhas "
+        f"{fora_de_anotacao} -- quebraria em Python < 3.10 mesmo com "
+        "from __future__ import annotations (que so protege anotacoes)")
+
+
+def test_modulo_importa_em_outras_versoes_de_python_instaladas():
+    """Prova adicional (proxy, nao substitui um piso 3.9 real -- esta
+    maquina so tem 3.11+): importa o modulo e constroi 1 Check por
+    subprocess em toda versao de python3.X !=  a corrente que estiver no
+    PATH. Se nenhuma outra versao estiver instalada, skip (nao e falha:
+    so significa que a maquina nao oferece mais nenhum proxy de
+    compatibilidade alem do interpretador default)."""
+    import shutil
+
+    candidatos = ["python3.9", "python3.10", "python3.11", "python3.12",
+                  "python3.13"]
+    encontrados = [c for c in candidatos if shutil.which(c)
+                   and shutil.which(c) != sys.executable]
+    if not encontrados:
+        pytest.skip("nenhuma outra versao de python3.X disponivel nesta "
+                    "maquina para testar como proxy de compatibilidade")
+    script = (
+        f"import sys; sys.path.insert(0, {TOOLS_DIR!r}); import todo_audit as A; "
+        "c = A.Check(id='X', title='t', profile='core', "
+        "severity_default='COSMÉTICO', run=lambda ctx: []); "
+        "print('OK', c.id)"
+    )
+    for exe in encontrados:
+        r = subprocess.run([exe, "-c", script], capture_output=True, text=True)
+        assert r.returncode == 0, (exe, r.stdout, r.stderr)
+        assert "OK X" in r.stdout, (exe, r.stdout, r.stderr)
