@@ -16,6 +16,25 @@ este projeto constrói.
 - `TESTES.md` / `AUDITORIAS.md` -- manuais podados para o stack (Python stdlib + sh + Markdown).
 - `.bigtech-porte` -- porte classificado (early / Pipeline-Lean).
 
+## Requisito canônico do produto (ordem do líder, 2026-07-28)
+
+> *"a skill deve ser agnóstica a projeto e rodar em windows e linux"*
+
+Vale sobre qualquer decisão de implementação. **Agnóstica a projeto**: zero nome de projeto, zero
+caminho de máquina, zero suposição sobre o `TODO.md` além do contrato (schema 9/8 colunas, os 7
+status com emoji, INBOX); esquema de ID é arbitrário -- usar o que o projeto já tem, nunca impor;
+o vocabulário de status é pt-br por contrato, mas descrição, ID e mensagem de commit do usuário
+podem estar em qualquer língua, e nenhum check pode assumir português no conteúdo livre; as
+convenções da casa são opt-in via `.tab_pendencias.ini` e degradam com aviso limpo.
+**Cross-platform**: nada de assumir POSIX, separador `/`, permissão Unix ou shell `sh`; `encoding`
+e `newline` sempre explícitos (senão o round-trip byte-exato quebra no Windows); a única exceção
+são os shims de git hook, que no Windows dependem do Git for Windows -- degradação **documentada**,
+nunca suposição silenciosa.
+
+Isto não é boa intenção: é verificado pelo corpus sintético em `tests/corpus/` (outra língua,
+outros esquemas de ID) e pela matrix `ubuntu` + `windows` do CI. Requisito sem teste que o
+exercite é promessa, não requisito. Detalhe formal no ADR-0001, seções (a), (d) e (e).
+
 ## Regras de execução
 
 - Toda alteração de código é feita por **agente especialista**, nunca inline pelo orquestrador.
