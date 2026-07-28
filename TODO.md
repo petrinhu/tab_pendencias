@@ -49,6 +49,8 @@
 
 <!-- 1 linha por descoberta: `- <ID tentativo ou —>: descrição curta`. Drenada por --create/--reorder. -->
 
+- MIG-DIFF: **duas implementações independentes do conserto de emoji-prefixo existem hoje**. Outra sessão do líder aplicou a decisão D-1 direto na instalação viva (`~/.claude/githooks/todo_lib.py`, commit `2d0d368`, 28/07 14:09) enquanto esta onda a implementava no repo (`tools/todo_lib.py`, commit `fd1abb8`). O comportamento **converge** (os 4 casos-teste classificam igual nos dois), mas o código diverge em 221 linhas de diff: `_EMOJI_CATEGORY`/`_classify`/`_normalize_status` lá, `_EMOJI_KIND`/`_status_kind`/`_has_word`/`status_classification_via` aqui. Antes de `MIG-1` trocar a instalação por symlink, é obrigatório provar que a versão do repo é **superset comportamental** da versão viva -- senão a migração silenciosamente remove um conserto que só existe lá. Diff salvo no scratchpad da sessão.
+- FREEZE-GITHOOKS: enquanto o repo não for a fonte-da-verdade (`MIG-1`), qualquer sessão que edite `~/.claude/githooks/` cria uma nova divergência. Decisão do líder: congelar aquele diretório ou aceitar reconciliar a cada migração.
 - SKILL-PATH: `SKILL.md:56` referencia três vezes o caminho absoluto `~/.claude/githooks/` (dois comandos + o README do toolkit). A skill distribuída aponta para a máquina do autor, contra o princípio-mestre de zero acoplamento (§4.0) e contra a D-4 (os scripts agora vivem em `tools/` do próprio repo). Achado por `DOC-FRESH` em 28/07 e confirmado na fonte. Candidato natural a entrar em `SKILL-AUDIT` ou `README-1`.
 
 ---
