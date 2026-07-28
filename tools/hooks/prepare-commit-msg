@@ -1,0 +1,5 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Pass-through: delega ao hook local do repo. Necessario porque um
+# core.hooksPath global sombreia o .git/hooks/ proprio do repositorio.
+. "$(dirname "$0")/_chain.sh"

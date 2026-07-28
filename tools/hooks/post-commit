@@ -1,0 +1,17 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Camada 2 local (frescor da TODO.md): aviso warn-only, cross-platform.
+# Roda a minha logica E DEPOIS encadeia o post-commit LOCAL do repo (ex:
+# git-lfs), que um core.hooksPath global sombrearia. Nunca bloqueia.
+# Layout monorepo (tools/hooks/ != tools/): o script fica um nivel acima.
+d=$(dirname "$0")
+if command -v python3 >/dev/null 2>&1; then
+  PY=python3
+elif command -v python >/dev/null 2>&1; then
+  PY=python
+else
+  PY=
+fi
+[ -n "$PY" ] && "$PY" "$d/../todo_freshness.py" "$@"
+# Encadeia o hook local do repo (delegacao por basename via _chain.sh).
+. "$d/_chain.sh"
