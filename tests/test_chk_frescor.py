@@ -274,6 +274,71 @@ def test_extrai_branch_recusa_quando_contexto_cita_outro_repo_git():
         "`projeto.wiki.git`, branch `master`") is None
 
 
+# ------------------- CHK-09: citacao vs. afirmacao (achado auto-referencial) -
+#
+# Achado real, reportado pelo team-lead: a PROPRIA linha do CHK-09 na
+# TODO.md deste repositorio ("Claims obsoletas na Descrição (\"não
+# pushado\", \"commit local\", \"branch X\") verificadas...") disparava os
+# proprios padroes -- o texto MENCIONA os padroes como exemplo de catalogo
+# (entre aspas, numa enumeracao), nao esta fazendo nenhuma claim sobre o
+# proprio item. Mesma familia do defeito fundador do projeto (o item que
+# DESCREVIA o bug do pipe cru era ele mesmo invisivel por causa do pipe).
+
+def test_chk09_nao_acusa_padrao_citado_entre_aspas_como_exemplo(tmp_path, tmp_path_factory):
+    """Reproducao exata do caso real: reescreve a propria linha de CHK-09
+    (texto identico ao que esta na TODO.md deste repo) e confirma que os 3
+    padroes citados entre aspas NAO disparam achado."""
+    bare = _bare_remote(tmp_path_factory)
+    root = _repo(tmp_path, _todo([
+        _row("CHK-09", 'Claims obsoletas na Descrição ("não pushado", '
+                       '"commit local", "branch X") verificadas contra o '
+                       'git real.'),
+    ]))
+    _git(root, "remote", "add", "origin", str(bare))
+    _git(root, "push", "-q", "origin", "HEAD:refs/heads/main")
+
+    res = A.run_audit(str(root))
+    achados = [f for f in res.findings if f.check_id == "CHK-09"]
+    assert achados == [], (
+        f"citacao de padrao como EXEMPLO nao deveria virar achado: {achados}")
+
+
+def test_chk09_ainda_acusa_quando_pattern_esta_fora_de_aspas(tmp_path):
+    """Contraprova: o MESMO padrao, fora de aspas, na mesma descricao,
+    continua contando como possivel afirmacao (a supressao e so para o
+    padrao entre aspas adjacentes, nao um apagao geral do pattern)."""
+    root = _repo(tmp_path, _todo([
+        _row("Q-1", 'Exemplos de claim ("branch X") à parte: este item '
+                    'ainda é commit local, não pushado de verdade.'),
+    ]))
+    res = A.run_audit(str(root))
+    achados = [f for f in res.findings if f.check_id == "CHK-09"]
+    assert achados, "claim genuina fora de aspas nao deveria ser suprimida"
+
+
+def test_pattern_ocorrencia_fora_de_citacao_unidade():
+    citado = ('Claims obsoletas na Descrição ("não pushado", "commit local", '
+             '"branch X") verificadas contra o git real.')
+    assert not F._pattern_tem_ocorrencia_fora_de_citacao(citado, "não pushado")
+    assert not F._pattern_tem_ocorrencia_fora_de_citacao(citado, "commit local")
+    assert not F._pattern_tem_ocorrencia_fora_de_citacao(citado, "branch ")
+
+    afirmacao = "Ainda é commit local, não pushado."
+    assert F._pattern_tem_ocorrencia_fora_de_citacao(afirmacao, "commit local")
+    assert F._pattern_tem_ocorrencia_fora_de_citacao(afirmacao, "não pushado")
+
+
+def test_dogfood_proprio_repo_chk09_zero_achados():
+    """Regressao direta do achado real do team-lead: rodar CHK-09 contra a
+    TODO.md deste proprio repositorio (que cita os padroes como exemplo na
+    linha do proprio CHK-09) da ZERO achados de CHK-09."""
+    res = A.run_audit(REPO_ROOT)
+    achados = [f for f in res.findings if f.check_id == "CHK-09"]
+    assert achados == [], (
+        f"CHK-09 disparou achado(s) auto-referencial(is) na TODO.md do "
+        f"proprio repo: {achados}")
+
+
 # ---------------------------- CHK-09: config extensivel ---------------------
 
 def test_chk09_config_estende_patterns_sem_substituir(tmp_path):

@@ -339,6 +339,49 @@ def _kind_of(pattern):
     return "branch" if "branch" in pattern.lower() else "push"
 
 
+# ------------------------- citacao vs. afirmacao (falso positivo real) -----
+#
+# Achado auto-referencial medido ao vivo: a PROPRIA linha do CHK-09 na
+# TODO.md deste repositorio ("Claims obsoletas na Descrição (\"não
+# pushado\", \"commit local\", \"branch X\") verificadas...") dispara os
+# proprios padroes -- o texto MENCIONA os padroes como exemplo de catalogo,
+# nao esta FAZENDO nenhuma dessas claims sobre o proprio item. Criterio
+# escolhido (adversarialmente honesto, nao um regex fragil de "isto parece
+# exemplo"): uma ocorrencia entre aspas retas/tipograficas ADJACENTES (aspa
+# abrindo imediatamente antes do match, aspa do MESMO tipo fechando pouco
+# depois, sem outra abertura no meio) e uma CITACAO/enumeracao de string
+# literal, nao uma afirmacao sobre o item -- exatamente o padrao de
+# `("não pushado", "commit local", "branch X")`. A janela de fechamento e
+# CURTA (40 caracteres) e a adjacencia de abertura e ESTRITA (o caractere
+# imediatamente anterior, sem tolerancia de espaco) de proposito: evita que
+# aspas soltas, longe no mesmo paragrafo, encapsulem por acidente uma claim
+# genuina (o mesmo cuidado que ja levou a exigir crase ADJACENTE, nao "em
+# algum lugar da frase", para nome de branch). Se nenhuma aspa casar dessa
+# forma, a ocorrencia conta normalmente como possivel afirmacao.
+_QUOTE_PAIRS = (('"', '"'), ("“", "”"))
+
+
+def _e_citacao_entre_aspas(desc, start, end):
+    antes = desc[:start]
+    depois = desc[end:end + 40]
+    for abre, fecha in _QUOTE_PAIRS:
+        if not antes.endswith(abre):
+            continue
+        idx_fecha = depois.find(fecha)
+        if idx_fecha == -1:
+            continue
+        if abre not in depois[:idx_fecha]:
+            return True
+    return False
+
+
+def _pattern_tem_ocorrencia_fora_de_citacao(desc, pattern):
+    for m in re.finditer(re.escape(pattern), desc, re.IGNORECASE):
+        if not _e_citacao_entre_aspas(desc, m.start(), m.end()):
+            return True
+    return False
+
+
 def _extract_branch_name(desc):
     """Primeiro nome de branch valido apos a palavra 'branch' (ver o
     comentario de `_BRANCH_TOKEN_RE` acima sobre exigir crase). Recusa
@@ -428,8 +471,8 @@ def chk09(ctx):
         if desc_idx >= len(cells):
             continue
         desc = cells[desc_idx]
-        low = desc.lower()
-        hits = [p for p in patterns if p.lower() in low]
+        hits = [p for p in patterns
+                if _pattern_tem_ocorrencia_fora_de_citacao(desc, p)]
         if not hits:
             continue
 
