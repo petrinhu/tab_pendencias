@@ -296,15 +296,43 @@ que usa a skill; `--audit` cobre a *integridade da própria tabela*).
   ("desconhecido"/erro), e o motor soma um aviso sistêmico único explicando a
   causa comum, em vez de N achados soltos sem contexto.
 
-### `--fix` (ainda não implementado)
+### `--fix` (`tools/todo_fix.py`)
 
-Decisões já fechadas para quando existir (ADR-0001, seção (c)): aplica **só**
-correção mecânica e byte-preserving (escapar `|` cru, remover fragmento
-duplicado/truncado, consolidar tabela fragmentada com `ncols` idênticos
-preservando ID/Status/Estado Auditado) -- **nunca** muda `Status`, nunca reordena,
-nunca toca branch/commit do repositório. Regra fixa do líder: ao final de todo
-`--audit`, sugerir o `--fix` listando o que faria. Nada disto está codado ainda em
-`tools/`; não invocar `--fix` como se existisse.
+Motor do `--fix` (FIX-ENG, ADR-0001 seção c): aplica **só** correção mecânica e
+byte-preserving marcada `[auto-fixável]` pelos checks do `--audit`. Hoje o
+catálogo registrado só produz dois `fix_ref` de verdade -- `escapar_pipe_cru`
+(CHK-02) e `remover_fragmento_duplicado` (CHK-01); `CHK-03`/`CHK-04`
+(consolidar tabela fragmentada) e `CHK-09` (corrigir claim obsoleta) ainda
+nunca marcam `fixable=True` na implementação atual, então essas duas classes
+previstas no ADR não têm hoje achado real para o `--fix` consumir. **Nunca**
+muda `Status`, nunca reordena, nunca toca branch/commit do repositório.
+
+- **Default é dry-run.** Sem `--apply`, só mostra o plano (o que faria, com
+  diff das linhas envolvidas) e nunca escreve.
+- **`--apply <classe...>`**: aplica só as classes nomeadas (`escapar_pipe_cru`,
+  `remover_fragmento_duplicado`), ou `--apply all` para todas as detectadas
+  nesta execução -- confirmação sempre **separada por classe**, nunca um "sim"
+  global implícito.
+- **Precondição obrigatória**: a working tree do `TODO.md` tem que estar
+  limpa (`git status --porcelain` vazio para o arquivo) antes de qualquer
+  `--apply`; working tree suja, ou ausência de repositório git resolvível,
+  aborta com `exit 1` sem tocar o arquivo.
+- **Escrita sempre atômica**: arquivo temporário no mesmo diretório, prova de
+  round-trip (linhas não tocadas byte-a-byte) e de contagem de itens
+  ANTES de trocar o arquivo real (`os.replace`); qualquer falha na prova ou
+  na escrita aborta sem deixar o `TODO.md` tocado.
+- Uma correção marcada `[auto-fixável]` pelo `--audit`, mas cuja posição exata
+  o motor de fix não consegue localizar sem ambiguidade (ex.: pipe cru fora
+  de qualquer *code span*), aparece no plano como **não aplicável**, com o
+  motivo -- o motor nunca escreve adivinhando.
+- Exit codes (D-6): `0` = nada a corrigir; `1` = erro de execução (não é
+  repositório git, `TODO.md` ilegível, working tree suja ao aplicar, falha de
+  escrita); `2` = há 1+ correção disponível (mostrada em dry-run ou aplicada).
+
+Regra fixa do líder: ao final de todo `--audit`, sugerir o `--fix` listando o
+que faria. O engate conversacional (a sugestão automática dentro do relatório
+de `--audit`) é de outra fatia; o motor (`todo_fix.build_plan`) já expõe o
+hook necessário.
 
 ## Invocação sem argumento
 
