@@ -1,7 +1,7 @@
 ---
 name: tab_pendencias
-description: Cria e gerencia tabela de pendências/planejamento ORDENADA para minimizar retrabalho. No --create (e --reorder) orquestra um time de agents (Cosmo/COO coordena software-architect + tech-lead + product-manager + engineering-manager + scrum-master) para sequenciar por dependência (topological) e valor (WSJF), com coluna "Onda" sinalizando passos de igual valor paralelizáveis. Use sempre que o usuário pedir criar/mostrar/atualizar tabela de pendências, planejar passos, ordenar backlog, "o que falta", "em que ordem fazer", ou invocar /tab_pendencias. Em qualquer comando, garante (com dupla-confirmacao) testes nao-unitarios e auditorias aplicaveis ao stack como itens de fechamento; cria ./TESTES.md e ./AUDITORIAS.md do projeto quando faltam. Argumentos: --create, --reorder, --show, --main, --add_tests_audit.
-argument-hint: --create | --reorder | --show | --main | --add_tests_audit
+description: Cria e gerencia tabela de pendências/planejamento ORDENADA para minimizar retrabalho. No --create (e --reorder) orquestra um time de agents (Cosmo/COO coordena software-architect + tech-lead + product-manager + engineering-manager + scrum-master) para sequenciar por dependência (topological) e valor (WSJF), com coluna "Onda" sinalizando passos de igual valor paralelizáveis. Use sempre que o usuário pedir criar/mostrar/atualizar tabela de pendências, planejar passos, ordenar backlog, "o que falta", "em que ordem fazer", auditar a tabela em busca de defeitos estruturais, ou invocar /tab_pendencias. Em qualquer comando, garante (com dupla-confirmacao) testes nao-unitarios e auditorias aplicaveis ao stack como itens de fechamento; cria ./TESTES.md e ./AUDITORIAS.md do projeto quando faltam. Argumentos: --create, --reorder, --show, --main, --add_tests_audit, --audit.
+argument-hint: --create | --reorder | --show | --main | --add_tests_audit | --audit
 allowed-tools: [Read, Write, Edit, Glob, Grep, Agent, TodoWrite]
 ---
 
@@ -213,6 +213,85 @@ recomendando `/tab_pendencias --add_tests_audit`.
 - **`--show`**: localizar `TODO.md` na raiz (depois `PLANNING.md`, depois perguntar). Exibir tabela **completa**, incluindo `✅`.
 - **`--main`**: mesma localização, **filtrar fora** `✅`. Mostrar só ⏳ 🔄 🟡 💡 🎨 🔍, preservando a ordem (Onda) das pendentes.
 
+## `--audit`
+
+Motor de auditoria estrutural do próprio `TODO.md` (`tools/todo_audit.py`, camada
+núcleo genérico, decisão em
+[`docs/adr/0001-fronteira-nucleo-generico-e-convencoes-da-casa.md`](docs/adr/0001-fronteira-nucleo-generico-e-convencoes-da-casa.md)):
+roda offline, sem LLM/rede, sem orquestrar nenhum agent. Executa sob demanda; **não** faz parte da Injeção
+automática de testes e auditorias acima (aquela cobre o *planejamento* do projeto
+que usa a skill; `--audit` cobre a *integridade da própria tabela*).
+
+- **Sempre read-only.** Nenhum caminho de código abre o `TODO.md` em modo de
+  escrita, nem muta estado de git. A única escrita possível é a de `--output`
+  (relatório opcional em arquivo à parte), e ela é bloqueada com erro (`exit 1`) se o
+  caminho resolver para dentro do repositório auditado.
+- **`--todo <caminho>`**: audita um arquivo fora do repositório corrente (não
+  precisa estar no `cwd` nem no mesmo repositório git de quem invoca). Restrição
+  fixa: o arquivo precisa se chamar exatamente `TODO.md` (mesma convenção de
+  `todo_lib.find_todo`); qualquer outro nome sai com `exit 1` e mensagem explicando
+  a restrição. Sem a flag, o comportamento é o mesmo de sempre: descoberta
+  automática a partir do `cwd`, que precisa ser um repositório git.
+- **`--profile core|casa`** e o arquivo `.tab_pendencias.ini` na raiz do repo
+  auditado (seção `[profile]`, chave `name = casa`): perfil `core` é o default
+  (ausência de arquivo ou de chave); `--profile` na linha de comando sobrepõe o
+  arquivo para uma execução pontual. Config lido com `configparser` da stdlib (D-9/
+  D-10 -- INI, não TOML, para não exigir Python 3.11+). Hoje **nenhum check do
+  catálogo é `profile = casa`**: o subpacote `tools/casa/` ainda não tem checks
+  implementados (`CHK-12`/`CHK-13`/`CHK-14` são item futuro, `CHK-CASA` na
+  tabela), então `--profile casa` roda idêntico a `core` neste momento -- a
+  infraestrutura de perfil já está pronta e testável, só falta o primeiro check
+  que dependa dela.
+- **`--max-per-check N`** (default 5; `N<=0` = sem limite): amostra no máximo N
+  achados por check no relatório impresso. Achados de severidade **CRÍTICO nunca
+  são truncados**; o corte incide só sobre IMPORTANTE/COSMÉTICO, e o que ficou de
+  fora é sempre contado e declarado na própria seção do check (nunca só
+  descartado -- "no silent caps").
+- **`--output <arquivo>`**: também grava o relatório nesse arquivo (além de
+  imprimir no terminal). Nunca pode resolver para dentro do repositório auditado
+  (aborta com `exit 1` se apontar para lá); use um caminho de scratchpad.
+- **`-v` / `--verbose`**: acrescenta traceback completo quando um check ou a
+  leitura do `TODO.md` falha (default: só tipo + mensagem da exceção).
+- **Exit codes** (fixos, nenhum check inventa um novo): `0` = execução ok e zero
+  achados; `1` = erro de execução (não é repositório git quando exigido, `TODO.md`
+  ilegível, flag inválida ou desconhecida); `2` = execução ok e há 1+ achado, **de
+  qualquer severidade, inclusive só COSMÉTICO**. Isto é o que permite usar
+  `--audit` em automação/CI: um pipeline que quer tolerar cosmético filtra por
+  severidade dentro do relatório, não pelo exit code.
+- **Catálogo de checks hoje** (todos `profile = core`; severidade indicada é o
+  default do registro -- alguns checks emitem achados com severidade diferente
+  conforme o caso concreto, ex.: `CHK-08` cobre tanto COSMÉTICO quanto
+  IMPORTANTE):
+
+  | Check | Título | Severidade (default) |
+  |---|---|---|
+  | `CHK-01` | ID duplicado | CRÍTICO |
+  | `CHK-02` | nº de células ≠ cabeçalho (diagnóstico) | CRÍTICO |
+  | `CHK-03` | Tabela fragmentada + span da canônica | CRÍTICO |
+  | `CHK-04` | ncols divergente entre tabelas ID+Status | CRÍTICO |
+  | `CHK-05` | Pré-requisito citando ID inexistente | IMPORTANTE |
+  | `CHK-06` | Ciclo de dependência | CRÍTICO |
+  | `CHK-07` | Onda inconsistente com a dependência | IMPORTANTE |
+  | `CHK-08` | Status fora do vocabulário canônico | IMPORTANTE |
+  | `CHK-09` | Claims obsoletas na Descrição (contra o git real) | IMPORTANTE |
+  | `CHK-10` | Proposta do `todo_sync.py` (sem `--apply`) anexada | COSMÉTICO |
+  | `CHK-11` | Reconciliação de contagem (`todo_health`) | CRÍTICO |
+
+  Alvo (`--todo`) fora de qualquer repositório git resolvível: `CHK-09`/`CHK-10`
+  (os únicos que dependem de `git`) degradam sozinhos por achado
+  ("desconhecido"/erro), e o motor soma um aviso sistêmico único explicando a
+  causa comum, em vez de N achados soltos sem contexto.
+
+### `--fix` (ainda não implementado)
+
+Decisões já fechadas para quando existir (ADR-0001, seção (c)): aplica **só**
+correção mecânica e byte-preserving (escapar `|` cru, remover fragmento
+duplicado/truncado, consolidar tabela fragmentada com `ncols` idênticos
+preservando ID/Status/Estado Auditado) -- **nunca** muda `Status`, nunca reordena,
+nunca toca branch/commit do repositório. Regra fixa do líder: ao final de todo
+`--audit`, sugerir o `--fix` listando o que faria. Nada disto está codado ainda em
+`tools/`; não invocar `--fix` como se existisse.
+
 ## Invocação sem argumento
 
 - "mostrar pendências" / "o que falta" / "em que ordem" → `--main`
@@ -220,6 +299,7 @@ recomendando `/tab_pendencias --add_tests_audit`.
 - "criar tabela" / "planejar passos" → `--create`
 - "reordenar" / "minimizar retrabalho" / "sequenciar" → `--reorder`
 - "acrescentar testes" / "adicionar auditoria" / "faltam testes" → `--add_tests_audit`
+- "auditar a tabela" / "achar defeito na tabela" / "checar integridade do TODO" → `--audit`
 
 ---
 
