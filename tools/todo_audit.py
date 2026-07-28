@@ -155,6 +155,8 @@ import checks.chk_graph as _chk_graph  # noqa: E402 -- import tardio de
 # (nao no topo do arquivo), entao nao ha ciclo de importacao de verdade --
 # so a ordem de leitura aqui reflete que o registro (CHK-GRAPH) vem DEPOIS
 # das classes que ele consome.
+import checks.chk_frescor as _chk_frescor  # noqa: E402 -- mesmo padrao de
+# import tardio acima (CHK-09/CHK-10, `checks/chk_frescor.py`).
 import checks.chk_core as _chk_core  # noqa: E402 -- mesmo padrao (CHK-CORE:
 # CHK-01/02/03/04/08/11, `checks/chk_core.py`).
 
@@ -185,6 +187,12 @@ CHECKS: list[Check] = [
     Check(id="CHK-08", title="Status fora do vocabulário canônico",
           profile="core", severity_default="IMPORTANTE",
           run=_chk_core._chk08_status_fora_do_vocabulario),
+    Check(id="CHK-09", title="Claims obsoletas na Descrição (contra o git real)",
+          profile="core", severity_default="IMPORTANTE",
+          run=_chk_frescor.chk09),
+    Check(id="CHK-10", title="Proposta do todo_sync.py (sem --apply) anexada",
+          profile="core", severity_default="COSMÉTICO",
+          run=_chk_frescor.chk10),
     Check(id="CHK-11", title="Reconciliação de contagem (todo_health)",
           profile="core", severity_default="CRÍTICO",
           run=_chk_core._chk11_reconciliacao_contagem),
