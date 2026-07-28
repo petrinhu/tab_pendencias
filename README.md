@@ -126,7 +126,7 @@ Sem argumento, usa linguagem natural: "mostrar pendências" para `--main`, "tabe
 completa" para `--show`, "criar tabela" para `--create`, "reordenar"/"minimizar
 retrabalho" para `--reorder`, "auditar a tabela" para `--audit`.
 
-### `--audit`
+### `--audit` (auditoria estrutural da tabela)
 
 Motor de auditoria estrutural do próprio `TODO.md` (`tools/todo_audit.py`, camada
 núcleo genérico, decisão de arquitetura em
@@ -183,7 +183,7 @@ Catálogo de checks (11 do núcleo + 3 da camada casa, opt-in):
 | `CHK-13` | INBOX: ID duplicado da tabela ou formato inválido | Importante | **casa** |
 | `CHK-14` | Item de Wiki + doc para iniciante ausente na última onda | Cosmético | **casa** |
 
-### `--fix`
+### `--fix` (correção mecânica byte-preserving)
 
 Motor de correção mecânica (`tools/todo_fix.py`), consumindo só o que os checks
 do `--audit` já marcaram `[auto-fixável]` -- nunca redecide o que é seguro
@@ -437,7 +437,7 @@ Without argument, uses natural language: "show pendencies" for `--main`, "full t
 for `--show`, "create table" for `--create`, "reorder"/"minimize rework" for
 `--reorder`, "audit the table" for `--audit`.
 
-### `--audit`
+### `--audit` (structural table audit)
 
 Structural audit engine for the `TODO.md` itself (`tools/todo_audit.py`,
 generic-core layer, architecture decision in
@@ -494,7 +494,7 @@ Check catalog (11 core + 3 opt-in house-layer checks):
 | `CHK-13` | INBOX: duplicate table ID or invalid format | Important | **house** |
 | `CHK-14` | Missing Wiki + beginner-doc item in the last wave | Cosmetic | **house** |
 
-### `--fix`
+### `--fix` (byte-preserving mechanical fix)
 
 Mechanical-correction engine (`tools/todo_fix.py`), consuming only what the
 `--audit` checks already marked `[auto-fixable]` -- it never re-decides what's
