@@ -33,6 +33,7 @@ caminho literal. Consequencias praticas neste arquivo:
     maquina) = congela agora e o teste sai SKIPPED com aviso; da 2a execucao
     em diante, compara e ACUSA qual ID mudou de status (nao so "falhou").
 """
+import json
 import os
 import re
 
@@ -235,16 +236,53 @@ def test_set_status_cell_preserva_linha_byte_a_byte_amostra_real(
 
 
 # ----------------------------------------------------------------------------
-# Estabilidade do mapa de status (id -> status): baseline no cache local do
-# proprio pytest (nunca versionado). Mecanismo de diff testado ISOLADAMENTE
-# com dados sinteticos (sempre roda, mesmo sem as fixtures reais), depois
-# reusado contra o corpus real.
+# Estabilidade do mapa de status (id -> CLASSIFICACAO DERIVADA): baseline no
+# cache local do proprio pytest (nunca versionado). Mecanismo de diff testado
+# ISOLADAMENTE com dados sinteticos (sempre roda, mesmo sem as fixtures
+# reais), depois reusado contra o corpus real.
+#
+# BASELINE-FRAGIL: a versao anterior congelava o TEXTO BRUTO da celula de
+# Status. Isso e forte demais -- as fixtures sao arquivos VIVOS, editados por
+# outras sessoes (donos legitimos do arquivo), e qualquer edicao de prosa
+# (acrescentar um detalhe, uma data, uma ressalva) quebrava o teste mesmo
+# quando o emoji-prefixo e a classificacao derivada (D-1) permaneciam
+# IDENTICOS -- ou seja, o teste acusava uma mudanca que nao e o que ele
+# existe para detectar (o proposito declarado e: acusar quando um CONSERTO
+# DE PARSER futuro reclassificar algum item). Agora o baseline congela o
+# RESULTADO dos predicados de classificacao (`_status_kind`,
+# `status_classification_via`, `is_pending`, `is_flip_eligible`,
+# `is_awaiting_verification`, `is_done`), nao a celula inteira.
 # ----------------------------------------------------------------------------
 
+def _status_classification(status):
+    """Classificacao DERIVADA de uma celula de Status -- kind do
+    emoji-prefixo (D-1) mais o resultado de cada predicado de negocio, NUNCA
+    o texto bruto da celula. E exatamente o que `BASELINE-FRAGIL` passa a
+    congelar: uma edicao de prosa que preserva emoji/predicados nao muda
+    esta tupla; uma reclassificacao real (outro emoji, ou os predicados
+    discordando) muda."""
+    return (
+        L._status_kind(status),
+        L.status_classification_via(status),
+        L.is_pending(status),
+        L.is_flip_eligible(status),
+        L.is_awaiting_verification(status),
+        L.is_done(status),
+    )
+
+
 def _frozen_map_diff(baseline, current):
-    """Diff simetrico id->status entre dois mapas -- devolve {id: (antes,
-    depois)} SO dos IDs cuja classificacao mudou, para o teste acusar qual
-    item mudou, nao so 'falhou'."""
+    """Diff simetrico id->classificacao entre dois mapas -- devolve {id:
+    (antes, depois)} SO dos IDs cuja classificacao mudou, para o teste
+    acusar qual item mudou, nao so 'falhou'. `baseline` pode vir do cache
+    do pytest (JSON: tupla desserializa como lista) -- normalizado para
+    tupla antes de comparar, senao toda entrada aparentaria ter mudado so
+    pela diferenca de tipo list/tuple."""
+    def _norm(v):
+        return tuple(v) if isinstance(v, list) else v
+
+    baseline = {k: _norm(v) for k, v in baseline.items()}
+    current = {k: _norm(v) for k, v in current.items()}
     keys = set(baseline) | set(current)
     return {
         k: (baseline.get(k), current.get(k))
@@ -270,23 +308,49 @@ def test_frozen_map_diff_vazio_quando_nada_mudou():
     assert _frozen_map_diff(dict(m), dict(m)) == {}
 
 
+# Caminho EXPLICITO de regeneracao do baseline (BASELINE-FRAGIL): regenerar
+# e ato CONSCIENTE do operador, nunca automatico -- por isso exige exportar
+# esta variavel (nome por chave, nao um "--force" que alguem digita sem
+# pensar), documentado aqui e na mensagem de skip abaixo.
+ENV_REGEN_BASELINE = "TAB_PENDENCIAS_REGEN_BASELINE_CONTR1"
+
+
 def _check_status_map_estavel(cache, key, path):
     text = _read_fixture(path)
     tbl = L.parse_table(text)
-    current = {it["id"]: it["status"] for it in tbl["items"]}
-    cache_key = f"contr1/status_map_{key}"
+    current = {
+        it["id"]: _status_classification(it["status"]) for it in tbl["items"]
+    }
+    # v2: chave NOVA de proposito. A chave antiga (`status_map_{key}`)
+    # guardava o TEXTO bruto da celula -- reaproveitar o mesmo nome faria a
+    # 1a execucao pos-conserto comparar tupla contra string e acusar TODO
+    # item como "mudou" por um motivo que nao e reclassificacao nenhuma.
+    cache_key = f"contr1/status_classification_v2_{key}"
+
+    if os.environ.get(ENV_REGEN_BASELINE, "").strip():
+        cache.set(cache_key, current)
+        pytest.skip(
+            f"{key}: baseline REGENERADO deliberadamente via "
+            f"{ENV_REGEN_BASELINE}=1 -- use isto SO quando a mudanca de "
+            "classificacao for legitima (ex.: conserto de parser proposital "
+            "que reclassifica um item de verdade), nunca por reflexo para "
+            "silenciar um vermelho. Rode a suite de novo SEM esta variavel "
+            "para validar contra o baseline novo."
+        )
+
     baseline = cache.get(cache_key, None)
     if baseline is None:
         cache.set(cache_key, current)
         pytest.skip(
-            f"{key}: baseline do mapa de status CONGELADO agora nesta "
-            "maquina (.pytest_cache/, ja no .gitignore -- nunca versionado); "
-            "rode a suite de novo para validar estabilidade contra ele."
+            f"{key}: baseline da classificacao de status CONGELADO agora "
+            "nesta maquina (.pytest_cache/, ja no .gitignore -- nunca "
+            "versionado); rode a suite de novo para validar estabilidade "
+            "contra ele."
         )
     mudou = _frozen_map_diff(baseline, current)
     assert not mudou, (
-        f"{key}: classificacao de status mudou para {len(mudou)} item(ns) "
-        f"desde o baseline congelado -- {mudou!r}"
+        f"{key}: classificacao DERIVADA de status mudou para {len(mudou)} "
+        f"item(ns) desde o baseline congelado -- {mudou!r}"
     )
 
 
@@ -296,6 +360,128 @@ def test_mapa_status_congelado_consumidor_a(cache):
 
 def test_mapa_status_congelado_consumidor_b(cache):
     _check_status_map_estavel(cache, "consumidor_b", FIXTURE_ENV_B)
+
+
+# ----------------------------------------------------------------------------
+# BASELINE-FRAGIL: prova de que `_status_classification` ignora edicao de
+# prosa (o caso real do bug -- ver docstring da secao acima) mas ainda
+# distingue uma reclassificacao de verdade.
+# ----------------------------------------------------------------------------
+
+def test_classificacao_identica_apesar_de_prosa_diferente():
+    """O caso real que quebrava o teste antigo: mesmo emoji-prefixo, prosa
+    anexa diferente (outra sessao editou o arquivo vivo) -- classificacao
+    tem de ser a MESMA tupla."""
+    a = _status_classification("✅ Concluído: FEITO 2026-07-16")
+    b = _status_classification(
+        "✅ Concluído PARCIAL. ESPELHO LOCAL APROVADO 2026-07-28 por "
+        "qa-engineer independente: defeito real achado e corrigido."
+    )
+    assert a == b
+
+
+def test_classificacao_muda_quando_emoji_muda():
+    pendente = _status_classification("⏳ Pendente (piloto combinado)")
+    verificacao = _status_classification("🔍 Pendente verificação")
+    assert pendente != verificacao
+
+
+# ----------------------------------------------------------------------------
+# Mutation testing do MECANISMO de baseline com corpus SINTETICO (nunca a
+# fixture real -- ver conftest/metodo): prova end-to-end de que
+# `_check_status_map_estavel` (a) ignora edicao de prosa que preserva
+# classificacao, (b) acusa nomeando o ID quando a classificacao de fato
+# muda, e (c) o caminho de regeneracao e deliberado (so via env var).
+# ----------------------------------------------------------------------------
+
+class _FakeCache:
+    """Cache minima que roundtripa por JSON, igual ao cache real do pytest
+    (`request.config.cache`) -- crucial para exercitar de verdade a
+    normalizacao tupla/lista de `_frozen_map_diff` (sem o roundtrip, o bug
+    de comparar tupla contra lista nunca apareceria neste teste)."""
+
+    def __init__(self):
+        self._dados = {}
+
+    def get(self, key, default):
+        if key not in self._dados:
+            return default
+        return json.loads(self._dados[key])
+
+    def set(self, key, value):
+        self._dados[key] = json.dumps(value)
+
+
+_TODO_HEADER = (
+    "| ID | Onda | Grupo | Descrição | Prioridade | Pré-requisito | "
+    "Dificuldade | Status | Estado Auditado |\n"
+    "| :- | :- | :- | :- | :- | :- | :- | :- | :- |\n"
+)
+
+
+def _todo_sintetico(status_x1):
+    return (
+        "# Sintetico BASELINE-FRAGIL\n\n" + _TODO_HEADER +
+        f"| X-1 | W1 | Core | Item 1 | Alta | — | Média | {status_x1} | — |\n"
+        "| X-2 | W2 | Core | Item 2 | Alta | — | Média | ⏳ Pendente | — |\n"
+    )
+
+
+def test_baseline_ignora_prosa_mas_acusa_reclassificacao_real(tmp_path, monkeypatch):
+    env_name = "TAB_PENDENCIAS_TESTE_SINTETICO_BASELINE_FRAGIL"
+    fixture_path = tmp_path / "TODO_sintetico.md"
+    cache = _FakeCache()
+
+    # 1a rodada: congela o baseline (skip esperado).
+    fixture_path.write_text(_todo_sintetico("✅ Concluído: v1"), encoding="utf-8")
+    monkeypatch.setenv(env_name, str(fixture_path))
+    with pytest.raises(pytest.skip.Exception, match="CONGELADO agora"):
+        _check_status_map_estavel(cache, "sintetico", env_name)
+
+    # 2a rodada: MESMO emoji/classificacao, prosa diferente (outra "sessao"
+    # editou o arquivo) -- nao pode acusar nada.
+    fixture_path.write_text(
+        _todo_sintetico("✅ Concluído: v2, com detalhe novo anexado por outra sessao"),
+        encoding="utf-8",
+    )
+    _check_status_map_estavel(cache, "sintetico", env_name)  # nao levanta
+
+    # 3a rodada: reclassificacao REAL (emoji muda de done para verificacao)
+    # -- tem de acusar, nomeando o ID certo.
+    fixture_path.write_text(_todo_sintetico("🔍 Pendente verificação"), encoding="utf-8")
+    with pytest.raises(AssertionError, match=r"X-1"):
+        _check_status_map_estavel(cache, "sintetico", env_name)
+
+    # Restaura ao estado original (mesma classificacao do baseline
+    # congelado na 1a rodada) -- prova que o vermelho NAO fica preso para
+    # sempre: reverter a reclassificacao real volta a ficar limpo.
+    fixture_path.write_text(_todo_sintetico("✅ Concluído: v1"), encoding="utf-8")
+    _check_status_map_estavel(cache, "sintetico", env_name)  # nao levanta
+
+
+def test_regeneracao_de_baseline_e_deliberada_via_env_var(tmp_path, monkeypatch):
+    env_name = "TAB_PENDENCIAS_TESTE_SINTETICO_BASELINE_REGEN"
+    fixture_path = tmp_path / "TODO_sintetico.md"
+    cache = _FakeCache()
+
+    fixture_path.write_text(_todo_sintetico("⏳ Pendente"), encoding="utf-8")
+    monkeypatch.setenv(env_name, str(fixture_path))
+    with pytest.raises(pytest.skip.Exception):
+        _check_status_map_estavel(cache, "sintetico_regen", env_name)
+
+    # Reclassificacao real -- sem regen, acusa.
+    fixture_path.write_text(_todo_sintetico("✅ Concluído"), encoding="utf-8")
+    with pytest.raises(AssertionError, match=r"X-1"):
+        _check_status_map_estavel(cache, "sintetico_regen", env_name)
+
+    # Regen deliberado via env var -- skip explicito, nao falha muda.
+    monkeypatch.setenv(ENV_REGEN_BASELINE, "1")
+    with pytest.raises(pytest.skip.Exception, match="REGENERADO deliberadamente"):
+        _check_status_map_estavel(cache, "sintetico_regen", env_name)
+    monkeypatch.delenv(ENV_REGEN_BASELINE)
+
+    # Depois do regen, o MESMO estado (agora "✅ Concluído") passa limpo.
+    _check_status_map_estavel(cache, "sintetico_regen", env_name)  # nao levanta
 
 
 # ----------------------------------------------------------------------------
