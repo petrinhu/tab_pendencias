@@ -36,9 +36,35 @@ e2e do `todo_freshness.main` com `diff-tree` real; execução dos shims `sh` via
 Inclui os testes de contrato com o corpus real (LOCAIS, nunca commitados) e o corpus sintético.
 
 ## TST-T15 Pre-CI (espelhar o CI local)
-Rodar a mesma suíte do CI antes do push, para o vermelho não aparecer só no servidor.
-**Ferramentas:** `scripts/preci.sh` executando pytest + ruff + shellcheck + o check de
-consistência README×SKILL.md, na mesma ordem do workflow do GitHub Actions.
+Rodar localmente, na mesma ordem dos jobs de `.github/workflows/ci.yml` (a fonte da
+verdade), tudo que dá para reproduzir fora do GitHub Actions -- para o vermelho não
+aparecer só no servidor.
+**Ferramenta:** `scripts/preci.sh` (POSIX `sh`, mesma família dos shims de
+`tools/hooks/` -- degradação cross-platform documentada abaixo). Roda, nesta ordem:
+pytest (`tests/`); `shellcheck` + o smoke dos shims (`tools/ci/smoke_hooks.sh`);
+`markdownlint-cli2`; `gitleaks` (histórico completo); os dois guards do produto
+(`guard_stdlib_imports.py`, `guard_no_real_fixtures.py`); e, como camada **extra**
+não-bloqueante fora do `ci.yml`, `ruff` sobre `tools/` (informativo -- não há
+`ruff.toml`/`pyproject.toml` commitado definindo as regras que o projeto de fato
+adota, então um achado de `ruff` nunca reprova o gate).
+
+**Diferenças declaradas vs. `ci.yml`** (o script imprime as mesmas ao rodar, nunca
+aproxima em silêncio): (1) pytest roda em **1** ambiente local, não nos 5 do CI
+(`ubuntu-latest`/`windows-latest` nativos + `debian`/`fedora`/`archlinux` via
+container -- job `test-distros`); reproduzir os 5 requer máquina Windows + runtime
+de container, fora do escopo de um script local; (2) `gitleaks` foi incluído além
+do pedido original desta fatia porque o job `secrets-scan` existe no `ci.yml` e a
+ferramenta estava disponível -- omiti-lo seria aproximar a cobertura; (3) ferramenta
+ausente nesta máquina (`shellcheck`, `markdownlint-cli2`, `gitleaks`, `ruff`) vira
+`[SKIP]` explícito no resumo final, nunca `[PASS]` silencioso -- o script não
+instala nada.
+
+**Nota histórica:** esta seção descrevia antes um "check de consistência
+README×SKILL.md" -- ele **nunca existiu** como job do `ci.yml` nem como script em
+`tools/`; era aspiracional. Não foi implementado agora (seria uma decisão de design
+nova -- o que conta como "consistência" entre os dois arquivos -- fora do escopo de
+"espelhar o CI existente"); se o líder quiser esse check, vira item próprio no
+`TODO.md`.
 
 ---
 

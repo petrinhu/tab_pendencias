@@ -101,6 +101,25 @@ estão.
 cd /caminho/para/este/clone && python3 -m pytest tests/ -q
 ```
 
+## Pre-CI local (TST-T15)
+
+`scripts/preci.sh`, na raiz do repo, roda localmente -- na mesma ordem dos jobs de
+`.github/workflows/ci.yml` -- tudo que dá para reproduzir fora do GitHub Actions
+(pytest, `shellcheck` + smoke dos shims, `markdownlint-cli2`, `gitleaks`, os guards
+de `tools/ci/`), para o vermelho não aparecer só no servidor. Detalhe completo,
+diferenças declaradas vs. o CI, e contrato de exit code em `TESTES.md` (TST-T15).
+
+**Cross-platform:** é `sh` POSIX, mesma família dos shims acima (degradação
+documentada, não suposição escondida, D-11/ADR-1 seção (e)) -- roda nativo em
+Linux/macOS; no Windows requer Git for Windows ou WSL (o mesmo shell que os shims
+já exigem). As etapas de `shellcheck` e do smoke dos shims já são Linux-only dentro
+do próprio `ci.yml` (job `shellcheck-and-smoke`); este script não introduz
+degradação nova, só herda a que já existe.
+
+```sh
+cd /caminho/para/este/clone && sh scripts/preci.sh
+```
+
 ## Licença
 
 GPL-3.0-or-later (ver `../LICENSE`).
