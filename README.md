@@ -1,6 +1,6 @@
 # tab_pendencias
 
-![License](https://img.shields.io/badge/license-PolyForm--Noncommercial--1.0.0-red)
+![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 ![Type](https://img.shields.io/badge/type-Claude%20Code%20Skill-blue)
 ![Status](https://img.shields.io/badge/status-stable-brightgreen)
 ![Language](https://img.shields.io/badge/lang-pt--br%20%2F%20en-lightgrey)
@@ -97,7 +97,7 @@ A tabela de pendências e planejamento do projeto está em `TODO.md` na raiz.
 
 ### Licença
 
-[PolyForm-Noncommercial-1.0.0](LICENSE): uso, modificação e compartilhamento permitidos para fins não-comerciais. Venda proibida.
+[GPL-3.0-or-later](LICENSE): software livre -- uso, modificação, compartilhamento e uso comercial permitidos, desde que obras derivadas distribuídas mantenham a mesma licença (copyleft).
 
 ### Autor
 
@@ -179,7 +179,7 @@ A tabela de pendências e planejamento do projeto está em `TODO.md` na raiz.
 
 ### License
 
-[PolyForm-Noncommercial-1.0.0](LICENSE): use, modification, and sharing permitted for noncommercial purposes. Sale prohibited.
+[GPL-3.0-or-later](LICENSE): free software -- use, modification, sharing, and commercial use permitted, provided derivative works that are distributed remain under the same license (copyleft).
 
 ### Author
 
