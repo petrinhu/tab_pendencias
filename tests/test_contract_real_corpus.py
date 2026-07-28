@@ -32,7 +32,19 @@ caminho literal. Consequencias praticas neste arquivo:
     -- nunca um arquivo versionado. Ausencia de baseline (1a execucao nesta
     maquina) = congela agora e o teste sai SKIPPED com aviso; da 2a execucao
     em diante, compara e ACUSA qual ID mudou de status (nao so "falhou").
+  - SNAPSHOT-1 (achado do team-lead, 2a rodada do BASELINE-FRAGIL): as
+    fixtures sao arquivos VIVOS de OUTROS projetos, editados por OUTRAS
+    sessoes a QUALQUER momento -- inclusive enquanto esta suite roda (caso
+    real: 2 itens do consumidor B perderam o emoji-prefixo reconhecido
+    entre uma execucao e a seguinte). Testar contra o arquivo AO VIVO faz o
+    contrato inteiro -- contagem, round-trip, classificacao -- quebrar por
+    TRABALHO LEGITIMO alheio, nao por regressao deste projeto. Por isso
+    TODOS os testes deste arquivo leem um SNAPSHOT imutavel (tambem no
+    cache do pytest, nunca versionado, com metadados de origem/data ao
+    lado), congelado uma vez e reusado ate regeneracao EXPLICITA -- nunca
+    o arquivo vivo diretamente (ver `_frozen_fixture_text`).
 """
+import datetime
 import json
 import os
 import re
@@ -60,12 +72,24 @@ _FIXTURES = [
 ]
 
 
-def _read_fixture(env_name):
-    """Resolve o caminho da fixture real pela variavel de ambiente `env_name`
-    e le com newline="" (nunca normaliza CRLF/LF na leitura -- ADR-0001
-    (e).3). Pula o teste com motivo explicito se a variavel nao estiver
-    definida OU se o caminho nao existir (o caso NORMAL em CI/clone
-    publico, que nunca tem fixture real nem a variavel configurada)."""
+# Caminho EXPLICITO de regeneracao (SNAPSHOT-1/BASELINE-FRAGIL): regenerar
+# e ato CONSCIENTE do operador, nunca automatico -- por isso exige exportar
+# esta variavel (nome por chave, nao um "--force" que alguem digita sem
+# pensar). Uma UNICA variavel governa os DOIS congelamentos (snapshot de
+# texto + baseline de classificacao) -- deliberado: regenerar o snapshot
+# sem regenerar o baseline junto reabriria a MESMA fragilidade um nivel
+# acima (baseline antigo comparado contra snapshot novo).
+ENV_REGEN_BASELINE = "TAB_PENDENCIAS_REGEN_BASELINE_CONTR1"
+
+
+def _read_live_fixture(env_name):
+    """Le o arquivo VIVO apontado pela variavel de ambiente `env_name`, com
+    newline="" (nunca normaliza CRLF/LF -- ADR-0001 (e).3). Pula o teste com
+    motivo explicito se a variavel nao estiver definida OU se o caminho nao
+    existir (o caso NORMAL em CI/clone publico). Uso RESTRITO: so
+    `_frozen_fixture_text` chama isto, na captura do snapshot -- nenhum
+    teste le o arquivo vivo diretamente (ver SNAPSHOT-1 na docstring do
+    modulo)."""
     path = os.environ.get(env_name, "").strip()
     if not path:
         pytest.skip(
@@ -80,7 +104,56 @@ def _read_fixture(env_name):
             "confira o caminho exportado."
         )
     with open(path, encoding="utf-8", newline="") as fh:
-        return fh.read()
+        return fh.read(), path
+
+
+def _frozen_fixture_text(cache, env_name, key, regen):
+    """Devolve `(texto, recapturado)` -- o texto SEMPRE vem de um SNAPSHOT
+    imutavel no cache do pytest (nunca do arquivo vivo diretamente), e
+    `recapturado` e True quando este chamado ACABOU de (re)capturar o
+    snapshot (1a execucao nesta maquina, ou `regen=True`).
+
+    SNAPSHOT-1: o arquivo apontado por `env_name` e de OUTRO projeto,
+    editado por OUTRA sessao a qualquer momento -- inclusive durante esta
+    suite. Ler o arquivo vivo a cada execucao faz o contrato (contagem,
+    round-trip, classificacao) quebrar por trabalho legitimo alheio. O
+    snapshot fixa o insumo; so muda por regeneracao EXPLICITA (nunca
+    automatica, nunca por os testes reexecutarem)."""
+    text_key = f"contr1/snapshot_v1_{key}"
+    meta_key = f"contr1/snapshot_v1_{key}_meta"
+    cached = None if regen else cache.get(text_key, None)
+    if cached is not None:
+        return cached, False
+    text, path = _read_live_fixture(env_name)
+    cache.set(text_key, text)
+    cache.set(meta_key, {
+        "origem_env_var": env_name,
+        "origem_caminho": path,
+        "congelado_em": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "motivo": "regen_deliberado" if regen else "1a_execucao",
+    })
+    return text, True
+
+
+def _read_fixture(cache, env_name, key):
+    """Fachada usada pelos testes de contrato: devolve o texto CONGELADO da
+    fixture (nunca o arquivo vivo -- ver `_frozen_fixture_text`). Compartilha
+    a MESMA variavel de regen que o baseline de classificacao
+    (`ENV_REGEN_BASELINE`), para que um unico ato deliberado regenere os dois
+    juntos. `pytest.skip` (nao AssertionError) na 1a captura/regen -- e um
+    estado de setup, nao um resultado de teste."""
+    regen = bool(os.environ.get(ENV_REGEN_BASELINE, "").strip())
+    text, recapturado = _frozen_fixture_text(cache, env_name, key, regen)
+    if recapturado:
+        pytest.skip(
+            f"{key}: snapshot da fixture "
+            + (f"REGENERADO deliberadamente via {ENV_REGEN_BASELINE}=1"
+               if regen else "CONGELADO agora (1a execucao nesta maquina)")
+            + " -- .pytest_cache/, ja no .gitignore, nunca versionado "
+              "(metadados de origem/data ao lado). Rode a suite de novo "
+              "para exercitar os testes de contrato contra este snapshot."
+        )
+    return text
 
 
 # ----------------------------------------------------------------------------
@@ -130,9 +203,9 @@ def _independent_item_count(text):
 
 @pytest.mark.parametrize("path,expected_count,key", _FIXTURES)
 def test_contagem_de_itens_bate_parser_e_recontagem_independente(
-    path, expected_count, key
+    path, expected_count, key, cache
 ):
-    text = _read_fixture(path)
+    text = _read_fixture(cache, path, key)
     tbl = L.parse_table(text)
     assert tbl is not None, f"{key}: nenhuma tabela ID+Status encontrada"
     parser_count = len(tbl["items"])
@@ -150,8 +223,8 @@ def test_contagem_de_itens_bate_parser_e_recontagem_independente(
 # ----------------------------------------------------------------------------
 
 @pytest.mark.parametrize("path,expected_count,key", _FIXTURES)
-def test_roundtrip_byte_exato_antes_de_qualquer_escrita(path, expected_count, key):
-    text = _read_fixture(path)
+def test_roundtrip_byte_exato_antes_de_qualquer_escrita(path, expected_count, key, cache):
+    text = _read_fixture(cache, path, key)
     tbl = L.parse_table(text)
     assert tbl is not None
     assert "\n".join(tbl["lines"]) == text, (
@@ -160,12 +233,12 @@ def test_roundtrip_byte_exato_antes_de_qualquer_escrita(path, expected_count, ke
 
 
 @pytest.mark.parametrize("path,expected_count,key", _FIXTURES)
-def test_roundtrip_apos_set_status_cell_em_todos_os_itens(path, expected_count, key):
+def test_roundtrip_apos_set_status_cell_em_todos_os_itens(path, expected_count, key, cache):
     """Aplica set_status_cell em TODAS as N linhas de item (nao so uma amostra)
     e prova que (a) nenhuma linha fora do conjunto de Status mudou um byte
     sequer, (b) a contagem de itens continua a mesma, e (c) as N celulas de
     Status realmente mudaram para o valor setado."""
-    text = _read_fixture(path)
+    text = _read_fixture(cache, path, key)
     tbl = L.parse_table(text)
     original_lines = text.split("\n")
     lines = list(tbl["lines"])          # copia -- nao muta o dict do parse
@@ -206,9 +279,9 @@ def _lines_with_escaped_pipe(tbl):
 
 @pytest.mark.parametrize("path,expected_count,key", _FIXTURES)
 def test_set_status_cell_preserva_linha_byte_a_byte_amostra_real(
-    path, expected_count, key
+    path, expected_count, key, cache
 ):
-    text = _read_fixture(path)
+    text = _read_fixture(cache, path, key)
     tbl = L.parse_table(text)
     n = len(tbl["items"])
     idx_deterministicos = sorted({0, n // 2, n - 1})
@@ -308,15 +381,16 @@ def test_frozen_map_diff_vazio_quando_nada_mudou():
     assert _frozen_map_diff(dict(m), dict(m)) == {}
 
 
-# Caminho EXPLICITO de regeneracao do baseline (BASELINE-FRAGIL): regenerar
-# e ato CONSCIENTE do operador, nunca automatico -- por isso exige exportar
-# esta variavel (nome por chave, nao um "--force" que alguem digita sem
-# pensar), documentado aqui e na mensagem de skip abaixo.
-ENV_REGEN_BASELINE = "TAB_PENDENCIAS_REGEN_BASELINE_CONTR1"
-
-
 def _check_status_map_estavel(cache, key, path):
-    text = _read_fixture(path)
+    """`path` aqui e o nome da variavel de ambiente (ver `_FIXTURES`).
+    SNAPSHOT-1: le o texto pelo SNAPSHOT congelado (`_frozen_fixture_text`),
+    nunca o arquivo vivo -- e o mesmo `regen` (`ENV_REGEN_BASELINE`) que
+    controla o snapshot TAMBEM reseta o baseline de classificacao na MESMA
+    chamada, atomicamente: regenerar o snapshot sem regenerar o baseline
+    junto compararia classificacao NOVA contra baseline VELHO, reabrindo a
+    mesma fragilidade um nivel acima."""
+    regen = bool(os.environ.get(ENV_REGEN_BASELINE, "").strip())
+    text, snapshot_recapturado = _frozen_fixture_text(cache, path, key, regen)
     tbl = L.parse_table(text)
     current = {
         it["id"]: _status_classification(it["status"]) for it in tbl["items"]
@@ -327,25 +401,28 @@ def _check_status_map_estavel(cache, key, path):
     # item como "mudou" por um motivo que nao e reclassificacao nenhuma.
     cache_key = f"contr1/status_classification_v2_{key}"
 
-    if os.environ.get(ENV_REGEN_BASELINE, "").strip():
-        cache.set(cache_key, current)
-        pytest.skip(
-            f"{key}: baseline REGENERADO deliberadamente via "
-            f"{ENV_REGEN_BASELINE}=1 -- use isto SO quando a mudanca de "
-            "classificacao for legitima (ex.: conserto de parser proposital "
-            "que reclassifica um item de verdade), nunca por reflexo para "
-            "silenciar um vermelho. Rode a suite de novo SEM esta variavel "
-            "para validar contra o baseline novo."
-        )
-
-    baseline = cache.get(cache_key, None)
+    # Baseline tem de ser re-congelado sempre que o SNAPSHOT foi
+    # (re)capturado nesta mesma chamada -- senao compararia a classificacao
+    # do snapshot NOVO contra o baseline do snapshot ANTIGO, o que e uma
+    # divergencia espuria (nao uma reclassificacao do parser).
+    baseline = None if (regen or snapshot_recapturado) else cache.get(cache_key, None)
     if baseline is None:
         cache.set(cache_key, current)
+        alvo = "snapshot da fixture e baseline de classificacao" if snapshot_recapturado \
+            else "baseline de classificacao"
+        if regen:
+            pytest.skip(
+                f"{key}: {alvo} REGENERADOS deliberadamente via "
+                f"{ENV_REGEN_BASELINE}=1 -- use isto SO quando a mudanca for "
+                "legitima (conserto de parser proposital, ou aceitar o "
+                "estado atual da fixture como novo ponto de partida), nunca "
+                "por reflexo para silenciar um vermelho. Rode a suite de "
+                "novo SEM esta variavel para validar contra o estado novo."
+            )
         pytest.skip(
-            f"{key}: baseline da classificacao de status CONGELADO agora "
-            "nesta maquina (.pytest_cache/, ja no .gitignore -- nunca "
-            "versionado); rode a suite de novo para validar estabilidade "
-            "contra ele."
+            f"{key}: {alvo} CONGELADO agora (1a execucao nesta maquina) -- "
+            ".pytest_cache/, ja no .gitignore, nunca versionado. Rode a "
+            "suite de novo para validar estabilidade contra este estado."
         )
     mudou = _frozen_map_diff(baseline, current)
     assert not mudou, (
@@ -387,11 +464,14 @@ def test_classificacao_muda_quando_emoji_muda():
 
 
 # ----------------------------------------------------------------------------
-# Mutation testing do MECANISMO de baseline com corpus SINTETICO (nunca a
-# fixture real -- ver conftest/metodo): prova end-to-end de que
-# `_check_status_map_estavel` (a) ignora edicao de prosa que preserva
-# classificacao, (b) acusa nomeando o ID quando a classificacao de fato
-# muda, e (c) o caminho de regeneracao e deliberado (so via env var).
+# SNAPSHOT-1: prova com corpus SINTETICO (nunca a fixture real -- nao se
+# sabota arquivo rastreado nem fixture viva) de que o mecanismo inteiro
+# (snapshot de texto + baseline de classificacao) (a) IGNORA qualquer
+# edicao do arquivo vivo -- prosa OU reclassificacao real -- depois de
+# congelado; (b) ainda acusa, nomeando o ID, quando o PROPRIO PARSER muda
+# de comportamento sobre o MESMO insumo congelado (o caso que o teste
+# existe para pegar); (c) o caminho de regeneracao e deliberado, unico e
+# atomico para os dois congelamentos.
 # ----------------------------------------------------------------------------
 
 class _FakeCache:
@@ -427,60 +507,97 @@ def _todo_sintetico(status_x1):
     )
 
 
-def test_baseline_ignora_prosa_mas_acusa_reclassificacao_real(tmp_path, monkeypatch):
-    env_name = "TAB_PENDENCIAS_TESTE_SINTETICO_BASELINE_FRAGIL"
+def test_snapshot_ignora_qualquer_edicao_do_arquivo_vivo_depois_de_congelado(
+    tmp_path, monkeypatch
+):
+    """O caso real que gerou esta 2a rodada: o consumidor B foi editado
+    por OUTRA sessao (2 itens perderam o emoji-prefixo) enquanto a suite
+    rodava. Depois do snapshot congelado, NENHUMA edicao do arquivo vivo
+    -- nem prosa, nem reclassificacao de verdade -- pode voltar a
+    acusar."""
+    env_name = "TAB_PENDENCIAS_TESTE_SINTETICO_SNAPSHOT_IMUNE"
     fixture_path = tmp_path / "TODO_sintetico.md"
     cache = _FakeCache()
 
-    # 1a rodada: congela o baseline (skip esperado).
     fixture_path.write_text(_todo_sintetico("✅ Concluído: v1"), encoding="utf-8")
     monkeypatch.setenv(env_name, str(fixture_path))
     with pytest.raises(pytest.skip.Exception, match="CONGELADO agora"):
-        _check_status_map_estavel(cache, "sintetico", env_name)
+        _check_status_map_estavel(cache, "sintetico_imune", env_name)
 
-    # 2a rodada: MESMO emoji/classificacao, prosa diferente (outra "sessao"
-    # editou o arquivo) -- nao pode acusar nada.
+    # "Outra sessao" edita o arquivo VIVO com prosa nova (mesma classificacao).
     fixture_path.write_text(
-        _todo_sintetico("✅ Concluído: v2, com detalhe novo anexado por outra sessao"),
+        _todo_sintetico("✅ Concluído: v2, detalhe anexado por outra sessao"),
         encoding="utf-8",
     )
-    _check_status_map_estavel(cache, "sintetico", env_name)  # nao levanta
+    _check_status_map_estavel(cache, "sintetico_imune", env_name)  # nao levanta
 
-    # 3a rodada: reclassificacao REAL (emoji muda de done para verificacao)
-    # -- tem de acusar, nomeando o ID certo.
-    fixture_path.write_text(_todo_sintetico("🔍 Pendente verificação"), encoding="utf-8")
-    with pytest.raises(AssertionError, match=r"X-1"):
-        _check_status_map_estavel(cache, "sintetico", env_name)
+    # "Outra sessao" agora faz uma RECLASSIFICACAO real no arquivo vivo
+    # (perde o emoji-prefixo, igual ao caso real do consumidor B) -- o
+    # snapshot ja congelado tem de blindar isso tambem.
+    fixture_path.write_text(
+        _todo_sintetico("Concluido sem emoji-prefixo (edicao alheia)"),
+        encoding="utf-8",
+    )
+    _check_status_map_estavel(cache, "sintetico_imune", env_name)  # nao levanta
 
-    # Restaura ao estado original (mesma classificacao do baseline
-    # congelado na 1a rodada) -- prova que o vermelho NAO fica preso para
-    # sempre: reverter a reclassificacao real volta a ficar limpo.
+
+def test_baseline_acusa_quando_o_PROPRIO_PARSER_reclassifica_o_insumo_congelado(
+    tmp_path, monkeypatch
+):
+    """Mutacao do PARSER (nao do dado -- ver teste acima): com o insumo
+    CONGELADO e sem nenhuma edicao de arquivo, simula um conserto de
+    parser que muda `is_done` -- o baseline tem de acusar, nomeando X-1.
+    Restaurado o predicado, volta a ficar limpo."""
+    env_name = "TAB_PENDENCIAS_TESTE_SINTETICO_PARSER_MUTADO"
+    fixture_path = tmp_path / "TODO_sintetico.md"
+    cache = _FakeCache()
+
     fixture_path.write_text(_todo_sintetico("✅ Concluído: v1"), encoding="utf-8")
-    _check_status_map_estavel(cache, "sintetico", env_name)  # nao levanta
+    monkeypatch.setenv(env_name, str(fixture_path))
+    with pytest.raises(pytest.skip.Exception, match="CONGELADO agora"):
+        _check_status_map_estavel(cache, "sintetico_parser", env_name)
+
+    # Nenhuma edicao de arquivo -- simula um CONSERTO DE PARSER que muda o
+    # predicado is_done (ex.: um refactor de ADR-0001 que altera a regra).
+    monkeypatch.setattr(L, "is_done", lambda status: False)
+    with pytest.raises(AssertionError, match=r"X-1"):
+        _check_status_map_estavel(cache, "sintetico_parser", env_name)
+
+    # Restaurado o predicado (monkeypatch desfeito no proximo `undo`
+    # explicito) -- volta a ficar limpo, prova que o vermelho nao e
+    # permanente.
+    monkeypatch.undo()
+    _check_status_map_estavel(cache, "sintetico_parser", env_name)  # nao levanta
 
 
-def test_regeneracao_de_baseline_e_deliberada_via_env_var(tmp_path, monkeypatch):
-    env_name = "TAB_PENDENCIAS_TESTE_SINTETICO_BASELINE_REGEN"
+def test_regeneracao_atomica_de_snapshot_e_baseline_via_env_var(tmp_path, monkeypatch):
+    """Regen deliberado (UMA variavel) recongela snapshot E baseline
+    JUNTOS -- nunca so um dos dois (o que compararia classificacao nova
+    contra baseline velho)."""
+    env_name = "TAB_PENDENCIAS_TESTE_SINTETICO_REGEN_ATOMICO"
     fixture_path = tmp_path / "TODO_sintetico.md"
     cache = _FakeCache()
 
     fixture_path.write_text(_todo_sintetico("⏳ Pendente"), encoding="utf-8")
     monkeypatch.setenv(env_name, str(fixture_path))
-    with pytest.raises(pytest.skip.Exception):
+    with pytest.raises(pytest.skip.Exception, match="CONGELADO agora"):
         _check_status_map_estavel(cache, "sintetico_regen", env_name)
 
-    # Reclassificacao real -- sem regen, acusa.
+    # "Outra sessao" faz uma mudanca REAL e legitima no arquivo vivo --
+    # sem regen, o snapshot blinda: nao acusa nada.
     fixture_path.write_text(_todo_sintetico("✅ Concluído"), encoding="utf-8")
-    with pytest.raises(AssertionError, match=r"X-1"):
-        _check_status_map_estavel(cache, "sintetico_regen", env_name)
+    _check_status_map_estavel(cache, "sintetico_regen", env_name)  # nao levanta
 
-    # Regen deliberado via env var -- skip explicito, nao falha muda.
+    # Regen deliberado via env var -- skip explicito, recongela os DOIS
+    # (snapshot com o conteudo novo + baseline derivado dele) numa unica
+    # chamada.
     monkeypatch.setenv(ENV_REGEN_BASELINE, "1")
-    with pytest.raises(pytest.skip.Exception, match="REGENERADO deliberadamente"):
+    with pytest.raises(pytest.skip.Exception, match="REGENERADOS deliberadamente"):
         _check_status_map_estavel(cache, "sintetico_regen", env_name)
     monkeypatch.delenv(ENV_REGEN_BASELINE)
 
-    # Depois do regen, o MESMO estado (agora "✅ Concluído") passa limpo.
+    # Depois do regen, o MESMO estado (agora "✅ Concluído") passa limpo
+    # contra o snapshot/baseline novos.
     _check_status_map_estavel(cache, "sintetico_regen", env_name)  # nao levanta
 
 
@@ -507,34 +624,34 @@ def test_regeneracao_de_baseline_e_deliberada_via_env_var(tmp_path, monkeypatch)
         "atualizar ou remover este teste."
     ),
 )
-def test_todo_parser_bug_deveria_ser_visivel_mas_nao_e_hoje():
-    text = _read_fixture(FIXTURE_ENV_B)
+def test_todo_parser_bug_deveria_ser_visivel_mas_nao_e_hoje(cache):
+    text = _read_fixture(cache, FIXTURE_ENV_B, "consumidor_b")
     tbl = L.parse_table(text)
     ids = {it["id"] for it in tbl["items"]}
     assert "TODO-PARSER-BUG" in ids
 
 
-def test_fragmento_truncado_de_atom3_agora_com_rastro_no_parser():
+def test_fragmento_truncado_de_atom3_agora_com_rastro_no_parser(cache):
     """CHK-CORE/ADR-0001 (b).5: a chave 'malformed' nasceu em todo_lib.py --
     o fragmento truncado/duplicado adjacente a ATOM-3 (consumidor B) deixa
     de ser invisivel: aparece em 'malformed' com o numero da linha, mesmo
     continuando fora de 'items' (a guarda de ncols do nucleo nao mudou, so
     deixou de ser silenciosa). Promovido de xfail(strict) para teste normal
     -- XPASS investigado, nao falso sinal."""
-    text = _read_fixture(FIXTURE_ENV_B)
+    text = _read_fixture(cache, FIXTURE_ENV_B, "consumidor_b")
     tbl = L.parse_table(text)
     assert "malformed" in tbl
     assert len(tbl["malformed"]) >= 1
 
 
-def test_atom3_resolve_hoje_para_a_linha_completa_apesar_do_fragmento_adjacente():
+def test_atom3_resolve_hoje_para_a_linha_completa_apesar_do_fragmento_adjacente(cache):
     """NAO e xfail: hoje o parser JA resolve ATOM-3 corretamente (o
     fragmento truncado adjacente e ignorado pela guarda de ncols antes de
     chegar a extrair um ID dele) -- comportamento correto que a fatia
     SPRAWL-1/FIX-ENG nao pode regredir (ex.: um fix de consolidacao mal
     filtrado poderia acidentalmente contar as DUAS linhas como duas
     entregas de ATOM-3)."""
-    text = _read_fixture(FIXTURE_ENV_B)
+    text = _read_fixture(cache, FIXTURE_ENV_B, "consumidor_b")
     tbl = L.parse_table(text)
     atom3 = [it for it in tbl["items"] if it["id"] == "ATOM-3"]
     assert len(atom3) == 1, (
