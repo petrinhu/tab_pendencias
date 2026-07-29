@@ -14,3 +14,6 @@ __pycache__/
 # projeto real do lider), um por linha. Nunca versionado -- e o proprio dado
 # que o guard existe para proteger.
 /.guard_forbidden_terms
+
+# prompt interno de reconsideracao (nao versionar: cita projetos do autor)
+prompt_fallback_legado.md

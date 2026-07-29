@@ -314,15 +314,61 @@ def status_classification_via(status):
     return "unknown"
 
 
+# PRED-FALLBACK (2026-07-29, prompt_fallback_legado.md): compostos que sao
+# status CANONICOS de duas palavras, nao "pendente" com anotacao livre --
+# tem de vencer independente da posicao, senao 'Pendente design' venceria
+# por 'pendente'@0 e viraria flipavel, ressuscitando o caso grave do BUG-5
+# dentro do proprio fallback que o corrigiu. `\s+` exige adjacencia direta
+# (so espaco entre as duas palavras): 'Pendente (verificar ...)' NAO casa
+# aqui (ha "(" no meio) e cai na regra de posicao abaixo, como deve.
+_LEGACY_COMPOSITE = (
+    (re.compile(r"\bpendente\s+design\b"), "design"),
+    (re.compile(r"\bpendente\s+verifica"), "verificacao"),
+)
+
+# Vocabulario simples do fallback e o kind que cada radical decide quando
+# vence por posicao (mesmos 7 kinds de _EMOJI_KIND, exceto parcial/decisao,
+# que nao tem forma textual pura reconhecida historicamente pelo fallback).
+_LEGACY_WORD_KIND = (
+    ("pendente", "pendente"),
+    ("andamento", "andamento"),
+    ("conclu", "done"),
+    ("verifica", "verificacao"),
+    ("design", "design"),
+)
+
+
+def _classify_legacy(status):
+    """Fallback de tabela legada sem emoji (ADR-0001 secao (d)): decide UMA
+    UNICA categoria por celula, nunca duas -- e o que torna is_done() e
+    is_awaiting_verification() mutuamente exclusivos POR CONSTRUCAO (a
+    incoerencia medida em 'Concluído e verificado', que saia com os dois em
+    True no fallback antigo por-predicado). Precedencia por POSICAO: entre
+    as ocorrencias do vocabulario canonico com \\b na frente, a de MENOR
+    indice na celula decide (empate nao existe, posicoes sao distintas) --
+    o mesmo principio que a camada de emoji ja usa (o emoji ABRE a celula,
+    o resto e anotacao). Compostos sao casados ANTES da regra de posicao
+    (ver _LEGACY_COMPOSITE). Devolve a mesma categoria de _status_kind, ou
+    None quando nenhum vocabulo do fallback foi reconhecido."""
+    s = status.lower()
+    for pattern, kind in _LEGACY_COMPOSITE:
+        if pattern.search(s):
+            return kind
+    best_pos, best_kind = None, None
+    for word, kind in _LEGACY_WORD_KIND:
+        m = re.search(r"\b" + word, s)
+        if m is not None and (best_pos is None or m.start() < best_pos):
+            best_pos, best_kind = m.start(), kind
+    return best_kind
+
+
 def is_pending(status):
     """⏳/🔄/🎨 = ainda nao concluido nem em verificacao. Usado em warnings/
     contagem (onde 'nao entregue' inclui 'pendente design')."""
     kind = _status_kind(status)
-    if kind is not None:
-        return kind in ("pendente", "andamento", "design")
-    if _has_word(status, "verifica"):
-        return False
-    return _has_word(status, "pendente") or _has_word(status, "andamento")
+    if kind is None:
+        kind = _classify_legacy(status)
+    return kind in ("pendente", "andamento", "design")
 
 
 def is_flip_eligible(status):
@@ -330,25 +376,23 @@ def is_flip_eligible(status):
     🔄 Em andamento. Exclui 🎨 Pendente design (design nem existe), 🔍 (ja
     entregue), 🟡 Parcial, 💡, ✅ (ambiguos/ja resolvidos -> nao auto-flipar)."""
     kind = _status_kind(status)
-    if kind is not None:
-        return kind in ("pendente", "andamento")
-    if _has_word(status, "verifica") or _has_word(status, "design"):
-        return False
-    return _has_word(status, "pendente") or _has_word(status, "andamento")
+    if kind is None:
+        kind = _classify_legacy(status)
+    return kind in ("pendente", "andamento")
 
 
 def is_awaiting_verification(status):
     kind = _status_kind(status)
-    if kind is not None:
-        return kind == "verificacao"
-    return _has_word(status, "verifica")
+    if kind is None:
+        kind = _classify_legacy(status)
+    return kind == "verificacao"
 
 
 def is_done(status):
     kind = _status_kind(status)
-    if kind is not None:
-        return kind == "done"
-    return _has_word(status, "conclu")
+    if kind is None:
+        kind = _classify_legacy(status)
+    return kind == "done"
 
 
 def cited_ids(message, ids):

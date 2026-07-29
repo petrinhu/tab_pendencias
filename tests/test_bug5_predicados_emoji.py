@@ -55,7 +55,17 @@ def test_bug5_fallback_tabela_legada_sem_emoji_continua_funcionando():
     assert L.is_pending("Em andamento") is True
     assert L.is_pending("Dependente de outro item") is False       # nao substring crua
     assert L.is_flip_eligible("Pendente") is True
-    assert L.is_flip_eligible("Pendente (verificar disponibilidade)") is False  # sem emoji: fallback antigo preserva o bloqueio
+    # 2026-07-29 (PRED-FALLBACK): expectativa TROCADA de False para True.
+    # O fallback antigo bloqueava o flip so por 'verifica' aparecer em
+    # QUALQUER lugar do texto livre, um falso-negativo medido pela sessao
+    # de um consumidor (relato interno, prompt_fallback_legado.md) -- e o
+    # mesmo fallback deixava
+    # 'Concluído e verificado' com is_done() e is_awaiting_verification()
+    # ambos True ao mesmo tempo, incoerencia que motivou reabrir a decisao.
+    # A nova regra (precedencia por POSICAO, ver test_pred_fallback_w15.py)
+    # resolve os dois: aqui 'pendente'@0 vence 'verifica'@10 porque a
+    # anotacao entre parenteses nao e o composto 'pendente verificacao'.
+    assert L.is_flip_eligible("Pendente (verificar disponibilidade)") is True
     assert L.is_done("Concluído") is True
     assert L.is_done("Inconclusivo") is False
     assert L.is_awaiting_verification("Pendente verificação") is True
