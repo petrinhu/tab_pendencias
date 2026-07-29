@@ -11,6 +11,29 @@ Todas as mudanças notáveis deste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.0.2] - 2026-07-29
+
+### Corrigido
+
+- **Classificacao de status em tabela legada (sem emoji) decidia por
+  "contem o radical" em vez de "o status e este".** Consequencias medidas:
+  uma celula como `Pendente (verificar disponibilidade)` nao era reconhecida
+  como pendente nem ficava elegivel a sincronizacao, porque a anotacao entre
+  parenteses mencionava outro vocabulo; e `Concluido e verificado` saia com
+  `is_done` e `is_awaiting_verification` **ambos verdadeiros** -- dois dos
+  sete status canonicos, mutuamente exclusivos por contrato, o que faria o
+  relatorio de saude contar o mesmo item em duas colunas.
+
+  Agora o vocabulo canonico que aparece **primeiro** na celula decide a
+  categoria, com os compostos (`Pendente design`, `Pendente verificacao`)
+  tratados antes da regra de posicao. A exclusividade mutua passa a ser
+  garantida por construcao.
+
+  **Impacto:** nenhum em tabela que usa o vocabulario com emoji -- essa
+  camada nao foi tocada e continua identica. O alvo e a tabela de quem
+  chega sem o vocabulario desta casa, que e justamente o primeiro contato
+  de quem adota a ferramenta.
+
 ## [1.0.1] - 2026-07-28
 
 ### Corrigido
