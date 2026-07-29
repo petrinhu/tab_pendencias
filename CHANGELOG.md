@@ -5,6 +5,32 @@ Todas as mudanças notáveis deste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.0.1] - 2026-07-28
+
+### Corrigido
+
+- **A receita de instalacao "por projeto" do hook local nao funcionava.** A
+  seção correspondente de `tools/README.md` mandava copiar os shims e o
+  script para dentro de uma mesma pasta, mas o shim procura o script um
+  nivel acima (o layout do repositorio separa `tools/hooks/` de `tools/`), e
+  a receita nao mandava copiar o modulo que o script importa. Seguindo o
+  passo a passo ao pe da letra, o hook falhava com "arquivo nao encontrado".
+  Era a primeira coisa que um usuario novo executava. A receita agora
+  preserva a relacao de pastas que o shim espera, e ha teste automatizado
+  (`tests/test_install_recipe_e2e.py`) que executa **as duas** receitas
+  literalmente e faz um commit de verdade -- os testes anteriores chamavam o
+  script direto, sem passar pelo shim, que era exatamente onde o defeito
+  vivia. A receita de instalacao global ja funcionava e agora tambem tem
+  teste.
+
+### Adicionado
+
+- **Documentacao para iniciante em computacao** (`docs/para-iniciantes.md`):
+  guia do zero, sem assumir conhecimento de terminal, git ou Markdown, com
+  entrada e saida reais de cada comando e um glossario.
+- **Wiki do repositorio** publicada, com paginas de comandos, conceitos e
+  solucao de problemas.
+
 ## [1.0.0] - 2026-07-28
 
 Primeira versão estável do toolkit `tab_pendencias`: skill + scripts de
