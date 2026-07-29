@@ -1,5 +1,12 @@
 # Changelog
 
+<!-- markdownlint-disable MD024 -->
+<!-- O formato Keep a Changelog repete os mesmos titulos de secao
+     (Adicionado, Corrigido, Alterado, Seguranca) em CADA versao, por
+     definicao. A MD024 proibe titulos iguais no mesmo documento, o que e
+     incompativel com o formato adotado. -->
+
+
 Todas as mudanças notáveis deste projeto são documentadas neste arquivo.
 
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
