@@ -40,13 +40,19 @@ Os arquivos são `hooks/post-commit` (shim POSIX) + `todo_freshness.py`
 
 ### Por projeto (recomendado)
 
-Versiona o hook junto do repo e vale também nos worktrees dos agents:
+Versiona o hook junto do repo e vale também nos worktrees dos agents. O shim
+(`post-commit`) procura `todo_freshness.py` **um nível acima** de onde ele
+mesmo está (mesmo layout monorepo de `tools/hooks/` + `tools/` descrito
+acima), e `todo_freshness.py` por sua vez precisa de `todo_lib.py` na
+**mesma pasta** que ele -- por isso os scripts Python vão em `.githooks/` e
+só os shims em `.githooks/hooks/` (não os dois juntos na mesma pasta):
 
 ```sh
-mkdir -p .githooks
-cp tools/hooks/post-commit tools/hooks/_chain.sh tools/todo_freshness.py .githooks/
-chmod +x .githooks/post-commit          # Unix; no Windows o exec bit e irrelevante
-git config core.hooksPath .githooks
+mkdir -p .githooks/hooks
+cp tools/hooks/post-commit tools/hooks/_chain.sh .githooks/hooks/
+cp tools/todo_freshness.py tools/todo_lib.py .githooks/
+chmod +x .githooks/hooks/post-commit    # Unix; no Windows o exec bit e irrelevante
+git config core.hooksPath .githooks/hooks
 ```
 
 ### Global (todos os repositórios da máquina)

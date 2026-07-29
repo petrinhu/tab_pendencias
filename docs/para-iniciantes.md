@@ -514,30 +514,22 @@ pulou.
   `--fix` se recusa a escrever, para nunca misturar sua edição em andamento
   com a correção automática. Faça o commit (ou descarte a mudança) antes de
   rodar `--apply`.
-- **Instalando o hook "por projeto": um detalhe que a receita mais curta do
-  [`tools/README.md`](../tools/README.md) não deixa óbvio.** Testamos ao vivo
-  a receita exatamente como está escrita lá (copiar `post-commit`,
-  `_chain.sh` e `todo_freshness.py` para dentro de uma pasta `.githooks/`) e
-  o aviso do hook não apareceu -- o terminal mostrou um erro de arquivo não
-  encontrado. A causa: o script `post-commit` procura `todo_freshness.py` um
-  nível **acima** da pasta onde ele mesmo está, e `todo_freshness.py` por sua
-  vez precisa de outro arquivo do projeto (`todo_lib.py`) na **mesma pasta**
-  que ele. Para a instalação "por projeto" funcionar hoje, coloque
-  `todo_freshness.py` **e** `todo_lib.py` na raiz do seu projeto (não dentro
-  de `.githooks/`), e só os shims (`post-commit`, `_chain.sh`) dentro de
-  `.githooks/`:
+- **Instalando o hook "por projeto": preste atenção em onde cada arquivo
+  vai.** O script `post-commit` procura `todo_freshness.py` um nível
+  **acima** da pasta onde ele mesmo está, e `todo_freshness.py` por sua vez
+  precisa de outro arquivo do projeto (`todo_lib.py`) na **mesma pasta** que
+  ele -- por isso a receita da seção "Por projeto (recomendado)" do
+  [`tools/README.md`](../tools/README.md) coloca os dois scripts Python em
+  `.githooks/` e só os shims (`post-commit`, `_chain.sh`) dentro de
+  `.githooks/hooks/`, não os dois juntos na mesma pasta:
 
   ```bash
-  mkdir -p .githooks
-  cp /caminho/do/clone/tools/hooks/post-commit /caminho/do/clone/tools/hooks/_chain.sh .githooks/
-  chmod +x .githooks/post-commit
-  cp /caminho/do/clone/tools/todo_freshness.py /caminho/do/clone/tools/todo_lib.py .
-  git config core.hooksPath .githooks
+  mkdir -p .githooks/hooks
+  cp /caminho/do/clone/tools/hooks/post-commit /caminho/do/clone/tools/hooks/_chain.sh .githooks/hooks/
+  cp /caminho/do/clone/tools/todo_freshness.py /caminho/do/clone/tools/todo_lib.py .githooks/
+  chmod +x .githooks/hooks/post-commit
+  git config core.hooksPath .githooks/hooks
   ```
-
-  Reportamos esta divergência para quem mantém o projeto corrigir a receita
-  documentada; até lá, use os passos acima, verificados ao vivo para este
-  guia.
 
 ## 8. Glossário
 
