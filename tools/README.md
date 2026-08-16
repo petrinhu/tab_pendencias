@@ -174,14 +174,27 @@ git config core.hooksPath .githooks/hooks
 
 ### Global (todos os repositórios da máquina)
 
-Aplica a todos os repos; faz **no-op silencioso** onde não há `TODO.md`:
+Aplica a todos os repos; faz **no-op silencioso** onde não há `TODO.md`.
+
+**HOOKSRC-1 (obrigatório):** os ganchos **vivos** (`core.hooksPath` global ou por
+usuário) devem apontar para uma **instalação PUBLICADA** -- tipicamente o
+**submódulo pinado** (gitlink de uma tag/`vX.Y.Z` já testada) no repositório
+consumidor, **nunca** para o checkout de desenvolvimento deste produto. Se
+`core.hooksPath` apontar para a árvore de dev, código ainda não commitado
+executa a cada commit do líder em qualquer projeto da máquina.
 
 ```sh
-git config --global core.hooksPath /caminho/para/este/clone/tools/hooks
+# CORRETO: path da instalacao publicada / submodulo pinado no consumidor
+git config --global core.hooksPath /caminho/para/submodulo-pinado/tools/hooks
+
+# ERRADO: checkout de desenvolvimento deste repo (nao faca)
+# git config --global core.hooksPath /caminho/para/clone-dev/tab_pendencias/tools/hooks
 ```
 
-(Nesta máquina, a migração para este modo é acompanhada por passo de
-verificação explícito; ver `MIG-1` no `TODO.md` deste projeto.)
+Custo aceito: mudança em gancho só vale após publicar e **avançar o pin** do
+submódulo. Não altere o symlink global da máquina sem ordem explícita do líder.
+Detector de pin atrasado: `python3 tools/submodule_pin_drift.py` (ver seção
+acima).
 
 ## Coexistência com hooks locais (encadeamento)
 
@@ -199,8 +212,18 @@ continuam bloqueando: `exec` preserva args, stdin e exit code. Repos que já
 definem o próprio `core.hooksPath` (ex.: husky) ignoram o global e seguem como
 estão.
 
+## Exceção anti-mdash deste repositório (MDASH-2)
+
+O travessão tipográfico (U+2014) é célula vazia canônica do schema. Este repo
+versiona o marcador [`.tab_pendencias.allow_emdash`](../.tab_pendencias.allow_emdash)
+na raiz. **Checklist para o consumidor do hook `no_mdash` (vault /
+`~/.claude/hooks/`):** isentar paths cujo basename de repositório seja
+`tab_pendencias`, ou que contenham esse marcador na raiz. A proteção segue em
+todos os outros projetos.
+
 ## Cross-platform
 
+- **Python >= 3.11** (piso oficial, `pyproject.toml` / PYFLOOR-2).
 - **Linux / macOS:** `sh` nativo executa o shim; `python3` faz o trabalho.
 - **Windows:** requer o Git for Windows (traz o `bash` que roda hooks `#!/bin/sh`)
   e `python`/`python3` no PATH. O shim tenta `python3` e depois `python`.
@@ -217,6 +240,24 @@ estão.
   "rodar mesmo sem commit nem sessão"; faz só higiene mecânica, **não** reordena.
 - **Camada 4 local** (fonte-da-verdade offline): `git-bug` (issues em refs git,
   sem servidor) em vez de Issues do GitHub.
+
+## Concorrencia e escrita do `--fix` (`todo_fix.py`)
+
+- **Dry-run** (sem `--apply`): so le; **nao** pede lock.
+- **`--apply`**: adquire `TodoWriteLock` (`todo_lock.py`, mesmo lock de
+  intake/drain) **antes** de re-checar working tree limpa e escrever.
+  Serializa dois `--fix --apply` no mesmo TODO (FIX-RISCO-A/B). Timeout
+  default 10s; falha de lock = exit 1, nada escrito. Reentrante no mesmo
+  thread.
+- **Escrita atomica**: temp no mesmo dir + `os.replace` + tratamento
+  generico de `OSError` (inclui `PermissionError`). Residual
+  **FIX-RISCO-C**: no Windows, `os.replace`/MoveFileEx pode recusar
+  destino com atributo somente-leitura; o CI da matrix **nao** exercita
+  esse path real de plataforma -- a suíte cobre o handling generico via
+  mock de `os.replace` (`test_apply_interrupcao_no_replace_*`,
+  `test_apply_oserror_generico_permission_error`). Em POSIX, bits 0o444
+  no arquivo-alvo **nao** bloqueiam rename (so o diretorio precisa de
+  escrita).
 
 ## Testes
 

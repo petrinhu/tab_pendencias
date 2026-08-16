@@ -384,6 +384,10 @@ def test_apply_diretorio_sem_permissao_de_escrita_falha_limpo(tmp_path):
 
 
 def test_apply_interrupcao_no_replace_nao_corrompe_original(tmp_path, monkeypatch):
+    """OSError generico em os.replace (PermissionError, readonly Windows,
+    interrupcao) -> rc=1, TODO intacto, tmp limpo. FIX-RISCO-C: o CI nao
+    exercita o path real de destino somente-leitura no Windows; este mock
+    prova o handling generico que cobre esse residual."""
     root, todo = _repo(tmp_path, TODO_PIPE_CRU)
     antes = todo.read_bytes()
 
@@ -395,9 +399,110 @@ def test_apply_interrupcao_no_replace_nao_corrompe_original(tmp_path, monkeypatc
     assert result.rc == 1
     assert result.applied is False
     assert todo.read_bytes() == antes          # original intacto
+    assert "falha de I/O" in result.report_text
+    assert "OSError" in result.report_text
     # nenhum arquivo temporario orfao deixado no diretorio
     sobras = [f for f in os.listdir(root) if "todo_fix" in f or f.endswith(".tmp")]
     assert sobras == [], sobras
+
+
+def test_apply_oserror_generico_permission_error(tmp_path, monkeypatch):
+    """PermissionError e subclasse de OSError; handling generico sem
+    corromper (mesma rede de seguranca que cobriria readonly Windows)."""
+    root, todo = _repo(tmp_path, TODO_PIPE_CRU)
+    antes = todo.read_bytes()
+
+    def _replace_negado(*a, **kw):
+        raise PermissionError("destino somente-leitura simulado")
+
+    monkeypatch.setattr(F.os, "replace", _replace_negado)
+    result = F.run_fix(str(root), apply_classes=["all"])
+    assert result.rc == 1
+    assert result.applied is False
+    assert todo.read_bytes() == antes
+    assert "falha de I/O" in result.report_text
+    assert "PermissionError" in result.report_text
+
+
+# ------------------------------ lock em --apply -----------------------------
+
+def test_apply_com_lock_held_timeout_e_todo_intacto(tmp_path):
+    """Segundo --apply com lock ocupado: timeout, rc=1, TODO intacto
+    (FIX-RISCO-A/B)."""
+    import threading
+
+    import todo_lock as LK
+
+    root, todo = _repo(tmp_path, TODO_PIPE_CRU)
+    antes = todo.read_bytes()
+    lock_path = LK.default_lock_path(str(todo))
+    held = threading.Event()
+    release = threading.Event()
+
+    def holder():
+        with LK.TodoWriteLock(str(todo), lock_path=lock_path, timeout=5.0):
+            held.set()
+            release.wait(timeout=5.0)
+
+    th = threading.Thread(target=holder)
+    th.start()
+    assert held.wait(timeout=2.0), "holder nao adquiriu"
+
+    result = F.run_fix(
+        str(root), apply_classes=["all"], lock_timeout=0.25,
+    )
+    release.set()
+    th.join(timeout=3.0)
+
+    assert result.rc == 1
+    assert result.applied is False
+    assert "todo_lock" in result.report_text.lower() or "timeout" in (
+        result.report_text.lower()
+    )
+    assert todo.read_bytes() == antes
+
+
+def test_apply_reentrant_sob_mesmo_lock(tmp_path):
+    """run_fix apply sob lock ja detido no mesmo thread reusa (reentrancy)."""
+    import todo_lock as LK
+
+    root, todo = _repo(tmp_path, TODO_PIPE_CRU)
+    lock_path = LK.default_lock_path(str(todo))
+    with LK.TodoWriteLock(str(todo), lock_path=lock_path, timeout=2.0):
+        result = F.run_fix(str(root), apply_classes=["all"], lock_timeout=2.0)
+    assert result.rc == 2 and result.applied is True
+    assert "\\|" in todo.read_text(encoding="utf-8")
+
+
+def test_dry_run_nao_adquire_lock(tmp_path):
+    """Dry-run nao pede lock: com lock held de outro thread ainda roda e
+    nao escreve (preferencia: dry-run sem lock)."""
+    import threading
+
+    import todo_lock as LK
+
+    root, todo = _repo(tmp_path, TODO_PIPE_CRU)
+    antes = todo.read_bytes()
+    lock_path = LK.default_lock_path(str(todo))
+    held = threading.Event()
+    release = threading.Event()
+
+    def holder():
+        with LK.TodoWriteLock(str(todo), lock_path=lock_path, timeout=5.0):
+            held.set()
+            release.wait(timeout=5.0)
+
+    th = threading.Thread(target=holder)
+    th.start()
+    assert held.wait(timeout=2.0)
+
+    result = F.run_fix(str(root))  # dry-run
+    release.set()
+    th.join(timeout=3.0)
+
+    assert result.rc == 2
+    assert result.applied is False
+    assert todo.read_bytes() == antes
 
 
 def test_apply_recusa_se_releitura_do_arquivo_temporario_diverge(tmp_path, monkeypatch):
@@ -535,6 +640,70 @@ def test_provar_invariantes_aceita_quando_tudo_bate():
     }
     ok, motivo = F._provar_invariantes(texto, invariantes)
     assert ok is True and motivo is None
+
+
+def test_provar_invariantes_recusa_divergencia_so_trailing_space():
+    """AUD-FUP-1: divergencia so de espaco em branco tem que falhar.
+
+    Um mutante que troca `!=` por `.strip() != .strip()` mataria o teste de
+    conteudo grosseiro e sobreviveria a suite -- este caso isola so o
+    trailing space (mesmo texto logico, bytes diferentes).
+    """
+    texto = "| ID | Status |\n| :- | :- |\n| V-1 | ⏳ Pendente |\n"
+    linha_real = "| V-1 | ⏳ Pendente |"
+    assert L.parse_table(texto)["lines"][2] == linha_real
+    invariantes = {
+        "n_linhas_esperado": 4,
+        "linhas_preservadas": {2: linha_real + " "},  # so trailing space
+        "remocoes_ordenadas": [],
+        "n_items_esperado": 1,
+    }
+    ok, motivo = F._provar_invariantes(texto, invariantes)
+    assert ok is False
+    assert "sobrevive" in motivo
+    # Prova do ponto cego: com strip a divergencia some -- a comparacao
+    # byte-exata e o que a rede precisa preservar.
+    assert (linha_real + " ").strip() == linha_real.strip()
+
+
+def test_provar_invariantes_recusa_divergencia_so_cr_de_crlf():
+    """AUD-FUP-1: terminador CR residual (split de CRLF em \\n) diverge.
+
+    text.split('\\n') deixa '\\r' no fim da linha quando o arquivo era CRLF.
+    Se o texto novo perdeu o CR, a linha 'preservada' nao sobrevive byte-a-byte.
+    """
+    # Resultado "novo" ja normalizado em LF (sem CR nas linhas).
+    texto = "| ID | Status |\n| :- | :- |\n| V-1 | ⏳ Pendente |\n"
+    linha_com_cr = "| V-1 | ⏳ Pendente |\r"
+    invariantes = {
+        "n_linhas_esperado": 4,
+        "linhas_preservadas": {2: linha_com_cr},
+        "remocoes_ordenadas": [],
+        "n_items_esperado": 1,
+    }
+    ok, motivo = F._provar_invariantes(texto, invariantes)
+    assert ok is False
+    assert "sobrevive" in motivo
+    # .strip() tambem engole o CR -- mutante strip() passaria silenciosamente.
+    assert linha_com_cr.strip() == "| V-1 | ⏳ Pendente |"
+
+
+def test_provar_e_escrever_recusa_whitespace_sem_tocar_disco(tmp_path):
+    """AUD-FUP-1: a falha da prova bloqueia o apply (nada escrito)."""
+    todo = tmp_path / "TODO.md"
+    texto = "| ID | Status |\n| :- | :- |\n| V-1 | ⏳ Pendente |\n"
+    todo.write_text(texto, encoding="utf-8")
+    antes = todo.read_bytes()
+    invariantes = {
+        "n_linhas_esperado": 4,
+        "linhas_preservadas": {2: "| V-1 | ⏳ Pendente | "},
+        "remocoes_ordenadas": [],
+        "n_items_esperado": 1,
+    }
+    ok, motivo = F._provar_e_escrever(str(todo), texto, invariantes)
+    assert ok is False
+    assert "sobrevive" in motivo
+    assert todo.read_bytes() == antes
 
 
 # ------------------------- prova de fixture real (skip se ausente) ----------

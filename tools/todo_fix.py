@@ -66,6 +66,12 @@ Pré-condição (ADR-0001 c, D-6): `--apply` só roda com a working tree do
 TODO.md limpa (`git status --porcelain -- <path>` vazio); working tree suja,
 ou ausência de repositório git resolvível, aborta ANTES de qualquer escrita.
 
+Concorrência (FIX-RISCO-A/B, TAB-CONC-004): o caminho `--apply` adquire
+`TodoWriteLock` no path do TODO **antes** de re-checar a árvore limpa e
+escrever. Dry-run NUNCA pede lock. Timeout default 10s; falha de lock =
+exit 1, nada escrito. Reentrante no mesmo thread (mesmo contador do
+`todo_lock`).
+
 Uso:
   python3 todo_fix.py                              # dry-run: so mostra o plano
   python3 todo_fix.py --apply escapar_pipe_cru      # aplica so esta classe
@@ -74,8 +80,9 @@ Uso:
 
 Exit codes (D-6, os mesmos 3 valores fixos do resto do toolkit): 0 =
 execução ok e nada a corrigir; 1 = erro de execução (não é repositório git,
-TODO.md ilegível, working tree suja ao aplicar, falha de escrita); 2 =
-execução ok e há 1+ correção disponível (mostrada em dry-run OU aplicada).
+TODO.md ilegível, working tree suja ao aplicar, lock timeout, falha de
+escrita); 2 = execução ok e há 1+ correção disponível (mostrada em dry-run
+OU aplicada).
 """
 from __future__ import annotations
 
@@ -91,6 +98,7 @@ from dataclasses import dataclass, field
 
 import todo_audit as A
 import todo_lib as L
+import todo_lock as TL
 from checks import chk_core
 
 try:
@@ -491,6 +499,12 @@ def _escrever_atomico(todo_path, novo_texto):
             return False, (
                 "conteúdo lido de volta do arquivo temporário diverge do "
                 "que foi escrito -- abortado antes de trocar o arquivo real")
+        # os.replace: atomico no mesmo filesystem. Em POSIX, rename troca a
+        # entrada do diretorio mesmo se o ALVO for somente-leitura (0o444);
+        # no Windows, MoveFileEx/ReplaceFile pode recusar destino com
+        # atributo readonly (nao exercitado no CI -- residual FIX-RISCO-C).
+        # Qualquer OSError (PermissionError, etc.) cai no tratamento generico
+        # abaixo: limpa o tmp e devolve falha, sem tocar o TODO.md real.
         os.replace(tmp_path, todo_path)
         tmp_path = None  # substituído com sucesso -- nada mais a limpar
     except OSError as exc:
@@ -559,9 +573,12 @@ def _render_plan(plan, aplicados=None):
 
 # --------------------------------- núcleo -------------------------------------
 
-def run_fix(root, todo_path=None, apply_classes=None):
+def run_fix(root, todo_path=None, apply_classes=None, lock_timeout=None):
     """Núcleo testável, sem argparse/sys.exit. `apply_classes=None` (default)
-    é SEMPRE dry-run -- nunca escreve. Retorna `FixResult`."""
+    é SEMPRE dry-run -- nunca escreve e não pede lock. Com `--apply`, adquire
+    `TodoWriteLock` antes de re-checar árvore limpa e escrever (FIX-RISCO-A/B).
+    `lock_timeout` opcional (testes / override; default do lock = 10s).
+    Retorna `FixResult`."""
     todo_path = todo_path or L.find_todo(root)
     if not todo_path:
         return FixResult(
@@ -602,30 +619,54 @@ def run_fix(root, todo_path=None, apply_classes=None):
             "--apply; nada foi escrito.\n")
         return FixResult(rc=2, applied=False, plan=plan, report_text=texto)
 
-    sujo, motivo = _working_tree_status(root, todo_path)
-    if sujo:
-        texto = (
-            "Abortado ANTES de qualquer escrita: working tree do TODO.md "
-            f"não está limpa -- {motivo}\n--fix nunca mistura com edição em "
-            "voo de outra sessão/agente; commite ou descarte as mudanças "
-            "antes de rodar --apply.")
-        return FixResult(rc=1, applied=False, plan=plan, report_text=texto)
+    def _apply_body():
+        # Sob o lock: re-checa árvore limpa e só então monta/escreve.
+        # Fecha a janela em que dois --apply veem tree limpa e o segundo
+        # os.replace vence (FIX-RISCO-A) e o TOCTOU do RMW sem lock de SO
+        # (FIX-RISCO-B). Quem aplica primeiro deixa o TODO sujo; o segundo
+        # sob o lock aborta na precondição de árvore limpa.
+        sujo, motivo = _working_tree_status(root, todo_path)
+        if sujo:
+            texto = (
+                "Abortado ANTES de qualquer escrita: working tree do "
+                f"TODO.md não está limpa -- {motivo}\n--fix nunca mistura "
+                "com edição em voo de outra sessão/agente; commite ou "
+                "descarte as mudanças antes de rodar --apply.")
+            return FixResult(rc=1, applied=False, plan=plan,
+                             report_text=texto)
+
+        try:
+            novo_texto, invariantes = _montar_novo_texto(table, selecionados)
+        except FixError as exc:
+            return FixResult(rc=1, applied=False, plan=plan,
+                             report_text=f"Falha ao montar a correção: {exc}")
+
+        ok, motivo_falha = _provar_e_escrever(
+            todo_path, novo_texto, invariantes)
+        if not ok:
+            texto = (
+                "Abortado ANTES de escrever (prova de round-trip/contagem "
+                f"falhou): {motivo_falha}. O TODO.md NÃO foi tocado.")
+            return FixResult(rc=1, applied=False, plan=plan,
+                             report_text=texto)
+
+        texto = _render_plan(plan, aplicados=selecionados)
+        return FixResult(rc=2, applied=True, plan=plan, report_text=texto)
 
     try:
-        novo_texto, invariantes = _montar_novo_texto(table, selecionados)
-    except FixError as exc:
-        return FixResult(rc=1, applied=False, plan=plan,
-                         report_text=f"Falha ao montar a correção: {exc}")
-
-    ok, motivo_falha = _provar_e_escrever(todo_path, novo_texto, invariantes)
-    if not ok:
-        texto = (
-            "Abortado ANTES de escrever (prova de round-trip/contagem "
-            f"falhou): {motivo_falha}. O TODO.md NÃO foi tocado.")
-        return FixResult(rc=1, applied=False, plan=plan, report_text=texto)
-
-    texto = _render_plan(plan, aplicados=selecionados)
-    return FixResult(rc=2, applied=True, plan=plan, report_text=texto)
+        kw = {}
+        if lock_timeout is not None:
+            kw["timeout"] = float(lock_timeout)
+        with TL.TodoWriteLock(todo_path, **kw):
+            return _apply_body()
+    except TL.TodoLockError as exc:
+        return FixResult(
+            rc=1, applied=False, plan=plan,
+            report_text=(
+                f"Abortado ANTES de qualquer escrita: {exc}\n"
+                "--fix --apply serializa com TodoWriteLock; espere o outro "
+                "escritor ou aumente o timeout.\n"),
+        )
 
 
 # --------------------------------- CLI (D-6) ----------------------------------
@@ -655,8 +696,9 @@ def _build_parser():
         epilog=(
             "Exit codes: 0 = execução ok, nada a corrigir; 1 = erro de "
             "execução (não é repositório git, TODO.md ilegível, working "
-            "tree suja ao aplicar, falha de escrita); 2 = execução ok, há "
-            "1+ correção disponível (mostrada em dry-run OU aplicada)."),
+            "tree suja ao aplicar, lock timeout, falha de escrita); 2 = "
+            "execução ok, há 1+ correção disponível (mostrada em dry-run "
+            "OU aplicada)."),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
