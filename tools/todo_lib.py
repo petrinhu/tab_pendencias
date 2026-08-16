@@ -456,15 +456,156 @@ def set_status_cell(line, status_idx, new_status):
     return "|".join(parts) + tail
 
 
+# HEADING-1 (ADR-0002, defeito medido no nucleo): a deteccao de secao da
+# INBOX de planejamento exigia so `"inbox" in s.lower()` -- substring, em
+# qualquer caixa, em qualquer heading. Isso engolia headings ALHEIOS que
+# so contem a palavra comum "inbox" em prosa, como um heading de bus/
+# mensageria ("## Inbox do bus (mensagens recebidas)", TAB-BUS-003:
+# transporte de mensagens, NAO e a exception queue de planejamento). A
+# palavra em si nao basta como sinal: "Inbox do bus" tambem comeca com a
+# palavra "inbox" (case-insensitive), entao nem "\\bpalavra\\b" resolveria.
+# O que distingue e a CAIXA: o contrato normativo
+# (references/frescor-da-tabela.md SS5) usa literalmente o token "INBOX"
+# em MAIUSCULA -- mesmo principio de "ID"/"Status" como tokens de
+# cabecalho de tabela que nunca sao traduzidos (ADR-0001 secao d), so que
+# aqui a caixa exata (nao so a palavra) e o sinal estrutural que separa o
+# identificador de contrato do substantivo comum de prosa.
+_INBOX_HEADING = re.compile(r"(?<![\w-])INBOX(?![\w-])")
+
+
+def _is_inbox_heading(s):
+    """Heading e a INBOX de planejamento (ADR-0002 secao f)? Exige o token
+    'INBOX' maiusculo exato, como palavra isolada -- nunca substring solta
+    'em qualquer caixa' (ver HEADING-1 acima)."""
+    return bool(_INBOX_HEADING.search(s))
+
+
 def inbox_items(text):
-    """Linhas da secao '## INBOX ...' (ate o proximo heading)."""
+    """Linhas da secao '## INBOX ...' (ate o proximo heading). Ver
+    HEADING-1: a deteccao de secao usa _is_inbox_heading, nao mais
+    substring case-insensitive."""
     out = []
     in_inbox = False
     for line in text.split("\n"):
         s = line.strip()
         if s.startswith("#"):
-            in_inbox = "inbox" in s.lower()
+            in_inbox = _is_inbox_heading(s)
             continue
         if in_inbox and s.startswith("- "):
             out.append(s[2:].strip())
+    return out
+
+
+# ADR-0002 secao (f): vocabulario fechado de motivos residuais e origens
+# permitidas no metadado do item residual da INBOX.
+TRIAGE_REASONS = frozenset({
+    "missing-info", "conflicting-evidence", "dependency-conflict",
+    "needs-leader-decision", "ownership-unavailable", "blocked-external",
+})
+TRIAGE_SOURCES = frozenset({"user", "bus", "agent", "audit", "test"})
+_TRIAGE_KNOWN_KEYS = frozenset({"since", "reason", "source", "cycles", "ref"})
+_TRIAGE_REQUIRED_KEYS = frozenset({"since", "reason"})
+
+# Gramatica literal do ADR-0002 (f): "[triage" + 1+ pares " chave=valor" +
+# "] " + descricao livre remanescente. Chaves em [a-z_], valores sao tokens
+# sem espaco nem "]" (parseaveis por regex simples, sem YAML).
+_TRIAGE_BLOCK = re.compile(
+    r"^\[triage((?: [a-z_]+=[A-Za-z0-9._:\-]+)+)\] (.*)$", re.DOTALL)
+_TRIAGE_PAIR = re.compile(r" ([a-z_]+)=([A-Za-z0-9._:\-]+)")
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def format_triage_metadata(since, reason, source=None, cycles=None, ref=None):
+    """Serializa o bloco '[triage ...] ' (ADR-0002 secao f) para prefixar a
+    descricao livre de um item residual da INBOX -- ex.:
+    `format_triage_metadata(since="2026-08-16", reason="needs-leader-decision")
+    + "decisao pendente do lider"`. Nao valida os valores (quem chama e
+    responsavel por 'reason' em TRIAGE_REASONS e 'since' em ISO
+    'YYYY-MM-DD'); parse_triage_metadata sobre o resultado e a prova de
+    round-trip (formatar -> analisar -> mesmos campos)."""
+    pairs = [f"since={since}", f"reason={reason}"]
+    if source is not None:
+        pairs.append(f"source={source}")
+    if cycles is not None:
+        pairs.append(f"cycles={cycles}")
+    if ref is not None:
+        pairs.append(f"ref={ref}")
+    return "[triage " + " ".join(pairs) + "] "
+
+
+def parse_triage_metadata(description):
+    """Analisa o prefixo '[triage ...] ' de uma descricao de item da INBOX
+    (ADR-0002 secao f). Devolve dict:
+      present      bloco '[triage ...]' detectado no INICIO da descricao?
+      valid        bloco presente E sem nenhum erro (ver 'errors')?
+      fields       {chave: valor} bruto (str), {} quando ausente
+      errors       lista de motivos de invalidade (vazia quando valid)
+      description  texto livre remanescente (a descricao inteira quando
+                   'present' e False)
+
+    'valid' e SEMPRE False quando 'present' e False -- e o mecanismo
+    central do ADR: ausencia de token de triagem valido = classificavel
+    por definicao (secao f), nunca uma lista de motivos INVALIDOS a
+    policiar -- a unica lista fechada e a de motivos VALIDOS
+    (TRIAGE_REASONS). Metadado malformado (chave desconhecida, reason fora
+    do vocabulario, since fora do formato ISO, cycles nao inteiro, source
+    fora do vocabulario) tambem nunca e descartado em silencio: 'present'
+    continua True e 'errors' relata a causa (para o futuro --audit)."""
+    m = _TRIAGE_BLOCK.match(description)
+    if not m:
+        return {"present": False, "valid": False, "fields": {},
+                "errors": [], "description": description}
+    fields = {}
+    errors = []
+    for k, v in _TRIAGE_PAIR.findall(m.group(1)):
+        if k in fields:
+            errors.append(f"chave repetida: {k!r}")
+            continue
+        fields[k] = v
+    for k in fields:
+        if k not in _TRIAGE_KNOWN_KEYS:
+            errors.append(f"chave desconhecida: {k!r}")
+    for k in sorted(_TRIAGE_REQUIRED_KEYS - fields.keys()):
+        errors.append(f"chave obrigatoria ausente: {k!r}")
+    if "since" in fields and not _ISO_DATE.match(fields["since"]):
+        errors.append(f"since fora do formato ISO YYYY-MM-DD: {fields['since']!r}")
+    if "reason" in fields and fields["reason"] not in TRIAGE_REASONS:
+        errors.append(f"reason fora do vocabulario fechado: {fields['reason']!r}")
+    if "source" in fields and fields["source"] not in TRIAGE_SOURCES:
+        errors.append(f"source fora do vocabulario fechado: {fields['source']!r}")
+    if "cycles" in fields and not fields["cycles"].isdigit():
+        errors.append(f"cycles nao e inteiro >= 0: {fields['cycles']!r}")
+    return {"present": True, "valid": not errors, "fields": fields,
+            "errors": errors, "description": m.group(2)}
+
+
+def inbox_entries(text):
+    """inbox_items() decomposto (ADR-0002 secao f): cada entrada ganha o
+    ID tentativo, a descricao livre e a classificacao de triagem. Formato
+    de linha esperado (compat com o legado, references/frescor-da-tabela.md
+    SS5): '<ID-ou-travessao>: descricao livre [com ou sem [triage ...]]'.
+
+    Cada item do retorno:
+      raw           texto integral da linha (== o que inbox_items ja
+                    devolve, preservado 1:1 para round-trip/compat)
+      id            parte antes do 1o ':' (None se a linha nao tem ':' --
+                    formato ainda mais degradado que o legado sem
+                    metadado, ja classificavel por definicao)
+      description   parte livre apos o ':' (com ou sem bloco '[triage]';
+                    == 'raw' quando nao ha ':')
+      triage        dict de parse_triage_metadata sobre 'description'
+      classifiable  True quando NAO ha bloco '[triage ...]' VALIDO -- o
+                    mecanismo central do ADR-0002 (f): falta de token
+                    valido drena no proximo intake, por definicao, nunca
+                    por uma lista de motivos proibidos a policiar."""
+    out = []
+    for raw in inbox_items(text):
+        head, sep, rest = raw.partition(":")
+        if sep:
+            iid, desc = head.strip(), rest.strip()
+        else:
+            iid, desc = None, raw
+        triage = parse_triage_metadata(desc)
+        out.append({"raw": raw, "id": iid, "description": desc,
+                    "triage": triage, "classifiable": not triage["valid"]})
     return out

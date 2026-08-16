@@ -186,6 +186,97 @@ def test_inbox_vazia_conta_zero(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# classifiable_inbox_count / residual (TAB-ADR-004, ADR-0002 secao f): o
+# criterio de sucesso da campanha e classifiable_inbox_count == 0 -- esta
+# fatia so torna o numero MENSURAVEL, nao o zera.
+# ---------------------------------------------------------------------------
+
+def test_run_todas_legadas_sao_classificaveis_por_definicao(tmp_path):
+    """Sem metadado nenhum (o caso real dos 8 itens da INBOX viva hoje),
+    TODAS as linhas sao classificaveis -- e o default do ADR: falta de
+    token de triagem = classificavel, nunca residual por omissao."""
+    texto = (
+        _HEADER_9 + _row("V-01", "⏳ Pendente")
+        + "\n## INBOX (descobertas não priorizadas)\n"
+        "- FIX-1: sem metadado\n- FIX-2: sem metadado tambem\n"
+    )
+    root = _repo(tmp_path, texto)
+    res = H.run(root=str(root))
+    assert res["inbox"] == 2
+    assert res["classifiable_inbox_count"] == 2
+    assert res["residual_inbox_count"] == 0
+    assert res["oldest_residual_since"] is None
+    assert res["oldest_residual_age_days"] is None
+    assert res["oldest_residual_cycles"] is None
+
+
+def test_run_distingue_classificavel_de_residual_valido(tmp_path):
+    meta = L.format_triage_metadata(since="2020-01-01",
+                                    reason="needs-leader-decision", cycles=2)
+    texto = (
+        _HEADER_9 + _row("V-01", "⏳ Pendente")
+        + "\n## INBOX (descobertas não priorizadas)\n"
+        f"- LEGADO-1: sem metadado\n- RESIDUAL-1: {meta}decisao do lider\n"
+    )
+    root = _repo(tmp_path, texto)
+    res = H.run(root=str(root))
+    assert res["inbox"] == 2
+    assert res["classifiable_inbox_count"] == 1
+    assert res["residual_inbox_count"] == 1
+    assert res["oldest_residual_since"] == "2020-01-01"
+    assert res["oldest_residual_cycles"] == 2
+    assert res["oldest_residual_age_days"] > 0
+
+
+def test_run_metadado_malformado_conta_como_classificavel(tmp_path):
+    """reason fora do vocabulario fechado: NUNCA descartado em silencio --
+    a linha malformada e classificavel (drena no proximo intake), a mesma
+    politica de uma linha legada sem metadado nenhum."""
+    texto = (
+        _HEADER_9 + _row("V-01", "⏳ Pendente")
+        + "\n## INBOX (descobertas não priorizadas)\n"
+        "- X-1: [triage since=2026-08-16 reason=preguica] descricao\n"
+    )
+    root = _repo(tmp_path, texto)
+    res = H.run(root=str(root))
+    assert res["classifiable_inbox_count"] == 1
+    assert res["residual_inbox_count"] == 0
+
+
+def test_run_reporta_o_residual_mais_antigo_entre_varios(tmp_path):
+    meta_novo = L.format_triage_metadata(since="2026-08-01",
+                                         reason="blocked-external", cycles=0)
+    meta_velho = L.format_triage_metadata(since="2020-01-01",
+                                          reason="missing-info", cycles=1)
+    texto = (
+        _HEADER_9 + _row("V-01", "⏳ Pendente")
+        + "\n## INBOX (descobertas não priorizadas)\n"
+        f"- A: {meta_novo}mais novo\n- B: {meta_velho}mais velho\n"
+    )
+    root = _repo(tmp_path, texto)
+    res = H.run(root=str(root))
+    assert res["residual_inbox_count"] == 2
+    assert res["oldest_residual_since"] == "2020-01-01"
+    assert res["oldest_residual_cycles"] == 1
+
+
+def test_cli_imprime_contagem_classificavel_e_residual(tmp_path):
+    meta = L.format_triage_metadata(since="2026-08-01",
+                                    reason="needs-leader-decision", cycles=0)
+    texto = (
+        _HEADER_9 + _row("V-01", "⏳ Pendente")
+        + "\n## INBOX (descobertas não priorizadas)\n"
+        f"- LEGADO: sem metadado\n- RESIDUAL: {meta}pendente\n"
+    )
+    root = _repo(tmp_path, texto)
+    r = _run_cli(root)
+    baixo = r.stdout.lower()
+    assert "classific" in baixo
+    assert "residual mais antigo" in baixo
+    assert "2026-08-01" in r.stdout
+
+
+# ---------------------------------------------------------------------------
 # _adesao -- metrica de citar ID, lida de $GIT_DIR/todo-freshness.log
 # ---------------------------------------------------------------------------
 
@@ -263,7 +354,11 @@ def test_run_tabela_sem_itens_devolve_zeros(tmp_path):
     root = _repo(tmp_path, texto)
     res = H.run(root=str(root))
     assert res == {"itens": 0, "concluidos": 0, "pendentes": 0,
-                    "aguardando_verificacao": 0, "inbox": 0}
+                    "aguardando_verificacao": 0, "inbox": 0,
+                    "classifiable_inbox_count": 0, "residual_inbox_count": 0,
+                    "oldest_residual_since": None,
+                    "oldest_residual_age_days": None,
+                    "oldest_residual_cycles": None}
 
 
 def test_run_tabela_legada_8_colunas(tmp_path):

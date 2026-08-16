@@ -31,6 +31,7 @@ mensagem CLARA em stderr + exit 1 (erro de execucao, D-6/CLI-1) -- nunca
 traceback cru. --verbose acrescenta o traceback completo.
 """
 import argparse
+import datetime
 import os
 import sys
 import traceback
@@ -92,6 +93,39 @@ def _adesao(root):
     return f"{len(citaram)}/{len(code)} commits de codigo citaram ID ({pct}%)"
 
 
+def _residual_summary(entries):
+    """Entre as entradas residuais (NAO classificaveis, ADR-0002 secao f),
+    acha a de 'since' mais antigo -- e mede a idade em dias (contra
+    datetime.date.today(), fuso local) e o 'cycles' dela (default 0
+    quando o campo nao veio, per o proprio ADR). Devolve None quando nao
+    ha residual algum (INBOX vazia ou 100% classificavel) -- distinto de
+    um dict com zeros, para run()/main() nunca confundir "sem residual"
+    com "residual do dia 0"."""
+    oldest_entry = oldest_date = None
+    for e in entries:
+        if e["classifiable"]:
+            continue
+        since = e["triage"]["fields"].get("since")
+        if since is None:
+            continue
+        try:
+            d = datetime.date.fromisoformat(since)
+        except ValueError:
+            continue
+        if oldest_date is None or d < oldest_date:
+            oldest_date, oldest_entry = d, e
+    if oldest_entry is None:
+        return None
+    cycles_raw = oldest_entry["triage"]["fields"].get("cycles", "0")
+    cycles = int(cycles_raw) if cycles_raw.isdigit() else 0
+    return {
+        "id": oldest_entry["id"],
+        "since": oldest_entry["triage"]["fields"]["since"],
+        "age_days": (datetime.date.today() - oldest_date).days,
+        "cycles": cycles,
+    }
+
+
 # ENC-1: sentinela DISTINTO de None -- `run()` ja devolve None para dois
 # estados VALIDOS ("nao e repo git", "sem TODO.md"/"sem tabela": nada a
 # reportar, main() os desambigua via L.repo_root()). Uma leitura que FALHOU
@@ -134,6 +168,10 @@ def run(root=None, verbose=False):
     verif = [it for it in items if L.is_awaiting_verification(it["status"])]
     done = [it for it in items if L.is_done(it["status"])]
     inbox = L.inbox_items(text)
+    entries = L.inbox_entries(text)
+    classifiable = [e for e in entries if e["classifiable"]]
+    residual = [e for e in entries if not e["classifiable"]]
+    residual_summary = _residual_summary(entries)
 
     print(f"Saude da TODO.md ({len(items)} itens):")
     print(f"  ✅ concluidos: {len(done)}")
@@ -145,6 +183,21 @@ def run(root=None, verbose=False):
     if len(verif) > 10:
         print(f"       ... (+{len(verif) - 10})")
     print(f"  INBOX (descobertas nao priorizadas): {len(inbox)}")
+    # TAB-ADR-004/ADR-0002 secao f: classifiable_inbox_count e o numero que
+    # torna o criterio de sucesso da campanha MENSURAVEL -- linha sem
+    # metadado [triage ...] valido e classificavel POR DEFINICAO (drena no
+    # proximo intake), nunca por uma lista de motivos proibidos a policiar.
+    print(f"       classificaveis (sem 'reason' de triagem valida -- "
+          f"drenam no proximo intake): {len(classifiable)}")
+    if residual:
+        print(f"       residuais (reason valida, aguardando saida "
+              f"controlada): {len(residual)}")
+    if residual_summary:
+        print(f"       residual mais antigo -> "
+              f"{residual_summary['id'] or '(sem ID)'} "
+              f"(since={residual_summary['since']}, "
+              f"idade={residual_summary['age_days']}d, "
+              f"cycles={residual_summary['cycles']})")
     ad = _adesao(root)
     print(f"  adesao a citar ID: {ad}" if ad
           else "  adesao a citar ID: (sem dados ainda no todo-freshness.log)")
@@ -152,7 +205,15 @@ def run(root=None, verbose=False):
         print("Dica: rode todo_sync.py para sincronizar status entregue->🔍 "
               "(determinístico); /tab_pendencias --reorder para re-priorizar.")
     return {"itens": len(items), "concluidos": len(done), "pendentes": len(pend),
-            "aguardando_verificacao": len(verif), "inbox": len(inbox)}
+            "aguardando_verificacao": len(verif), "inbox": len(inbox),
+            "classifiable_inbox_count": len(classifiable),
+            "residual_inbox_count": len(residual),
+            "oldest_residual_since":
+                residual_summary["since"] if residual_summary else None,
+            "oldest_residual_age_days":
+                residual_summary["age_days"] if residual_summary else None,
+            "oldest_residual_cycles":
+                residual_summary["cycles"] if residual_summary else None}
 
 
 def main(argv):
