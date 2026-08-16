@@ -1597,3 +1597,145 @@ def test_drain_mutation_classifiable_zero_em_var_tmp(tmp_path):
         assert I.classifiable_inbox_count(
             todo.read_text(encoding="utf-8")
         ) == 0
+
+
+# ---------------------------------------------------------------------------
+# TAB-INBOX-005 -- drain nao apaga INBOX antes do intake
+# ---------------------------------------------------------------------------
+
+def test_drain_intake_fail_preserva_inbox_e_todo_byte_igual(tmp_path):
+    """Intake falha (item_id vazio em L0) -> TODO byte-identico; sem journal DONE.
+
+    Regressao do AUD-EXTREME Q14: strip-before-intake apagava a linha e
+    applied=False mentia. Mutation: se strip voltar a preceder intake, falha.
+    """
+    texto = (
+        TODO_BASE
+        + "\n## INBOX (descobertas não priorizadas)\n"
+        + "- LEGACY-1: old inbox line without triage metadata\n"
+        + "- #88: [triage since=2026-08-01 reason=missing-info cycles=0 "
+        "source=audit] waiting for more evidence\n"
+    )
+    repo, todo = _repo_com_todo(tmp_path, texto=texto)
+    antes = todo.read_text(encoding="utf-8")
+    judgments = {
+        "LEGACY-1": {
+            "action": "integrate",
+            "items": [{
+                "candidate_id": "drain-legacy-no-id",
+                # sem item_id: LOCAL_INTEGRATION aborta antes de journal/write
+                "description": "distinct desc so not description-dup",
+                "source": "audit",
+                "fields_complete": True,
+                "is_local": True,
+                "authority_ok": True,
+            }],
+        },
+    }
+    result = I.run_drain(
+        todo_path=str(todo), apply=True, judgments=judgments,
+    )
+    assert result.rc == 1, result.report_text
+    assert result.applied is False
+    assert "item_id" in (result.error or "").lower() or "item_id" in (
+        result.report_text or ""
+    ).lower()
+    depois = todo.read_text(encoding="utf-8")
+    assert depois == antes, (
+        "TODO mutado apesar de intake falhar -- strip-before-intake?"
+    )
+    entries = L.inbox_entries(depois)
+    by_id = {e.get("id"): e for e in entries}
+    assert "LEGACY-1" in by_id
+    assert by_id["LEGACY-1"].get("classifiable") is True
+    # residual nao deve ter sido bumped (cycles permanece 0)
+    assert by_id["#88"]["triage"]["fields"]["cycles"] == "0"
+    jdir = repo / ".tab_pendencias" / "intake-journal"
+    if jdir.is_dir():
+        assert not list(jdir.glob("*drain-legacy-no-id*DONE*"))
+        assert not list(jdir.glob("*DONE*drain-legacy*"))
+        # nenhum DONE para este candidato
+        for p in jdir.iterdir():
+            assert "drain-legacy-no-id" not in p.name or "DONE" not in p.name.upper()
+
+
+def test_drain_l0_bom_tira_classifiable_e_entra_tabela(tmp_path):
+    """Happy path L0: linha sai da INBOX e entra na tabela (TAB-INBOX-005)."""
+    texto = (
+        TODO_BASE
+        + "\n## INBOX (descobertas não priorizadas)\n"
+        + "- LEGACY-2: cutover classifiable line for happy path\n"
+    )
+    repo, todo = _repo_com_todo(tmp_path, texto=texto)
+    judgments = {
+        "LEGACY-2": {
+            "action": "integrate",
+            "items": [{
+                "candidate_id": "drain-legacy-ok",
+                "item_id": "LEGACY-2",
+                "description": "cutover classifiable line for happy path",
+                "source": "audit",
+                "fields_complete": True,
+                "is_local": True,
+                "authority_ok": True,
+            }],
+        },
+    }
+    result = I.run_drain(
+        todo_path=str(todo), apply=True, judgments=judgments,
+    )
+    assert result.rc == 0, result.error or result.report_text
+    assert result.applied is True
+    texto2 = todo.read_text(encoding="utf-8")
+    assert I.classifiable_inbox_count(texto2) == 0
+    ids = {it["id"] for it in L.parse_table(texto2)["items"]}
+    assert "LEGACY-2" in ids
+    assert not any(
+        e.get("id") == "LEGACY-2" for e in L.inbox_entries(texto2)
+    )
+    _assert_journal_done(repo, "drain-legacy-ok")
+
+
+def test_drain_split_segundo_filho_falha_preserva_origem(tmp_path):
+    """Split: 1o filho OK, 2o falha -> origem ainda na INBOX; 1o na tabela."""
+    texto = (
+        TODO_BASE
+        + "\n## INBOX (descobertas não priorizadas)\n"
+        + "- BUNDLE-1: two risks that must split\n"
+    )
+    repo, todo = _repo_com_todo(tmp_path, texto=texto)
+    judgments = {
+        "BUNDLE-1": {
+            "action": "split",
+            "items": [
+                {
+                    "candidate_id": "split-ok",
+                    "item_id": "BUNDLE-A",
+                    "description": "first risk ok",
+                    "source": "audit",
+                    "fields_complete": True,
+                    "is_local": True,
+                    "authority_ok": True,
+                },
+                {
+                    "candidate_id": "split-bad",
+                    # sem item_id -> falha L0
+                    "description": "second risk missing id",
+                    "source": "audit",
+                    "fields_complete": True,
+                    "is_local": True,
+                    "authority_ok": True,
+                },
+            ],
+        },
+    }
+    result = I.run_drain(
+        todo_path=str(todo), apply=True, judgments=judgments,
+    )
+    assert result.rc == 1
+    texto2 = todo.read_text(encoding="utf-8")
+    ids = {it["id"] for it in L.parse_table(texto2)["items"]}
+    assert "BUNDLE-A" in ids  # sucesso parcial na tabela
+    # origem ainda na INBOX (nao stripada porque o grupo nao fechou)
+    assert any(e.get("id") == "BUNDLE-1" for e in L.inbox_entries(texto2))
+    assert "BUNDLE-B" not in ids

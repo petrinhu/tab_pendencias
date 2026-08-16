@@ -346,6 +346,7 @@ def find_duplicate_match(
     candidate: WorkCandidate,
     table: dict | None,
     inbox: list,
+    skip_inbox_keys: set | frozenset | None = None,
 ) -> tuple[str | None, str | None]:
     """Localiza duplicata mecanica. Devolve (existing_id, kind) ou (None, None).
 
@@ -354,6 +355,9 @@ def find_duplicate_match(
     Fronteira (TAB-ADD-002): so string normalizada (+ acceptance se ambos
     tiverem). Sem NLP. ID so na residual NAO conta como id-dup (reentrada
     TAB-ADD-007); descricao normalizada na residual SIM conta.
+
+    skip_inbox_keys: chaves de judgment da INBOX ignoradas no P-dup de
+    descricao (TAB-INBOX-005: origem em drain ainda presente, nao e self-dup).
     """
     iid = (candidate.item_id or "").strip()
     if iid and iid not in ("-", PLACEHOLDER) and iid in _table_ids(table):
@@ -370,7 +374,10 @@ def find_duplicate_match(
         ):
             return row_id, "description_table"
 
+    skip = {str(x) for x in (skip_inbox_keys or ())}
     for entry in inbox or []:
+        if skip and _judgment_key_for_entry(entry) in skip:
+            continue
         free = _inbox_free_description(entry)
         if free_text_for_dedup(free) == cand_desc and _acceptance_compatible(
             cand_acc, ""
@@ -405,20 +412,24 @@ def _p_campos(candidate: WorkCandidate, table: dict | None) -> bool:
     return True
 
 
-def _p_dup(candidate: WorkCandidate, table: dict | None, inbox: list) -> bool:
+def _p_dup(candidate: WorkCandidate, table: dict | None, inbox: list,
+           skip_inbox_keys: set | frozenset | None = None) -> bool:
     """P-dup: id na tabela OU descricao normalizada (TAB-ADD-002).
 
     ID so na INBOX residual NAO e duplicata por id (TAB-ADD-007). Descricao
     normalizada igual na residual e.
     """
-    existing, _kind = find_duplicate_match(candidate, table, inbox)
+    existing, _kind = find_duplicate_match(
+        candidate, table, inbox, skip_inbox_keys=skip_inbox_keys,
+    )
     return existing is not None
 
 
 def decide_route(candidate: WorkCandidate, table: dict | None,
-                 inbox: list) -> str:
+                 inbox: list,
+                 skip_inbox_keys: set | frozenset | None = None) -> str:
     """Cascata ADR-0002 (d): primeiro que casa vence, ordem fixa."""
-    if _p_dup(candidate, table, inbox):
+    if _p_dup(candidate, table, inbox, skip_inbox_keys=skip_inbox_keys):
         return ROUTE_DUPLICATE
     if not _p_campos(candidate, table):
         return ROUTE_NEEDS_TRIAGE
@@ -1648,13 +1659,16 @@ def run_intake(*, todo_path: str, candidate: WorkCandidate,
               apply: bool = False,
               enforce_clean_tree: bool = True,
               enforce_empty_classifiable: bool = True,
+              skip_classifiable_ids: set | frozenset | None = None,
               lock_timeout: float | None = None) -> IntakeResult:
     """Decide rota e, se apply, persiste. Nunca levanta para fluxos
     esperados -- devolve IntakeResult com rc.
 
-    enforce_* = False so para o proprio --drain (apos a 1a escrita a arvore
-    fica suja; classifiable ja foi pre-processado). Chamadores externos
-    devem deixar os defaults True.
+    enforce_clean_tree=False: so o proprio --drain (apos a 1a escrita a
+    arvore fica suja). enforce_empty_classifiable=False: legado/testes.
+    skip_classifiable_ids: ids (chave de judgment) ignorados no gate de
+    classifiable -- so --drain, para integrar SEM apagar a linha de origem
+    antes do intake (TAB-INBOX-005). Chamadores externos: defaults True.
 
     apply adquire TodoWriteLock (TAB-CONC-004) antes de mutar; reentrant
     se ja estiver sob o mesmo lock (drain -> intake). Timeout default 10s.
@@ -1669,11 +1683,13 @@ def run_intake(*, todo_path: str, candidate: WorkCandidate,
                     todo_path=todo_path, candidate=candidate, apply=apply,
                     enforce_clean_tree=enforce_clean_tree,
                     enforce_empty_classifiable=enforce_empty_classifiable,
+                    skip_classifiable_ids=skip_classifiable_ids,
                 )
         return _run_intake_inner(
             todo_path=todo_path, candidate=candidate, apply=apply,
             enforce_clean_tree=enforce_clean_tree,
             enforce_empty_classifiable=enforce_empty_classifiable,
+            skip_classifiable_ids=skip_classifiable_ids,
         )
     except TL.TodoLockError as exc:
         return IntakeResult(
@@ -1695,7 +1711,9 @@ def run_intake(*, todo_path: str, candidate: WorkCandidate,
 def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
                       apply: bool,
                       enforce_clean_tree: bool = True,
-                      enforce_empty_classifiable: bool = True) -> IntakeResult:
+                      enforce_empty_classifiable: bool = True,
+                      skip_classifiable_ids: set | frozenset | None = None,
+                      ) -> IntakeResult:
     if not candidate.candidate_id:
         raise IntakeError("candidate_id obrigatorio")
 
@@ -1716,8 +1734,13 @@ def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
     if table is None:
         raise IntakeError("nenhuma tabela ID+Status reconhecida no TODO.md")
     inbox = L.inbox_entries(text)
-    route = decide_route(candidate, table, inbox)
-    dup_id, dup_kind = find_duplicate_match(candidate, table, inbox)
+    skip_inbox = {str(x) for x in (skip_classifiable_ids or ())}
+    route = decide_route(
+        candidate, table, inbox, skip_inbox_keys=skip_inbox or None,
+    )
+    dup_id, dup_kind = find_duplicate_match(
+        candidate, table, inbox, skip_inbox_keys=skip_inbox or None,
+    )
 
     report_lines = [
         "=== tab_pendencias --add (intake) ===",
@@ -1760,11 +1783,17 @@ def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
             raise IntakeError(dirty_motivo or "working tree suja")
 
     if enforce_empty_classifiable:
-        classifiable = _classifiable_inbox_ids(inbox)
-        if classifiable:
+        skip = {str(x) for x in (skip_classifiable_ids or ())}
+        blocked = [
+            _judgment_key_for_entry(e)
+            for e in inbox
+            if e.get("classifiable")
+            and _judgment_key_for_entry(e) not in skip
+        ]
+        if blocked:
             raise IntakeError(
                 "classifiable_inbox_present: drene a INBOX antes do intake "
-                f"({', '.join(classifiable)})"
+                f"({', '.join(blocked)})"
             )
 
     # item_id obrigatorio ANTES do journal para rotas que criam linha
@@ -2102,7 +2131,7 @@ def _format_residual_body(entry: dict, fields: dict, free_desc: str) -> str:
 def run_drain(*, todo_path: str, apply: bool = False,
               judgments: dict | None = None,
               lock_timeout: float | None = None) -> DrainResult:
-    """Drena a INBOX residual (TAB-INBOX-003/004).
+    """Drena a INBOX residual (TAB-INBOX-003/004/005).
 
     - classifiable (sem triage valido): dry-run lista + exit 2; apply exige
       entrada em judgments (integrate|split|keep).
@@ -2111,6 +2140,9 @@ def run_drain(*, todo_path: str, apply: bool = False,
     - pos-condicao apply ok: classifiable_inbox_count == 0 (senao rc=1).
     - working tree limpa exigida no apply (igual intake).
     - apply adquire TodoWriteLock (TAB-CONC-004); nested run_intake reusa.
+    - TAB-INBOX-005: run_intake dos integrate/split roda ANTES de strip da
+      origem; se intake falha, a linha classifiable permanece (zero perda).
+      Residual/keep so apos intakes bem-sucedidos.
     """
     try:
         if apply:
@@ -2230,8 +2262,9 @@ def _run_drain_inner(*, todo_path: str, apply: bool,
             + ", ".join(missing_judgments)
         )
 
-    # Validar judgments antes de mutar
-    to_integrate: list[WorkCandidate] = []
+    # Validar judgments antes de mutar. Agrupa integrate/split por linha
+    # de origem: intake roda ANTES de qualquer strip (TAB-INBOX-005).
+    integrate_groups: list[tuple[dict, list[WorkCandidate]]] = []
     keep_specs: list[tuple[dict, dict]] = []  # (entry, judgment)
     for e in classifiable:
         key = _judgment_key_for_entry(e)
@@ -2255,21 +2288,73 @@ def _run_drain_inner(*, todo_path: str, apply: bool,
                     f"integrate em {key!r} exige exatamente 1 item "
                     "(campo items[0] ou campos flat)"
                 )
-            to_integrate.append(_candidate_from_judgment_dict(items[0]))
+            integrate_groups.append(
+                (e, [_candidate_from_judgment_dict(items[0])])
+            )
         elif action == "split":
             items = j.get("items") or []
             if not items:
                 raise IntakeError(f"split em {key!r} exige items nao-vazio")
-            for it in items:
-                to_integrate.append(_candidate_from_judgment_dict(it))
+            integrate_groups.append(
+                (e, [_candidate_from_judgment_dict(it) for it in items])
+            )
         else:
             raise IntakeError(
                 f"judgment de {key!r}: action deve ser "
                 f"integrate|split|keep (recebido {action!r})"
             )
 
-    # 1) residual: cycles++ (inclui needs-leader -- sem auto-integrar)
-    work = text
+    # Chaves de origem ainda na INBOX (classifiable) que este drain vai
+    # consumir -- o gate do intake as ignora sem apaga-las cedo.
+    skip_classifiable = {
+        _judgment_key_for_entry(e) for e, _cands in integrate_groups
+    }
+
+    # 1) run_intake por candidato ANTES de strip da linha de origem.
+    #    Se falhar: TODO sem strip dessa origem (e das ainda nao processadas).
+    #    Sucessos parciais de grupos anteriores podem ja estar na tabela
+    #    (melhor que perda); a linha de origem so some apos o grupo OK.
+    integrated_ids: list[str] = []
+    for e, cands in integrate_groups:
+        for cand in cands:
+            result = run_intake(
+                todo_path=todo_path,
+                candidate=cand,
+                apply=True,
+                enforce_clean_tree=False,
+                enforce_empty_classifiable=True,
+                skip_classifiable_ids=skip_classifiable,
+            )
+            if result.rc != 0:
+                raise IntakeError(
+                    f"intake falhou para {cand.candidate_id!r} "
+                    f"(route={result.route}): "
+                    f"{result.error or result.report_text}"
+                )
+            integrated_ids.append(cand.item_id or cand.candidate_id)
+            report_lines.append(
+                f"integrated: {cand.item_id or cand.candidate_id!r} "
+                f"route={result.route}"
+            )
+        # Strip da origem so depois de TODOS os filhos deste judgment.
+        # L0/SCOPED/FULL ja podem ter removido residual do mesmo item_id;
+        # split com ids novos precisa deste strip explicito.
+        cur = _read_todo(todo_path)
+        stripped = _strip_inbox_raw(cur, e.get("raw") or "")
+        src_key = _judgment_key_for_entry(e)
+        if src_key and src_key not in ("-", PLACEHOLDER):
+            stripped = _strip_inbox_id(stripped, src_key)
+        if stripped != cur:
+            ok, motivo = _escrever_atomico(todo_path, stripped)
+            if not ok:
+                raise IntakeError(
+                    f"escrita atomica (strip pos-intake) falhou: {motivo}"
+                )
+
+    # 2) residual cycles++ e keep -- so apos intakes OK (se intake falhou
+    #    acima, residual/classifiable de origem permanecem intactos).
+    work = _read_todo(todo_path)
+    base_after_intake = work
     bumped: list[str] = []
     for e in residual:
         fields = dict((e.get("triage") or {}).get("fields") or {})
@@ -2281,7 +2366,6 @@ def _run_drain_inner(*, todo_path: str, apply: bool,
         )
         bumped.append(str(e.get("id") or e.get("raw")))
 
-    # 2) keep: classifiable -> residual com triage
     kept_ids: list[str] = []
     for e, j in keep_specs:
         reason = j.get("reason") or "missing-info"
@@ -2300,43 +2384,12 @@ def _run_drain_inner(*, todo_path: str, apply: bool,
         )
         kept_ids.append(_judgment_key_for_entry(e))
 
-    # 3) remove linhas de integrate/split (originais classifiable)
-    integrate_keys = set()
-    for e in classifiable:
-        key = _judgment_key_for_entry(e)
-        j = judgments[key]
-        action = (j.get("action") or "").strip().lower()
-        if action in ("integrate", "split"):
-            work = _strip_inbox_raw(work, e.get("raw") or "")
-            integrate_keys.add(key)
-
-    # Escreve estado intermediario (inbox preparada) se algo mudou
-    if work != text:
+    if work != base_after_intake:
         ok, motivo = _escrever_atomico(todo_path, work)
         if not ok:
-            raise IntakeError(f"escrita atomica (pre-intake) falhou: {motivo}")
-        text = work
-
-    # 4) run_intake por candidato (arvore ja suja; classifiable deve ser 0)
-    integrated_ids: list[str] = []
-    for cand in to_integrate:
-        result = run_intake(
-            todo_path=todo_path,
-            candidate=cand,
-            apply=True,
-            enforce_clean_tree=False,
-            enforce_empty_classifiable=True,
-        )
-        if result.rc != 0:
             raise IntakeError(
-                f"intake falhou para {cand.candidate_id!r} "
-                f"(route={result.route}): {result.error or result.report_text}"
+                f"escrita atomica (residual/keep) falhou: {motivo}"
             )
-        integrated_ids.append(cand.item_id or cand.candidate_id)
-        report_lines.append(
-            f"integrated: {cand.item_id or cand.candidate_id!r} "
-            f"route={result.route}"
-        )
 
     final_text = _read_todo(todo_path)
     remaining = classifiable_inbox_count(final_text)

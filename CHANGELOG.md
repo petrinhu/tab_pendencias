@@ -11,6 +11,102 @@ Todas as mudanças notáveis deste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.2.0] - 2026-08-16
+
+Entrega o **motor de intake** (ADR-0002 deixou de ser só arquitetura: vira comportamento
+publicado) e as Fases 2-11 do plano de melhoria no *produto* público: captura, WSJF Fibonacci,
+dreno da INBOX residual, sinais de sessão, templates de vault, contrato de bus, guarda de hub,
+corpus de regressão e cutover/dogfood. **Não** inclui bump do pin de submódulo no `claude-memory`
+nem migração de vaults externos -- isso é trabalho do repositório consumidor (Fase 12 / TAB-REL),
+fora deste pacote.
+
+### Adicionado
+
+- **`--add` / núcleo de intake** (`tools/todo_intake.py`, TAB-ADD-000..007): cascata fixa
+  DUPLICATE -> NEEDS_TRIAGE -> NEEDS_LEADER_DECISION -> FULL (fundação) -> LOCAL (L0) -> SCOPED ->
+  FULL (default). `WorkCandidate` com flags de julgamento preenchidas por quem chama (a skill/
+  agente); o núcleo **não** infere prosa. Persistência L0 (append puro + marcador
+  `<!-- intake:id -->`), SCOPED (subgrafo `S` com equivalência byte-a-byte fora de `S` e
+  promoção a FULL se fração/multi-Grupo) e FULL (topo estável + ondas). Pré-condição de working
+  tree limpa no `--apply`; abort se houver INBOX classificável (drain-first).
+- **Journal write-ahead** (`tools/intake_journal.py`): grava antes de mutar L0/residual/DUPLICATE;
+  `mark_done` após escrita validada; recuperação de órfãos (`TAB_INTAKE_RECOVERY_REQUIRED`).
+- **`--drain` e INBOX como exception queue** (TAB-INBOX-001..004, TAB-CUT-001): dry-run lista;
+  apply com `--judgments-json` (`integrate` / `split` / `keep`); residual com triage válido só
+  incrementa `cycles`; `needs-leader-decision` não auto-integra. Pós-condição de apply:
+  `classifiable_inbox_count == 0`. Linhas legadas sem `[triage ...]` saem como
+  `legacy_inbox_line` no dry-run (compat sem editar todos os TODOs à mão).
+- **Metadado de triagem** (Fase 2A): linhas residual com `[triage ...]` (reason, cycles, since);
+  `classifiable_inbox_count` separado de residual válido.
+- **Dedup por texto** (TAB-ADD-002): descrição normalizada (strip, colapsa whitespace, casefold)
+  contra tabela e residual; critérios de aceitação iguais se ambos tiverem o campo; sem NLP.
+- **Bridge agentivo** (`tools/intake_agent_bridge.py`, TAB-CONC-001): bloco `DISCOVERED_WORK` ->
+  flags; subagentes não editam `TODO.md`.
+- **Motor WSJF Fibonacci** (`tools/wsjf.py`, TAB-WSJF-001..007): régua `(1,2,3,5,8,13,20)`;
+  topologia **antes** de WSJF; rank estável com pin de WIP; profiles `early`/`safe`;
+  `source=bus` ignora rótulos retóricos (só ints fib explícitos).
+- **Sinais de frescor e adapter de sessão** (`tools/session_signals.py`,
+  `tools/hooks/tab_pendencias_reminder.py`, TAB-HOOK-001..004, INTAKE-AGE-1): sinais `TAB_*`
+  (CREATE / SYNC / TRIAGE / CONCURRENT / LEADER_AGED / VERIF / RECOVERY); residual aged =
+  `cycles >= triage_max_cycles` **ou** idade em dias; adapter só wiring (stdin JSON fail-open,
+  exit 0); regra de negócio no motor, não no hook. Contrato em
+  `references/sinais-de-frescor.md`.
+- **Concorrência** (TAB-CONC-001..004): `tools/todo_lock.TodoWriteLock` (fcntl / msvcrt /
+  exclusive-create + stale); `tools/concurrent_inbox.py` grava `inbox/*.md` entre sessões sem
+  orquestrador comum; health emite `TAB_CONCURRENT_INBOX_PRESENT`.
+- **Templates de vault + recovery** (TAB-VAULT-001..005): fragmentos em `templates/vault/` e
+  contrato de discovery em `templates/agents/`; `scripts/recovery_drill.py` monta vault sintético
+  e prova que o path do hook resolve **dentro** do dest. Templates são artefatos do *produto*;
+  copiar/aplicar no vault vivo do líder **não** é desta release.
+- **Contrato de bus** (`tools/bus_contract.py`, TAB-BUS-001..003): `BusMessage`, `extract_facts`,
+  `candidate_from_bus` (sempre `source=bus`), `archive_allowed` só com rastro; prosa "urgente"/
+  `claimed_priority` nunca pontuam. Corpus sintético `tests/corpus/bus/`; reference
+  `references/bus-versus-inbox.md`.
+- **Guarda de hub derivado** (TAB-HUB-001): `hub_is_derived_readonly` em `run_intake`/`run_drain`
+  apply quando `[hub] derived=true`. Reference `references/hub-agregador.md`. Gerador do hub
+  (`TAB-HUB-GEN`) **ainda não existe** -- anti-OE, não inventado nesta fatia.
+- **Corpus e propriedades Fase 10** (TAB-TST-001..005, TAB-SEC-001, TAB-COMPAT-001): F10-01..26,
+  propriedades (`no_lost_work`, `classifiable_zero_after_apply`, topologia, WIP, sender sem
+  prioridade), mutação em cópia `/var/tmp`, e2e de instalação, compat 8/9 colunas + offline/stdlib.
+- **Cutover / dogfood** (TAB-CUT-002..005): `scripts/dogfood_metrics.py` (exit 0 se
+  `classifiable==0`, senão 2); `references/cutover-and-rollback.md` (canaries, métricas,
+  rollback que preserva journal/`inbox/`). Neste repositório, INBOX classificável drenada
+  (FIX-RISCO -> itens de investigação; dogfood `classifiable==0`).
+- **Roteamento da skill (SKILL-DESC-2):** `description:` do frontmatter anuncia `--audit`,
+  `--fix`, `--add` e `--drain` sem inverter o destaque histórico de `--create`/`--reorder`.
+
+### Alterado
+
+- **Semântica da INBOX no `SKILL.md` (corpo):** deixa de ser fila normal de descoberta; vira
+  exception queue residual do pipeline de intake. Norma antiga marcada como histórica.
+  `references/frescor-da-tabela.md` alinhado.
+- **Health** (`todo_health.py`): consome `session_signals`; `TAB_TRIAGE_REQUIRED` = classifiable
+  **ou** residual aged **ou** `inbox/` concorrente -- não contagem bruta de residual de líder
+  fresco.
+- **Guard anti-fixture:** `LIMITE_LINHAS_DADOS` 100 -> 150 (tabela canônica do produto passou o
+  teto antigo sem ser fixture vazada).
+
+### Corrigido
+
+- Lint Markdown do `TODO.md` (linha em branco extra que quebrava o job, TAB-CONC-004).
+- Testes que montavam "segredos" falsos em pedaços (TAB-ADD-000) para não disparar o gitleaks.
+
+### Segurança
+
+- Nenhuma CVE/segredo novo nesta faixa. Fronteira pública x privada reafirmada no corpus F10
+  (fixtures sintéticas, guards stdlib + no-real-fixtures, sem corpo de bus privado versionado).
+- **Fora de escopo desta tag:** avançar o pin `skills/tab_pendencias` no `claude-memory`, force
+  de push, ou declarar o remoto "fonte recuperável" sem a Fase 12 executada no consumidor.
+
+### Limitações conhecidas nesta versão
+
+- O pin de submódulo no repositório consumidor **não** foi atualizado aqui; quem clona só o
+  `claude-memory` antigo ainda não recebe o motor 1.2.0 até o TAB-REL-003 do lado consumidor.
+- `TAB-HUB-GEN` (gerador determinístico do hub) permanece pendente.
+- Escopo do `--fix` continua com **2** classes auto-aplicáveis (sem mudança desde 1.1.0).
+- Decisões do líder ainda em fila de produto (piso Python 3.11, exceção anti-mdash do repo,
+  hooks da instalação publicada, verbo-só em status legado, etc.) **não** fecham nesta tag.
+
 ## [1.1.0] - 2026-08-16
 
 ### Adicionado
@@ -320,4 +416,8 @@ linha de comando distribuíveis, agora vivendo dentro do próprio repositório.
   antigas, mas nada no projeto hoje declara ou testa esse piso: a matriz de
   CI testa apenas versões acima dele.
 
+[1.2.0]: https://github.com/petrinhu/tab_pendencias/releases/tag/v1.2.0
+[1.1.0]: https://github.com/petrinhu/tab_pendencias/releases/tag/v1.1.0
+[1.0.2]: https://github.com/petrinhu/tab_pendencias/releases/tag/v1.0.2
+[1.0.1]: https://github.com/petrinhu/tab_pendencias/releases/tag/v1.0.1
 [1.0.0]: https://github.com/petrinhu/tab_pendencias/releases/tag/v1.0.0
