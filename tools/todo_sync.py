@@ -47,6 +47,18 @@ import traceback
 
 import todo_lib as L
 
+try:
+    # WIN-CLI-1: no Windows a codepage padrao do console e cp1252 (nao
+    # UTF-8) -- sem isto, qualquer print() com emoji (⏳/🔄/🔍/✅, usados na
+    # descricao/epilog do --help e nas mensagens de execucao abaixo) crasha
+    # com UnicodeEncodeError e o processo sai com traceback cru em vez do
+    # contrato de exit code (D-6/CLI-1). Mesmo guard ja usado em
+    # todo_health.py (stdout) e todo_freshness.py (stderr); aqui e stdout
+    # porque e onde este script imprime emoji.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 NEW_STATUS = "🔍 Pendente verificação"
 
 

@@ -25,8 +25,17 @@ _ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
 
 
 def _run(script, args, cwd):
+    # WIN-CLI-1: sem `encoding="utf-8"` explicito, `text=True` decodifica a
+    # saida capturada com a codepage padrao da plataforma -- cp1252 no
+    # Windows. Os 3 scripts imprimem emoji (⏳/🔄/🔍/✅) em stdout/stderr;
+    # bytes UTF-8 multi-byte nao sao validos cp1252 e a decodificacao falha
+    # dentro da thread leitora do subprocess, que morre em silencio e deixa
+    # `r.stdout`/`r.stderr` como None (nunca uma excecao capturavel aqui) --
+    # sintoma medido no CI: `TypeError: argument of type 'NoneType' is not
+    # iterable` num `"x" in r.stdout`. Round-trip byte-exato (ADR-0001) exige
+    # encoding explicito nos dois lados, nao so no arquivo.
     return subprocess.run([sys.executable, script, *args], cwd=cwd,
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, encoding="utf-8")
 
 
 def _git(cwd, *a):
