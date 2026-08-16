@@ -66,6 +66,7 @@ from datetime import datetime, timezone
 
 import intake_journal as J
 import todo_lib as L
+import todo_lock as TL
 import wsjf as W
 
 try:
@@ -1623,19 +1624,38 @@ def _write_journal(candidate: WorkCandidate, journal_dir: str) -> None:
 def run_intake(*, todo_path: str, candidate: WorkCandidate,
               apply: bool = False,
               enforce_clean_tree: bool = True,
-              enforce_empty_classifiable: bool = True) -> IntakeResult:
+              enforce_empty_classifiable: bool = True,
+              lock_timeout: float | None = None) -> IntakeResult:
     """Decide rota e, se apply, persiste. Nunca levanta para fluxos
     esperados -- devolve IntakeResult com rc.
 
     enforce_* = False so para o proprio --drain (apos a 1a escrita a arvore
     fica suja; classifiable ja foi pre-processado). Chamadores externos
     devem deixar os defaults True.
+
+    apply adquire TodoWriteLock (TAB-CONC-004) antes de mutar; reentrant
+    se ja estiver sob o mesmo lock (drain -> intake). Timeout default 10s.
     """
     try:
+        if apply:
+            kw = {}
+            if lock_timeout is not None:
+                kw["timeout"] = float(lock_timeout)
+            with TL.TodoWriteLock(todo_path, **kw):
+                return _run_intake_inner(
+                    todo_path=todo_path, candidate=candidate, apply=apply,
+                    enforce_clean_tree=enforce_clean_tree,
+                    enforce_empty_classifiable=enforce_empty_classifiable,
+                )
         return _run_intake_inner(
             todo_path=todo_path, candidate=candidate, apply=apply,
             enforce_clean_tree=enforce_clean_tree,
             enforce_empty_classifiable=enforce_empty_classifiable,
+        )
+    except TL.TodoLockError as exc:
+        return IntakeResult(
+            rc=1, error=str(exc), candidate_id=candidate.candidate_id,
+            report_text=f"erro: {exc}\n",
         )
     except IntakeError as exc:
         return IntakeResult(
@@ -2045,7 +2065,8 @@ def _format_residual_body(entry: dict, fields: dict, free_desc: str) -> str:
 
 
 def run_drain(*, todo_path: str, apply: bool = False,
-              judgments: dict | None = None) -> DrainResult:
+              judgments: dict | None = None,
+              lock_timeout: float | None = None) -> DrainResult:
     """Drena a INBOX residual (TAB-INBOX-003/004).
 
     - classifiable (sem triage valido): dry-run lista + exit 2; apply exige
@@ -2054,10 +2075,25 @@ def run_drain(*, todo_path: str, apply: bool = False,
       needs-leader-decision NAO auto-integra.
     - pos-condicao apply ok: classifiable_inbox_count == 0 (senao rc=1).
     - working tree limpa exigida no apply (igual intake).
+    - apply adquire TodoWriteLock (TAB-CONC-004); nested run_intake reusa.
     """
     try:
+        if apply:
+            kw = {}
+            if lock_timeout is not None:
+                kw["timeout"] = float(lock_timeout)
+            with TL.TodoWriteLock(todo_path, **kw):
+                return _run_drain_inner(
+                    todo_path=todo_path, apply=apply,
+                    judgments=judgments or {},
+                )
         return _run_drain_inner(
             todo_path=todo_path, apply=apply, judgments=judgments or {},
+        )
+    except TL.TodoLockError as exc:
+        return DrainResult(
+            rc=1, applied=False, error=str(exc),
+            report_text=f"erro: {exc}\n",
         )
     except IntakeError as exc:
         return DrainResult(

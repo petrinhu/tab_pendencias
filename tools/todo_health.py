@@ -39,6 +39,11 @@ import traceback
 import todo_lib as L
 
 try:
+    import concurrent_inbox as CI
+except ImportError:  # pragma: no cover
+    CI = None
+
+try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
@@ -216,13 +221,26 @@ def run(root=None, verbose=False):
               f"(since={residual_summary['since']}, "
               f"idade={residual_summary['age_days']}d, "
               f"cycles={residual_summary['cycles']})")
+    # TAB-CONC-002/003: arquivos em inbox/ (fallback entre sessoes) --
+    # NAO e a secao ## INBOX do TODO.md.
+    concurrent_count = 0
+    if CI is not None:
+        try:
+            concurrent_count = CI.count_pending(root)
+        except Exception:
+            concurrent_count = 0
+    if concurrent_count > 0:
+        print(f"  TAB_CONCURRENT_INBOX_PRESENT "
+              f"(inbox/ files={concurrent_count})")
     # TAB-INBOX-002 circuit breaker mecanico (sem LLM):
-    # classifiable>0 OU inbox>=3 OU residual com cycles>=2.
+    # classifiable>0 OU inbox>=3 OU residual com cycles>=2
+    # OU concurrent inbox/ presente (TAB-CONC-003 parcial).
     # needs-leader-decision sozinho NAO dispara (ADR-0002 F9).
     triage_required = (
         len(classifiable) > 0
         or len(inbox) >= 3
         or len(high_cycle) > 0
+        or concurrent_count > 0
     )
     if triage_required:
         reasons = []
@@ -232,6 +250,8 @@ def run(root=None, verbose=False):
             reasons.append(f"inbox_count={len(inbox)}")
         if high_cycle:
             reasons.append(f"cycles>=2={len(high_cycle)}")
+        if concurrent_count > 0:
+            reasons.append(f"concurrent_inbox={concurrent_count}")
         print(f"  TAB_TRIAGE_REQUIRED ({', '.join(reasons)})")
     ad = _adesao(root)
     print(f"  adesao a citar ID: {ad}" if ad
@@ -245,6 +265,8 @@ def run(root=None, verbose=False):
             "residual_inbox_count": len(residual),
             "needs_leader_decision_count": len(needs_leader),
             "high_cycle_residual_count": len(high_cycle),
+            "concurrent_inbox_count": concurrent_count,
+            "tab_concurrent_inbox_present": concurrent_count > 0,
             "tab_triage_required": triage_required,
             "oldest_residual_since":
                 residual_summary["since"] if residual_summary else None,

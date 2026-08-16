@@ -137,6 +137,35 @@ def test_tab_triage_required_circuit_breaker(tmp_path, capsys):
     assert "cycles>=2" in out3
 
 
+def test_concurrent_inbox_present_signal(tmp_path, capsys):
+    """TAB-CONC-003: inbox/*.md pendente emite TAB_CONCURRENT_INBOX_PRESENT
+    e entra no TAB_TRIAGE_REQUIRED (mesmo com secao INBOX vazia).
+    """
+    import concurrent_inbox as CI
+
+    texto = (
+        _HEADER_9
+        + _row("H-1", "⏳ Pendente")
+        + "\n## INBOX (descobertas não priorizadas)\n"
+    )
+    d = tmp_path / "conc"
+    d.mkdir()
+    root = _repo(d, texto)
+    CI.write_discovery(
+        str(root), "sess-a", "found-x",
+        "DISCOVERED_WORK\ndescription: from other session\nblast_radius: local\n",
+        timestamp="20260816-120000",
+    )
+    res = H.run(root=str(root))
+    out = capsys.readouterr().out
+    assert res["tab_concurrent_inbox_present"] is True
+    assert res["concurrent_inbox_count"] == 1
+    assert res["tab_triage_required"] is True
+    assert "TAB_CONCURRENT_INBOX_PRESENT" in out
+    assert "TAB_TRIAGE_REQUIRED" in out
+    assert "concurrent_inbox=1" in out
+
+
 def test_contagem_por_categoria_bate_com_contagem_independente(tmp_path, capsys):
     # Construcao deliberada: cada bucket tem uma contagem DIFERENTE, para que
     # um bug que troque duas contagens de lugar (ex.: pendentes <-> presos)
@@ -413,6 +442,8 @@ def test_run_tabela_sem_itens_devolve_zeros(tmp_path):
                     "classifiable_inbox_count": 0, "residual_inbox_count": 0,
                     "needs_leader_decision_count": 0,
                     "high_cycle_residual_count": 0,
+                    "concurrent_inbox_count": 0,
+                    "tab_concurrent_inbox_present": False,
                     "tab_triage_required": False,
                     "oldest_residual_since": None,
                     "oldest_residual_age_days": None,

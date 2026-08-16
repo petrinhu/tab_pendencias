@@ -64,8 +64,8 @@ Trabalho novo descoberto no meio do sprint NÃO espera reordenar: vai para a INB
   ## INBOX (descobertas não priorizadas)
   - <ID tentativo ou —>: descrição curta do que apareceu
   ```
-- **Concorrência (worktrees/PRs paralelos):** se vários agents/branches anexam ao mesmo tempo, troque a seção por um arquivo-por-descoberta em `inbox/` (ex: `inbox/2026-06-20-slug.md`) para não gerar conflito de merge. Resolução de conflito da INBOX: **sempre união, NUNCA descartar uma linha** (perder item é o que a INBOX existe para evitar).
-- **Dreno:** preferir `--drain` (exception queue: classifiable com julgamento agentivo + residual só envelhece `cycles`). `--create` e `--reorder` também ESVAZIAM a INBOX (e o `inbox/`), integrando na ordenação. INBOX classifiable / grande / cycles altos emitem `TAB_TRIAGE_REQUIRED` no health.
+- **Concorrência (worktrees/PRs paralelos):** se vários agents/branches anexam ao mesmo tempo, troque a seção por um arquivo-por-descoberta em `inbox/` (ex: `inbox/YYYYMMDD-HHMMSS-<session>-<slug>.md` via `tools/concurrent_inbox.py`) para não gerar conflito de merge. Isso é **fallback entre sessões**, não backlog normal. Resolução de conflito da INBOX: **sempre união, NUNCA descartar uma linha** (perder item é o que a INBOX existe para evitar).
+- **Dreno:** preferir `--drain` (exception queue: classifiable com julgamento agentivo + residual só envelhece `cycles`). `--create` e `--reorder` também ESVAZIAM a INBOX (e o `inbox/`), integrando na ordenação. INBOX classifiable / grande / cycles altos / `inbox/` concorrente emitem `TAB_TRIAGE_REQUIRED` no health (`TAB_CONCURRENT_INBOX_PRESENT` quando há `.md` em `inbox/`).
 
 > **Dois tipos de `TODO.md`:** o de **projeto** (itens editáveis; item↔commit faz sentido; esta seção se aplica) e o **hub agregador** (contagens derivadas de vários projetos; NÃO marcar à mão nem usar INBOX — regenerar por script). A convenção de frescor vale no de projeto.
 
@@ -291,7 +291,7 @@ núcleo; não joga L0 na INBOX por conveniência.
 
 ### Fluxo agentivo de `--add` (agente julga, motor persiste)
 
-Subagentes **não** editam `TODO.md`. Devolvem descoberta no bloco:
+Subagentes / workers **não** editam `TODO.md`. Devolvem descoberta no bloco:
 
 ```text
 DISCOVERED_WORK
@@ -302,7 +302,7 @@ known_dependencies: <IDs ou unknown>
 blast_radius: <local/component/system/unknown>
 ```
 
-A thread principal:
+A thread principal (único escritor lógico por orquestração):
 
 1. Lê o bloco (prosa já julgada pelo agente).
 2. Converte com `tools/intake_agent_bridge.py` (stdlib, **sem LLM**):
@@ -310,11 +310,26 @@ A thread principal:
    `blast_radius` → flags (`local`→`is_local`, `component`→`is_scoped`,
    `system`→`is_foundation`, `unknown`→`fields_complete=False`).
 3. Ou preenche as mesmas flags via CLI (`--local` / `--scoped` / …).
-4. Chama `todo_intake.run_intake(..., apply=True)` -- o motor só **persiste**.
+4. Chama `todo_intake.run_intake(..., apply=True)` -- o motor só **persiste**
+   (com `TodoWriteLock` antes de mutar; timeout default 10s).
 
 Fronteira: o agente **julga** (prosa, impacto, autoridade); o motor
 **classifica por flags e grava**. Não há NLP no núcleo.
 
+### Concorrência e `inbox/` (TAB-CONC)
+
+- **Dentro de uma orquestração multi-agent:** só o `main` altera a tabela.
+  Subagente devolve `DISCOVERED_WORK`; main chama bridge + intake.
+- **Sessões / worktrees independentes (sem orquestrador comum):** usar
+  `tools/concurrent_inbox.write_discovery(root, session_id, slug, body_md)`
+  → `inbox/YYYYMMDD-HHMMSS-<session>-<slug>.md`. Não é backlog normal.
+- **Próxima sessão principal:** se `todo_health` emitir
+  `TAB_CONCURRENT_INBOX_PRESENT` / `TAB_TRIAGE_REQUIRED` por `inbox/`,
+  executar `--drain` (ou bridge+intake por arquivo) no próximo ponto seguro.
+- **Escrita segura:** `run_intake`/`run_drain` em apply adquirem
+  `tools/todo_lock.TodoWriteLock` (fcntl em POSIX; msvcrt em Windows;
+  fallback exclusive-create com stale 120s). Lock reentrant no mesmo
+  thread (drain aninha intake).
 ### `--drain` (TAB-INBOX-004)
 
 Opera a INBOX como **exception queue**. Motor: `tools/todo_intake.py --drain`.
@@ -355,8 +370,10 @@ Comportamento:
    (senão rc=1). Working tree do TODO limpa no início do apply.
 
 Health (`todo_health.py`) emite `TAB_TRIAGE_REQUIRED` quando
-`classifiable_count>0` ou `inbox_count>=3` ou residual com `cycles>=2`.
-Contagem de `needs-leader-decision` é separada e **não** polui o sinal sozinha.
+`classifiable_count>0` ou `inbox_count>=3` ou residual com `cycles>=2`
+ou `inbox/` concorrente com `.md` pendente. Também emite
+`TAB_CONCURRENT_INBOX_PRESENT` nesse último caso. Contagem de
+`needs-leader-decision` é separada e **não** polui o sinal sozinha.
 
 ## `--audit`
 
