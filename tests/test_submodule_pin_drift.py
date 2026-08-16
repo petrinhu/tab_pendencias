@@ -183,6 +183,148 @@ def test_check_drift_cenario_medido_pin_nao_tagueado_atras_de_release(tmp_path):
     assert any("nao" in n.lower() or "não" in n.lower() for n in r["notes"])
 
 
+def _make_remote_diverged(tmp_path):
+    """Repo 'remote' com DUAS linhas de historia divergentes a partir de um
+    ancestral comum: a branch default segue e ganha a tag 'v1.0.0'; uma
+    branch lateral ('feature') segue para outro commit sem relacao de
+    ancestralidade com a tag (nem a tag e ancestral da feature, nem a
+    feature e ancestral da tag). Devolve (path, sha_base, sha_feature,
+    sha_tag)."""
+    remote = tmp_path / "remote_diverged"
+    remote.mkdir()
+    git_init_isolado(remote)
+    (remote / "f.txt").write_text("base\n", encoding="utf-8")
+    _git(remote, "add", "f.txt")
+    _git(remote, "commit", "-qm", "base")
+    default_branch = _git(remote, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    sha_base = _sha(remote)
+
+    _git(remote, "checkout", "-qb", "feature")
+    (remote / "f.txt").write_text("feature\n", encoding="utf-8")
+    _git(remote, "add", "f.txt")
+    _git(remote, "commit", "-qm", "feature1")
+    sha_feature = _sha(remote)
+
+    _git(remote, "checkout", "-q", default_branch)
+    (remote / "f.txt").write_text("main1\n", encoding="utf-8")
+    _git(remote, "add", "f.txt")
+    _git(remote, "commit", "-qm", "main1")
+    _git(remote, "tag", "v1.0.0")
+    sha_tag = _sha(remote)
+
+    return remote, sha_base, sha_feature, sha_tag
+
+
+# ------------------------------- commit_relative_position: os 5 do espaco --
+#
+# O espaco de posicoes relativas entre dois commits num grafo git e pequeno
+# e FECHADO: igual, ancestral (atras), descendente (a frente), divergente,
+# indeterminavel. TAB-SOT-007-BIS (falso positivo medido em uso real,
+# 16/08/26) nasceu de nao enumerar esse espaco -- o detector original so
+# testava "sha == ultima release ? True : False", tratando "a frente" como
+# se fosse "atras". Os 5 testes abaixo cobrem cada posicao isoladamente,
+# direto na funcao, antes de qualquer composicao em check_drift.
+
+def test_commit_relative_position_igual_curto_circuito_sem_checkout(tmp_path):
+    """'igual' nao precisa tocar disco -- funciona mesmo sem nenhum
+    checkout local do submodulo (mesma robustez do caso historico)."""
+    remote, shas = _make_remote(tmp_path, n_commits=1)
+    super_ = _make_super_with_gitlink(tmp_path, "sub", shas[0])
+    assert not (super_ / "sub").exists()
+    posicao, fwd, bwd, err = D.commit_relative_position(
+        str(super_), "sub", shas[0], shas[0], timeout=5)
+    assert (posicao, fwd, bwd, err) == ("igual", 0, 0, None)
+
+
+def test_commit_relative_position_atras_com_checkout(tmp_path):
+    remote, shas = _make_remote(tmp_path, n_commits=4)
+    super_ = _make_super_with_gitlink(tmp_path, "sub", shas[0],
+                                      remote_url=str(remote))
+    _git(super_, "clone", "-q", str(remote), "sub")
+    posicao, fwd, bwd, err = D.commit_relative_position(
+        str(super_), "sub", shas[0], shas[3], timeout=5)
+    assert posicao == "atras"
+    assert fwd == 3   # pinned precisa de 3 commits pra alcancar o alvo
+    assert bwd == 0
+    assert err is None
+
+
+def test_commit_relative_position_a_frente_com_checkout(tmp_path):
+    """O caso exato do falso positivo real: pin MAIS NOVO que o alvo
+    (descendente dele), estado normal entre duas releases."""
+    remote, shas = _make_remote(tmp_path, n_commits=4)
+    super_ = _make_super_with_gitlink(tmp_path, "sub", shas[3],
+                                      remote_url=str(remote))
+    _git(super_, "clone", "-q", str(remote), "sub")
+    posicao, fwd, bwd, err = D.commit_relative_position(
+        str(super_), "sub", shas[3], shas[0], timeout=5)
+    assert posicao == "a_frente"
+    assert fwd == 0
+    assert bwd == 3   # pinned tem 3 commits alem do alvo
+    assert err is None
+
+
+def test_commit_relative_position_divergente_com_checkout(tmp_path):
+    remote, sha_base, sha_feature, sha_tag = _make_remote_diverged(tmp_path)
+    super_ = _make_super_with_gitlink(tmp_path, "sub", sha_feature,
+                                      remote_url=str(remote))
+    _git(super_, "clone", "-q", str(remote), "sub")
+    posicao, fwd, bwd, err = D.commit_relative_position(
+        str(super_), "sub", sha_feature, sha_tag, timeout=5)
+    assert posicao == "divergente"
+    assert fwd > 0
+    assert bwd > 0
+    assert err is None
+
+
+def test_commit_relative_position_indeterminado_sem_checkout_local(tmp_path):
+    remote, shas = _make_remote(tmp_path, n_commits=2)
+    super_ = _make_super_with_gitlink(tmp_path, "sub", shas[0],
+                                      remote_url=str(remote))
+    # sem clone: sem objetos locais do submodulo
+    posicao, fwd, bwd, err = D.commit_relative_position(
+        str(super_), "sub", shas[0], shas[1], timeout=5)
+    assert posicao is None
+    assert fwd is None and bwd is None
+    assert err and "nao esta inicializado" in err.lower()
+
+
+# ------------------------------- check_drift: 'a_frente' e 'divergente' ----
+
+def test_check_drift_status_a_frente_quando_pin_esta_a_frente_da_ultima_release(tmp_path):
+    """Reproduz o falso positivo medido em uso real (16/08/26): pin aponta
+    para um commit MAIS NOVO que a ultima release publicada -- estado
+    NORMAL entre duas releases, o detector NAO pode chamar isso de
+    'desatualizado' (o proprio relatorio antigo ja continha a evidencia que
+    desmentia o veredicto: commits_behind sempre foi 0 nesse caso)."""
+    remote, shas = _make_remote(tmp_path, n_commits=4, tag_at={1: ("v1.0.0", False)})
+    pinned = shas[3]  # 2 commits a frente da tag (commits de indice 2 e 3)
+    super_ = _make_super_with_gitlink(tmp_path, "sub", pinned,
+                                      remote_url=str(remote))
+    _git(super_, "clone", "-q", str(remote), "sub")  # checkout previo
+    r = D.check_drift(str(super_), "sub", timeout=5)
+    assert r["pinned_sha"] == pinned
+    assert r["latest_release_tag"] == "v1.0.0"
+    assert r["commits_behind"] == 0
+    assert r["commits_ahead"] == 2
+    assert r["status"] == "a_frente"
+    assert r["status"] != "desatualizado"  # o defeito original
+
+
+def test_check_drift_status_divergente_quando_pin_esta_em_outra_linha_de_historia(tmp_path):
+    remote, sha_base, sha_feature, sha_tag = _make_remote_diverged(tmp_path)
+    super_ = _make_super_with_gitlink(tmp_path, "sub", sha_feature,
+                                      remote_url=str(remote))
+    _git(super_, "clone", "-q", str(remote), "sub")
+    r = D.check_drift(str(super_), "sub", timeout=5)
+    assert r["pinned_sha"] == sha_feature
+    assert r["latest_release_tag"] == "v1.0.0"
+    assert r["latest_release_sha"] == sha_tag
+    assert r["commits_behind"] > 0
+    assert r["commits_ahead"] > 0
+    assert r["status"] == "divergente"
+
+
 def test_check_drift_releases_behind_calculavel_quando_pin_e_uma_tag(tmp_path):
     remote, shas = _make_remote(tmp_path, n_commits=3, tag_at={
         0: ("v1.0.0", False), 1: ("v1.0.1", False), 2: ("v1.0.2", False),
@@ -206,6 +348,8 @@ def test_check_drift_commits_behind_calculavel_com_submodulo_inicializado(tmp_pa
     _git(super_, "clone", "-q", str(remote), "sub")  # simula checkout previo
     r = D.check_drift(str(super_), "sub", timeout=5)
     assert r["commits_behind"] == 3
+    assert r["commits_ahead"] == 0
+    assert r["status"] == "desatualizado"  # atras, confirmado via checkout
 
 
 def test_check_drift_atualizado_quando_pin_e_a_ultima_tag(tmp_path):
@@ -320,6 +464,28 @@ def test_cli_exit2_quando_nao_verificavel_sem_rede(tmp_path):
     r = _run_cli(["--path", "sub", "--timeout", "5"], cwd=super_)
     assert r.returncode == 2, (r.stdout, r.stderr)
     assert "nao_verificavel" in r.stdout or "não_verificavel" in r.stdout
+
+
+def test_cli_exit0_quando_pin_a_frente_da_release(tmp_path):
+    """'a frente' e o estado NORMAL entre duas releases -- exit 0, nunca
+    aviso visivel de CI (contrario e fadiga de alerta, ADR-0002)."""
+    remote, shas = _make_remote(tmp_path, n_commits=4, tag_at={1: ("v1.0.0", False)})
+    super_ = _make_super_with_gitlink(tmp_path, "sub", shas[3],
+                                      remote_url=str(remote))
+    _git(super_, "clone", "-q", str(remote), "sub")
+    r = _run_cli(["--path", "sub", "--timeout", "5"], cwd=super_)
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert "a_frente" in r.stdout
+
+
+def test_cli_exit2_quando_divergente(tmp_path):
+    remote, sha_base, sha_feature, sha_tag = _make_remote_diverged(tmp_path)
+    super_ = _make_super_with_gitlink(tmp_path, "sub", sha_feature,
+                                      remote_url=str(remote))
+    _git(super_, "clone", "-q", str(remote), "sub")
+    r = _run_cli(["--path", "sub", "--timeout", "5"], cwd=super_)
+    assert r.returncode == 2, (r.stdout, r.stderr)
+    assert "divergente" in r.stdout
 
 
 def test_cli_url_explicita_ignora_gitmodules(tmp_path):

@@ -57,13 +57,32 @@ python3 tools/submodule_pin_drift.py --path caminho/do/submodulo [--url <remoto>
   job de CI que consome a ferramenta.
 - **Sem rede nunca vira "OK"**: se `git ls-remote` falhar/expirar, ou se o
   remoto não tiver nenhuma tag `vX.Y.Z`, o relatório sai com
-  `status: nao_verificavel` -- nunca `atualizado`. `commits_behind` só é
-  calculável quando os objetos do submódulo já estão localmente disponíveis
-  (checkout prévio); do contrário fica `nao calculavel offline`, com o
-  motivo explícito.
-- Contrato de exit code (D-6/CLI-1): `0` = pin confirmado em dia; `1` = erro
-  de execução (path inválido, `.gitmodules` sem URL resolvível, flag
-  desconhecida); `2` = `status` em `desatualizado` ou `nao_verificavel`.
+  `status: nao_verificavel` -- nunca `atualizado`. `commits_behind` e
+  `commits_ahead` só são calculáveis quando os objetos do submódulo já
+  estão localmente disponíveis (checkout prévio); do contrário ficam
+  `nao calculavel offline`, com o motivo explícito.
+- **`status` enumera a posição relativa inteira, não só "bate ou não bate"**
+  (TAB-SOT-007-BIS, 16/08/26 -- um pin *à frente* da última release, o
+  estado normal de um consumidor que segue a `main` entre releases, chegou
+  a sair como `desatualizado` mesmo com `commits_behind: 0` no próprio
+  relatório contradizendo o veredito):
+  - `atualizado` -- pin == última release (e == branch pedido, se houver);
+  - `a_frente` -- pin é descendente da última release (comum entre
+    releases, **não** é drift pra trás);
+  - `desatualizado` -- pin é ancestral da última release (ou, sem checkout
+    local pra confirmar a direção, sha diferente presume `atras` -- a
+    mesma política conservadora do incidente histórico de 67 commits);
+  - `divergente` -- pin e última release estão em linhas de história
+    diferentes (nem ancestral nem descendente) -- a situação genuinamente
+    perigosa, nunca conflada com `desatualizado`;
+  - `nao_verificavel` -- sem rede, sem tag semver no remoto, ou branch
+    pedido não resolvido.
+- Contrato de exit code (D-6/CLI-1): `0` = `status` em `atualizado` **ou**
+  `a_frente` (nenhum dos dois é drift -- `a_frente` sai silencioso de
+  propósito, pra não virar alarme permanente entre releases, mesmo
+  raciocínio anti-fadiga-de-alerta do ADR-0002); `1` = erro de execução
+  (path inválido, `.gitmodules` sem URL resolvível, flag desconhecida);
+  `2` = `status` em `desatualizado`, `divergente` ou `nao_verificavel`.
 
 ## Como ativar
 

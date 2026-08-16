@@ -57,12 +57,45 @@ o `status` do relatorio e sempre `nao_verificavel` -- NUNCA `atualizado`. Um
 detector que declara frescor sem ter conseguido consultar nada e pior que
 nenhum detector (ver docstring do modulo/prompt da fatia).
 
+--- Taxonomia de `status`: enumera o espaco, nao busca dentro dele ----------
+
+O espaco de posicoes relativas entre o pin e a ultima release e pequeno e
+FECHADO: igual, atras (ancestral), a_frente (descendente), divergente (nem
+um nem outro), indeterminado (sem dados pra decidir). TAB-SOT-007-BIS
+(falso positivo medido em uso real, 16/08/26) nasceu de tratar esse espaco
+como binario ("sha bate com a ultima tag? sim/nao"): um pin AVANCADO em
+relacao a ultima release -- o estado NORMAL de um consumidor que acompanha
+a `main` entre duas releases -- caia no mesmo "nao" que um pin realmente
+ATRASADO, e saia como `desatualizado` com o proprio `commits_behind: 0` do
+relatorio contradizendo o veredicto. `status` agora e um de:
+
+  - `atualizado`     -- pin == ultima release (e == branch pedido, se houver);
+  - `a_frente`       -- pin e descendente da ultima release (comum e
+                         esperado entre releases; NAO e drift pra tras);
+  - `desatualizado`  -- pin e ancestral da ultima release (ou, sem checkout
+                         local pra confirmar direcao, sha diferente presume
+                         'atras' -- ver `commit_relative_position`);
+  - `divergente`     -- pin e ultima release estao em linhas de historia
+                         diferentes (nem ancestral nem descendente) -- a
+                         situacao genuinamente perigosa, nunca conflada com
+                         `desatualizado`;
+  - `nao_verificavel`-- sem rede, sem tag semver no remoto, ou incapaz de
+                         resolver um branch pedido -- nunca `atualizado`.
+
 --- Contrato de exit code (D-6/CLI-1, mesma familia dos irmaos do toolkit) ---
 
-0 = `status == atualizado` (pin confirmado contra o remoto); 1 = erro de
-execucao (path invalido, `.gitmodules` sem URL resolvivel, flag desconhecida
-etc.); 2 = `status in (desatualizado, nao_verificavel)` -- o campo `status`
-no relatorio distingue drift confirmado de incapacidade de verificar.
+0 = `status in (atualizado, a_frente)`; 1 = erro de execucao (path
+invalido, `.gitmodules` sem URL resolvivel, flag desconhecida etc.); 2 =
+`status in (desatualizado, divergente, nao_verificavel)`.
+
+Por que `a_frente` sai com 0 (nao 2): o snippet de CI trata exit != 0 como
+aviso VISIVEL, e "pin mais novo que a ultima release" e o estado NORMAL de
+um consumidor que segue a `main` -- um detector que avisa nesse estado
+avisa quase sempre, e um alarme que grita sempre e um alarme que se aprende
+a ignorar (mesmo raciocinio do ADR-0002, que rejeitou um circuit breaker de
+INBOX por fadiga de alerta permanente). O campo `status` no relatorio ainda
+distingue `a_frente` de `atualizado` pra quem quiser o detalhe; so o exit
+code (o sinal que dispara aviso em CI) trata os dois como "sem problema".
 """
 import argparse
 import os
@@ -101,13 +134,14 @@ def _build_parser():
             "limitada em vez de fingir frescor."
         ),
         epilog=(
-            "Exit codes: 0 = pin em dia (confirmado contra o remoto); "
-            "1 = erro de execucao (path invalido / .gitmodules sem URL "
-            "resolvivel / flag desconhecida); 2 = drift detectado OU nao "
-            "verificavel (sem rede, ou sem tag semver no remoto) -- o campo "
-            "'status' no relatorio distingue os dois casos. Sinal, nao "
-            "bloqueio: quem decide se isto falha um pipeline e o job de CI "
-            "que consome esta ferramenta."
+            "Exit codes: 0 = pin em dia OU a frente da ultima release "
+            "(estado normal entre releases, nao e drift); 1 = erro de "
+            "execucao (path invalido / .gitmodules sem URL resolvivel / "
+            "flag desconhecida); 2 = pin atras, divergente (linha de "
+            "historia diferente) OU nao verificavel (sem rede, ou sem tag "
+            "semver no remoto) -- o campo 'status' no relatorio distingue "
+            "os tres casos. Sinal, nao bloqueio: quem decide se isto falha "
+            "um pipeline e o job de CI que consome esta ferramenta."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -347,6 +381,119 @@ def commits_behind_local(root, submodule_path, pinned_sha, target_sha, timeout=1
         return None, f"saida inesperada de 'git rev-list --count': {out!r}"
 
 
+# ------------------------------- posicao relativa: enumera o espaco fechado -
+
+def commit_relative_position(root, submodule_path, pinned_sha, target_sha, timeout=10):
+    """(posicao_ou_None, forward_n_ou_None, backward_n_ou_None, motivo_ou_None).
+
+    O espaco de posicoes relativas entre dois commits num grafo git e
+    pequeno e FECHADO -- enumera-se aqui o espaco inteiro (nao se faz uma
+    pergunta binaria "sao diferentes?"), porque foi exatamente por nao
+    enumerar que um pin AVANCADO em relacao a ultima release virou falso
+    positivo de 'desatualizado' (TAB-SOT-007-BIS, medido em uso real
+    16/08/26):
+
+      - "igual"      -- mesmo commit (curto-circuito, nao toca disco);
+      - "atras"      -- pinned e ANCESTRAL de target (forward>0, backward==0);
+      - "a_frente"   -- pinned e DESCENDENTE de target (forward==0, backward>0);
+      - "divergente" -- nem um nem outro e ancestral do outro (forward>0 E
+                        backward>0) -- linhas de historia diferentes;
+      - None         -- indeterminavel: objetos locais indisponiveis para o
+                        par de shas, ou historico local incompleto
+                        (raso/grafted) produzindo forward==backward==0 com
+                        shas diferentes. NUNCA se inventa 'igual' nesse
+                        ultimo caso (nunca fingir frescor).
+
+    forward_n  = 'git rev-list --count pinned..target' (quantos commits
+                 faltam ao pin pra alcancar target -- 0 quando target e
+                 ancestral ou igual a pinned).
+    backward_n = 'git rev-list --count target..pinned' (quantos commits o
+                 pin tem alem de target -- 0 quando pinned e ancestral ou
+                 igual a target).
+
+    Mesma restricao de leitura de `commits_behind_local` (reusada aqui nas
+    duas direcoes): NUNCA dispara `git fetch`; so calcula quando os objetos
+    de AMBOS os shas ja estao disponiveis localmente (checkout previo do
+    submodulo)."""
+    if pinned_sha == target_sha:
+        return "igual", 0, 0, None
+
+    forward, err = commits_behind_local(root, submodule_path, pinned_sha,
+                                        target_sha, timeout=timeout)
+    if forward is None:
+        return None, None, None, err
+
+    backward, err = commits_behind_local(root, submodule_path, target_sha,
+                                         pinned_sha, timeout=timeout)
+    if backward is None:
+        return None, None, None, err
+
+    if forward > 0 and backward == 0:
+        return "atras", forward, backward, None
+    if forward == 0 and backward > 0:
+        return "a_frente", forward, backward, None
+    if forward > 0 and backward > 0:
+        return "divergente", forward, backward, None
+    # forward == 0 and backward == 0 com shas DIFERENTES: matematicamente
+    # nao deveria acontecer num grafo completo (dois commits distintos
+    # sempre tem historia unica de algum lado) -- so surge com historico
+    # local incompleto (raso/grafted). Declara indeterminado em vez de
+    # arriscar 'igual' com shas que nao batem.
+    return None, forward, backward, (
+        "'git rev-list --count' deu 0 nos dois sentidos com shas "
+        "diferentes -- historico local provavelmente raso/grafted; "
+        "posicao real nao pode ser confirmada sem historico completo")
+
+
+def _sinal_de_posicao(root, submodule_path, pinned_sha, target_sha, timeout, rotulo):
+    """(sinal, forward_ou_None, backward_ou_None, nota_ou_None). `sinal`
+    SEMPRE em {"igual", "atras", "a_frente", "divergente"} -- nunca None.
+
+    Quando a posicao exata nao e calculavel offline (tipicamente: sem
+    checkout local do submodulo, o caso mais comum na pratica), cai no
+    fallback conservador ja testado no incidente historico que motivou a
+    ferramenta (67 commits atras, SEM checkout algum do submodulo): sha
+    diferente sem confirmacao de direcao presume 'atras' -- drift
+    confirmado (a string do sha diverge da ultima release) nunca e
+    mascarado por incerteza de QUAL direcao. Isto preserva a regra original
+    "qualquer sinal de comparacao falso vence sinal indeterminado"."""
+    posicao, fwd, bwd, err = commit_relative_position(
+        root, submodule_path, pinned_sha, target_sha, timeout=timeout)
+    if posicao is not None:
+        return posicao, fwd, bwd, None
+    nota = (f"{rotulo}: posicao relativa exata nao calculavel offline "
+           f"({err}) -- presumindo 'atras' (sha diferente sem confirmacao "
+           "de direcao nunca vira 'atualizado' nem 'a_frente'; politica "
+           "conservadora do incidente historico de 67 commits atras)")
+    return "atras", fwd, bwd, nota
+
+
+# pior sinal vence -- generalizacao da regra original "qualquer sinal de
+# comparacao falso vence sinal indeterminado": um problema CONFIRMADO
+# (divergente/atras) nunca e mascarado por incerteza (None) em OUTRO sinal;
+# 'a_frente' confirmado (sem nenhum problema) so perde para incerteza
+# genuina (None) -- nunca e promovido sozinho a 'atualizado', que exige
+# TODOS os sinais coletados == 'igual'.
+_PRIORIDADE_SINAL = {"divergente": 0, "atras": 1, None: 2, "a_frente": 3, "igual": 4}
+_SINAL_PARA_STATUS = {
+    "divergente": "divergente",
+    "atras": "desatualizado",
+    None: "nao_verificavel",
+    "a_frente": "a_frente",
+    "igual": "atualizado",
+}
+
+
+def _combinar_sinais(sinais):
+    """[sinal, ...] -> status final. `sinais` nunca vem vazio em uso real
+    (a comparacao contra a ultima release sempre contribui um sinal, mesmo
+    que None), mas devolve 'nao_verificavel' defensivamente se vier."""
+    if not sinais:
+        return "nao_verificavel"
+    pior = min(sinais, key=lambda s: _PRIORIDADE_SINAL[s])
+    return _SINAL_PARA_STATUS[pior]
+
+
 # ------------------------------- orquestracao --------------------------------
 
 def _novo_resultado(submodule_path, url, branch):
@@ -359,6 +506,7 @@ def _novo_resultado(submodule_path, url, branch):
         "latest_release_sha": None,
         "releases_behind": None,
         "commits_behind": None,
+        "commits_ahead": None,
         "branch": branch,
         "branch_tip_sha": None,
         "status": "erro",
@@ -368,8 +516,8 @@ def _novo_resultado(submodule_path, url, branch):
 
 def check_drift(root, submodule_path, url=None, branch=None, timeout=10):
     """Nucleo testavel, nunca lanca excecao. Devolve o dict de resultado
-    descrito na docstring do modulo. `status` em
-    {"erro", "atualizado", "desatualizado", "nao_verificavel"}."""
+    descrito na docstring do modulo. `status` em {"erro", "atualizado",
+    "a_frente", "desatualizado", "divergente", "nao_verificavel"}."""
     result = _novo_resultado(submodule_path, url, branch)
 
     pinned, err = get_pinned_sha(root, submodule_path, timeout=timeout)
@@ -396,11 +544,10 @@ def check_drift(root, submodule_path, url=None, branch=None, timeout=10):
         return result
     result["network_ok"] = True
 
-    # sinais independentes de comparacao; None = indeterminado, True/False =
-    # comparacao definitiva. Qualquer False vira 'desatualizado' mesmo que
-    # outro sinal seja None (drift confirmado nao pode ser mascarado por
-    # incerteza em OUTRO campo); so vira 'atualizado' quando TODOS os
-    # sinais coletados forem True.
+    # sinais independentes de comparacao, um por referencia remota
+    # comparada (ultima release, e opcionalmente branch); cada sinal e
+    # "igual"/"atras"/"a_frente"/"divergente"/None (indeterminado). A
+    # combinacao final e feita por _combinar_sinais (pior sinal vence).
     sinais = []
 
     latest = latest_release(tags)
@@ -414,18 +561,20 @@ def check_drift(root, submodule_path, url=None, branch=None, timeout=10):
         latest_name, latest_sha = latest
         result["latest_release_tag"] = latest_name
         result["latest_release_sha"] = latest_sha
-        sinais.append(pinned == latest_sha)
 
         n, err = releases_behind(tags, pinned)
         result["releases_behind"] = n
         if n is None:
             result["notes"].append(f"releases_behind: {err}")
 
-        cb, err = commits_behind_local(root, submodule_path, pinned,
-                                       latest_sha, timeout=timeout)
-        result["commits_behind"] = cb
-        if cb is None:
-            result["notes"].append(f"commits_behind: {err}")
+        posicao, fwd, bwd, nota = _sinal_de_posicao(
+            root, submodule_path, pinned, latest_sha, timeout,
+            "latest_release")
+        result["commits_behind"] = fwd
+        result["commits_ahead"] = bwd
+        if nota:
+            result["notes"].append(nota)
+        sinais.append(posicao)
 
     if branch:
         tip, err = remote_branch_tip(root, url, branch, timeout=timeout)
@@ -434,14 +583,14 @@ def check_drift(root, submodule_path, url=None, branch=None, timeout=10):
             result["notes"].append(f"branch '{branch}': {err}")
             sinais.append(None)
         else:
-            sinais.append(tip == pinned)
+            posicao, _fwd, _bwd, nota = _sinal_de_posicao(
+                root, submodule_path, pinned, tip, timeout,
+                f"branch '{branch}'")
+            if nota:
+                result["notes"].append(nota)
+            sinais.append(posicao)
 
-    if any(s is False for s in sinais):
-        result["status"] = "desatualizado"
-    elif any(s is None for s in sinais):
-        result["status"] = "nao_verificavel"
-    else:
-        result["status"] = "atualizado"
+    result["status"] = _combinar_sinais(sinais)
     return result
 
 
@@ -461,12 +610,20 @@ def format_report(result, verbose=False):
         "commits_behind:     " + (
             str(result["commits_behind"]) if result["commits_behind"] is not None
             else "nao calculavel offline"),
+        "commits_ahead:      " + (
+            str(result["commits_ahead"]) if result["commits_ahead"] is not None
+            else "nao calculavel offline"),
     ]
     if result["branch"]:
         linhas.append(f"branch:             {result['branch']}")
         linhas.append(f"branch_tip_sha:     {result['branch_tip_sha'] or 'desconhecido'}")
     linhas.append(f"status:             {result['status']}")
-    if result["notes"] and (verbose or result["status"] != "atualizado"):
+    # 'atualizado' e 'a_frente' sao os dois estados SEM problema (exit 0) --
+    # notas so aparecem por padrao quando ha algo a investigar, pra nao
+    # acumular ruido no caso normal (mesma logica anti-fadiga-de-alerta do
+    # exit code).
+    _sem_problema = result["status"] in ("atualizado", "a_frente")
+    if result["notes"] and (verbose or not _sem_problema):
         linhas.append("notas:")
         linhas.extend(f"  - {n}" for n in result["notes"])
     return "\n".join(linhas)
@@ -488,7 +645,10 @@ def main(argv):
         for n in result["notes"]:
             print(f"[erro] {n}", file=sys.stderr)
         return 1
-    return 0 if result["status"] == "atualizado" else 2
+    # 'a_frente' e o estado normal entre releases (pin mais novo que a
+    # ultima release publicada) -- nao e drift, sai 0 igual a 'atualizado'.
+    # Ver docstring do modulo pra justificativa (anti fadiga de alerta).
+    return 0 if result["status"] in ("atualizado", "a_frente") else 2
 
 
 if __name__ == "__main__":
