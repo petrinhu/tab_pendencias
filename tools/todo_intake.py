@@ -674,12 +674,18 @@ def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
     classifiable = _classifiable_inbox_ids(inbox)
     if classifiable:
         raise IntakeError(
-            "classifiable_inbox_present: dene a INBOX antes do intake "
+            "classifiable_inbox_present: drene a INBOX antes do intake "
             f"({', '.join(classifiable)})"
         )
 
     if route in (ROUTE_SCOPED_REORDER, ROUTE_FULL_REORDER):
         raise IntakeError(f"not_implemented:{route}")
+
+    # L0 exige item_id nao vazio ANTES do journal -- senao grava NEW e
+    # aborta depois, deixando orfao permanente sem mutacao util.
+    if route == ROUTE_LOCAL_INTEGRATION:
+        if not (candidate.item_id or "").strip():
+            raise IntakeError("LOCAL_INTEGRATION exige item_id nao vazio")
 
     journal_dir = _journal_dir_for_todo(todo_path)
     _write_journal(candidate, journal_dir)

@@ -110,6 +110,22 @@ def _cand(**overrides):
     return I.WorkCandidate(**base)
 
 
+def _assert_journal_done(repo, cid):
+    """Prova positiva: arquivo de journal existe em disco com state=DONE.
+
+    Nao basta "nao e orfao" -- sem write_candidate, list_orphans tambem nao
+    acha o id e o teste passaria em falso.
+    """
+    jd = J.journal_dir_for(cwd=str(repo))
+    assert jd is not None
+    path = J.candidate_path(jd, cid)
+    assert os.path.isfile(path), f"journal ausente em disco: {path}"
+    rec, err = J.read_candidate_safe(path)
+    assert err is None, err
+    assert rec["candidate_id"] == cid
+    assert rec["state"] == J.STATE_DONE
+
+
 # ---------------------------------------------------------------------------
 # decide_route -- cada ramo da cascata
 # ---------------------------------------------------------------------------
@@ -277,6 +293,26 @@ def test_l0_journal_apos_apply_nao_e_orfao(tmp_path):
     orphans = J.list_orphans(jd)
     ids = [rec["candidate_id"] for _p, rec in orphans]
     assert cid not in ids
+    _assert_journal_done(repo, cid)
+
+
+def test_l0_item_id_vazio_nao_grava_journal_nem_todo(tmp_path):
+    """L0 com item_id vazio aborta ANTES do journal (sem orfao permanente)."""
+    repo, todo = _repo_com_todo(tmp_path)
+    antes = todo.read_text(encoding="utf-8")
+    cid = "cand-empty-id"
+    c = _cand(item_id="", candidate_id=cid, is_local=True)
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 1
+    assert result.applied is False
+    err = (result.error or "").lower()
+    assert "item_id" in err and ("vazio" in err or "empty" in err)
+    assert todo.read_text(encoding="utf-8") == antes
+    jd = J.journal_dir_for(cwd=str(repo))
+    path = J.candidate_path(jd, cid)
+    assert not os.path.exists(path), f"journal nao deveria existir: {path}"
+    orphans = [rec["candidate_id"] for _p, rec in J.list_orphans(jd)]
+    assert cid not in orphans
 
 
 def test_l0_tabela_sintetica_id_hash_e_prosa_ingles(tmp_path):
@@ -298,12 +334,61 @@ def test_l0_tabela_sintetica_id_hash_e_prosa_ingles(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# _provar_invariantes (unitario)
+# ---------------------------------------------------------------------------
+
+def test_provar_invariantes_w1_status_antigo_alterado():
+    """Mutante que remove o check W1 deve ser morto por este teste."""
+    old_table = L.parse_table(TODO_BASE)
+    # altera so a celula Status de #01 (item pre-existente)
+    novo = TODO_BASE.replace(
+        "| #01 | W1 | Core | Bootstrap the packaging line simulator | High | "
+        "- | Medium | ✅ Concluído | yes |\n",
+        "| #01 | W1 | Core | Bootstrap the packaging line simulator | High | "
+        "- | Medium | ⏳ Pendente | yes |\n",
+    )
+    assert novo != TODO_BASE
+    ok, motivo = I._provar_invariantes(
+        novo,
+        old_table=old_table,
+        route=I.ROUTE_LOCAL_INTEGRATION,
+        expected_item_delta=0,
+        preserve_raw_ids=False,
+    )
+    assert ok is False
+    assert motivo is not None
+    assert "W1" in motivo
+
+
+def test_provar_invariantes_preserve_raw_ids_linha_alterada():
+    """Linha bruta de id antigo alterada com preserve_raw_ids=True deve falhar."""
+    old_table = L.parse_table(TODO_BASE)
+    # muda descricao de #02 sem mexer no Status -- bytes da linha divergem
+    novo = TODO_BASE.replace(
+        "Wire the conveyor belt sensor driver",
+        "Wire the conveyor belt sensor drivers",
+    )
+    assert novo != TODO_BASE
+    ok, motivo = I._provar_invariantes(
+        novo,
+        old_table=old_table,
+        route=I.ROUTE_LOCAL_INTEGRATION,
+        expected_item_delta=0,
+        preserve_raw_ids=True,
+    )
+    assert ok is False
+    assert motivo is not None
+    assert "L0" in motivo or "bytes" in motivo.lower()
+
+
+# ---------------------------------------------------------------------------
 # residual INBOX
 # ---------------------------------------------------------------------------
 
 def test_needs_triage_grava_metadado_parseavel(tmp_path):
     repo, todo = _repo_com_todo(tmp_path)
-    c = _cand(fields_complete=False, item_id="#50",
+    cid = "cand-triage-meta"
+    c = _cand(fields_complete=False, item_id="#50", candidate_id=cid,
               description="unclear scope for packaging")
     result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
     assert result.rc == 0
@@ -317,6 +402,7 @@ def test_needs_triage_grava_metadado_parseavel(tmp_path):
     assert e["triage"]["valid"] is True
     assert e["triage"]["fields"]["reason"] == "missing-info"
     assert e["triage"]["fields"].get("cycles") == "0"
+    _assert_journal_done(repo, cid)
 
 
 def test_needs_leader_decision_reason_correta(tmp_path):
@@ -396,7 +482,8 @@ def test_full_apply_not_implemented_sem_tocar_arquivo(tmp_path):
 def test_duplicate_apply_nao_cria_linha_journal_done(tmp_path):
     repo, todo = _repo_com_todo(tmp_path)
     n_antes = len(L.parse_table(todo.read_text(encoding="utf-8"))["items"])
-    c = _cand(item_id="#02", candidate_id="cand-dup-1")
+    cid = "cand-dup-1"
+    c = _cand(item_id="#02", candidate_id=cid)
     result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
     assert result.rc == 0
     assert result.route == I.ROUTE_DUPLICATE
@@ -405,7 +492,8 @@ def test_duplicate_apply_nao_cria_linha_journal_done(tmp_path):
     assert n_depois == n_antes
     jd = J.journal_dir_for(cwd=str(repo))
     orphans = [rec["candidate_id"] for _p, rec in J.list_orphans(jd)]
-    assert "cand-dup-1" not in orphans
+    assert cid not in orphans
+    _assert_journal_done(repo, cid)
 
 
 def test_dry_run_com_classifiable_nao_bloqueia(tmp_path):
