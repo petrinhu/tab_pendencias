@@ -1351,3 +1351,244 @@ def test_json_cli_reads_explicit_scores(tmp_path):
     result = I.run_intake(todo_path=str(todo), candidate=cand, apply=False)
     assert result.rc == 2
     assert result.route == I.ROUTE_FULL_REORDER
+
+
+# ---------------------------------------------------------------------------
+# TAB-ADD-002 -- dedup por descricao normalizada (mecanico, sem NLP)
+# ---------------------------------------------------------------------------
+
+def test_normalize_free_text_strip_collapse_casefold():
+    assert I.normalize_free_text("  Foo   BAR \n") == "foo bar"
+    assert I.free_text_for_dedup(
+        "Wire the conveyor  <!-- intake:cand-x -->"
+    ) == "wire the conveyor"
+
+
+def test_decide_route_duplicate_por_descricao_na_tabela():
+    """Mesma descricao (normalizada) de linha existente -> DUPLICATE."""
+    table = L.parse_table(TODO_BASE)
+    inbox = L.inbox_entries(TODO_BASE)
+    # ROW_B description: "Wire the conveyor belt sensor driver"
+    c = _cand(
+        item_id="#99",
+        description="  wire   the CONVEYOR belt sensor driver  ",
+        is_local=True,
+    )
+    assert I.decide_route(c, table, inbox) == I.ROUTE_DUPLICATE
+    eid, kind = I.find_duplicate_match(c, table, inbox)
+    assert kind == "description_table"
+    assert eid == "#02"
+
+
+def test_decide_route_descricao_diferente_nao_e_duplicate():
+    table = L.parse_table(TODO_BASE)
+    inbox = L.inbox_entries(TODO_BASE)
+    c = _cand(
+        item_id="#99",
+        description="Completely different work item about valves",
+        is_local=True,
+    )
+    assert I.decide_route(c, table, inbox) == I.ROUTE_LOCAL_INTEGRATION
+
+
+def test_decide_route_duplicate_por_descricao_na_inbox_residual():
+    table = L.parse_table(TODO_COM_INBOX_RESIDUAL)
+    inbox = L.inbox_entries(TODO_COM_INBOX_RESIDUAL)
+    c = _cand(
+        item_id="#77",
+        description="waiting for more evidence",
+        is_local=True,
+    )
+    assert I.decide_route(c, table, inbox) == I.ROUTE_DUPLICATE
+    eid, kind = I.find_duplicate_match(c, table, inbox)
+    assert kind == "description_inbox"
+    assert eid == "#88"
+
+
+def test_acceptance_compatible_so_quando_ambos_preenchidos():
+    assert I._acceptance_compatible("", "x") is True
+    assert I._acceptance_compatible("A", "") is True
+    assert I._acceptance_compatible("pass tests", "PASS   tests") is True
+    assert I._acceptance_compatible("pass tests", "other") is False
+
+
+# ---------------------------------------------------------------------------
+# TAB-INBOX-003/004 --drain
+# ---------------------------------------------------------------------------
+
+TODO_DRAIN = (
+    TODO_BASE
+    + "\n## INBOX (descobertas não priorizadas)\n"
+    + "- #50: bare classifiable discovery about seals\n"
+    + "- #88: [triage since=2026-08-01 reason=missing-info cycles=0 "
+    "source=audit] waiting for more evidence\n"
+    + "- #90: [triage since=2026-08-02 reason=needs-leader-decision "
+    "cycles=1 source=agent] needs human call on API break\n"
+)
+
+
+def test_drain_dry_run_lista_e_exit_2(tmp_path):
+    repo, todo = _repo_com_todo(tmp_path, texto=TODO_DRAIN)
+    antes = todo.read_text(encoding="utf-8")
+    result = I.run_drain(todo_path=str(todo), apply=False)
+    assert result.rc == 2
+    assert result.applied is False
+    assert result.classifiable_remaining == 1
+    assert "classifiable" in result.report_text
+    assert todo.read_text(encoding="utf-8") == antes
+
+
+def test_drain_apply_exige_judgment_para_classifiable(tmp_path):
+    repo, todo = _repo_com_todo(tmp_path, texto=TODO_DRAIN)
+    result = I.run_drain(todo_path=str(todo), apply=True, judgments={})
+    assert result.rc == 1
+    assert "classifiable_sem_judgment" in (result.error or "")
+
+
+def test_drain_apply_integrate_classifiable_e_bump_residual(tmp_path):
+    repo, todo = _repo_com_todo(tmp_path, texto=TODO_DRAIN)
+    judgments = {
+        "#50": {
+            "action": "integrate",
+            "items": [{
+                "candidate_id": "drain-50",
+                "item_id": "#50",
+                "description": "bare classifiable discovery about seals",
+                "source": "audit",
+                "fields_complete": True,
+                "is_local": True,
+                "authority_ok": True,
+            }],
+        },
+    }
+    result = I.run_drain(
+        todo_path=str(todo), apply=True, judgments=judgments,
+    )
+    assert result.rc == 0, result.report_text + (result.error or "")
+    assert result.applied is True
+    assert result.classifiable_remaining == 0
+    texto = todo.read_text(encoding="utf-8")
+    assert I.classifiable_inbox_count(texto) == 0
+    # #50 entrou na tabela
+    table = L.parse_table(texto)
+    ids = {it["id"] for it in table["items"]}
+    assert "#50" in ids
+    # residual cycles++ (incluindo needs-leader, sem auto-integrar)
+    entries = L.inbox_entries(texto)
+    by_id = {e["id"]: e for e in entries}
+    assert by_id["#88"]["triage"]["fields"]["cycles"] == "1"
+    assert by_id["#90"]["triage"]["fields"]["cycles"] == "2"
+    assert by_id["#90"]["triage"]["fields"]["reason"] == "needs-leader-decision"
+    # #50 sumiu da INBOX
+    assert "#50" not in by_id
+    _assert_journal_done(repo, "drain-50")
+
+
+def test_drain_apply_split_e_keep(tmp_path):
+    texto = (
+        TODO_BASE
+        + "\n## INBOX (descobertas não priorizadas)\n"
+        + "- FIX-RISCO-1: two concurrency risks bundled\n"
+    )
+    repo, todo = _repo_com_todo(tmp_path, texto=texto)
+    judgments = {
+        "FIX-RISCO-1": {
+            "action": "split",
+            "items": [
+                {
+                    "candidate_id": "split-a",
+                    "item_id": "FIX-RISCO-A",
+                    "description": "TOCTOU window on apply",
+                    "source": "audit",
+                    "fields_complete": True,
+                    "is_local": True,
+                    "authority_ok": True,
+                },
+                {
+                    "candidate_id": "split-b",
+                    "item_id": "FIX-RISCO-B",
+                    "description": "Windows os.replace readonly edge",
+                    "source": "audit",
+                    "fields_complete": True,
+                    "is_local": True,
+                    "authority_ok": True,
+                },
+            ],
+        },
+    }
+    result = I.run_drain(
+        todo_path=str(todo), apply=True, judgments=judgments,
+    )
+    assert result.rc == 0, result.error or result.report_text
+    texto2 = todo.read_text(encoding="utf-8")
+    assert I.classifiable_inbox_count(texto2) == 0
+    ids = {it["id"] for it in L.parse_table(texto2)["items"]}
+    assert "FIX-RISCO-A" in ids and "FIX-RISCO-B" in ids
+    assert not any(
+        e.get("id") == "FIX-RISCO-1" for e in L.inbox_entries(texto2)
+    )
+
+
+def test_drain_cli_dry_run(tmp_path):
+    repo, todo = _repo_com_todo(tmp_path, texto=TODO_DRAIN)
+    rc = I.main(["--todo", str(todo), "--drain"])
+    assert rc == 2
+
+
+def test_drain_mutation_classifiable_zero_em_var_tmp(tmp_path):
+    """Mutation leve: pos-drain, classifiable_count==0 (em /var/tmp via tmp)."""
+    # pytest tmp_path ja e isolado; reforca escrita sob /var/tmp se existir
+    import pathlib
+    base = pathlib.Path("/var/tmp")
+    if base.is_dir() and os.access(base, os.W_OK):
+        root = base / f"tab_drain_mut_{os.getpid()}"
+        root.mkdir(exist_ok=True)
+        try:
+            repo, todo = _repo_com_todo(root, texto=TODO_DRAIN)
+            judgments = {
+                "#50": {
+                    "action": "integrate",
+                    "items": [{
+                        "candidate_id": "mut-50",
+                        "item_id": "#50",
+                        "description": "bare classifiable discovery about seals",
+                        "source": "test",
+                        "fields_complete": True,
+                        "is_local": True,
+                        "authority_ok": True,
+                    }],
+                },
+            }
+            r = I.run_drain(
+                todo_path=str(todo), apply=True, judgments=judgments,
+            )
+            assert r.rc == 0
+            assert I.classifiable_inbox_count(
+                todo.read_text(encoding="utf-8")
+            ) == 0
+        finally:
+            # nao apagar a forca; deixar o SO limpar /var/tmp
+            pass
+    else:
+        repo, todo = _repo_com_todo(tmp_path, texto=TODO_DRAIN)
+        judgments = {
+            "#50": {
+                "action": "integrate",
+                "items": [{
+                    "candidate_id": "mut-50",
+                    "item_id": "#50",
+                    "description": "bare classifiable discovery about seals",
+                    "source": "test",
+                    "fields_complete": True,
+                    "is_local": True,
+                    "authority_ok": True,
+                }],
+            },
+        }
+        r = I.run_drain(
+            todo_path=str(todo), apply=True, judgments=judgments,
+        )
+        assert r.rc == 0
+        assert I.classifiable_inbox_count(
+            todo.read_text(encoding="utf-8")
+        ) == 0

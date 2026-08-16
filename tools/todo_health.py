@@ -192,12 +192,47 @@ def run(root=None, verbose=False):
     if residual:
         print(f"       residuais (reason valida, aguardando saida "
               f"controlada): {len(residual)}")
+    needs_leader = [
+        e for e in residual
+        if (e.get("triage") or {}).get("fields", {}).get("reason")
+        == "needs-leader-decision"
+    ]
+    if needs_leader:
+        # contagem separada -- NAO polui TAB_TRIAGE_REQUIRED sozinha
+        print(f"       needs-leader-decision (aguardando lider, "
+              f"sem poluir triagem): {len(needs_leader)}")
+    high_cycle = []
+    for e in residual:
+        raw_c = (e.get("triage") or {}).get("fields", {}).get("cycles", "0")
+        try:
+            cyc = int(raw_c) if str(raw_c).isdigit() else 0
+        except (TypeError, ValueError):
+            cyc = 0
+        if cyc >= 2:
+            high_cycle.append(e)
     if residual_summary:
         print(f"       residual mais antigo -> "
               f"{residual_summary['id'] or '(sem ID)'} "
               f"(since={residual_summary['since']}, "
               f"idade={residual_summary['age_days']}d, "
               f"cycles={residual_summary['cycles']})")
+    # TAB-INBOX-002 circuit breaker mecanico (sem LLM):
+    # classifiable>0 OU inbox>=3 OU residual com cycles>=2.
+    # needs-leader-decision sozinho NAO dispara (ADR-0002 F9).
+    triage_required = (
+        len(classifiable) > 0
+        or len(inbox) >= 3
+        or len(high_cycle) > 0
+    )
+    if triage_required:
+        reasons = []
+        if classifiable:
+            reasons.append(f"classifiable={len(classifiable)}")
+        if len(inbox) >= 3:
+            reasons.append(f"inbox_count={len(inbox)}")
+        if high_cycle:
+            reasons.append(f"cycles>=2={len(high_cycle)}")
+        print(f"  TAB_TRIAGE_REQUIRED ({', '.join(reasons)})")
     ad = _adesao(root)
     print(f"  adesao a citar ID: {ad}" if ad
           else "  adesao a citar ID: (sem dados ainda no todo-freshness.log)")
@@ -208,6 +243,9 @@ def run(root=None, verbose=False):
             "aguardando_verificacao": len(verif), "inbox": len(inbox),
             "classifiable_inbox_count": len(classifiable),
             "residual_inbox_count": len(residual),
+            "needs_leader_decision_count": len(needs_leader),
+            "high_cycle_residual_count": len(high_cycle),
+            "tab_triage_required": triage_required,
             "oldest_residual_since":
                 residual_summary["since"] if residual_summary else None,
             "oldest_residual_age_days":

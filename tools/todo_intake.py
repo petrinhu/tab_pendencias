@@ -17,12 +17,15 @@
 """
 tools/todo_intake.py -- nucleo offline de intake (ADR-0002).
 
-Fatia vertical TAB-ADD-001..004-L0 + TAB-ADD-005 (SCOPED) + TAB-ADD-006
-(FULL) + TAB-ADD-007 (strip residual): recebe um WorkCandidate ja julgado
-(flags booleanas de predicado preenchidas por quem chama -- o nucleo NAO
-infere de prosa), decide a rota pela cascata fixa, e em --apply persiste:
+Fatia vertical TAB-ADD-001..007 + TAB-ADD-002 (dedup texto) + TAB-INBOX
+(drain): recebe um WorkCandidate ja julgado (flags booleanas de predicado
+preenchidas por quem chama -- o nucleo NAO infere de prosa), decide a rota
+pela cascata fixa, e em --apply persiste:
 
-  DUPLICATE            -- nao cria linha; limpa residual mesmo id se houver
+  DUPLICATE            -- id exato na tabela OU descricao normalizada
+                          (strip/whitespace/casefold) na tabela ou INBOX
+                          residual; criterios de aceitacao iguais se ambos
+                          tiverem o campo; SEM NLP/semantica (fronteira agent)
   LOCAL_INTEGRATION    -- append puro de 1 linha (L0); strip residual mesmo id
   NEEDS_TRIAGE         -- residual INBOX com [triage reason=missing-info]
   NEEDS_LEADER_DECISION -- residual INBOX com [triage reason=needs-leader-decision]
@@ -31,6 +34,9 @@ infere de prosa), decide a rota pela cascata fixa, e em --apply persiste:
                           strip residual mesmo id
   FULL_REORDER         -- topo estavel + ondas W1..; sem renumerar IDs;
                           W1 (Status de existentes intocado); strip residual
+  --drain              -- tria INBOX classifiable com --judgments-json;
+                          residual valido so increments cycles; pos-condicao
+                          classifiable_inbox_count == 0 apos apply
 
 Subgrafo S (pragmatico, TAB-ADD-005): deps abertas do candidato + ancestrais
 nao-done transitivos + descendentes transitivos + peers de mesma onda
@@ -83,11 +89,15 @@ PLACEHOLDER = "—"
 _EMPTY_CELL = frozenset({"", "-", PLACEHOLDER, "—", "--"})
 INBOX_HEADING = "## INBOX (descobertas não priorizadas)"
 INTAKE_MARKER_TMPL = "<!-- intake:{cid} -->"
+_INTAKE_MARKER_RE = re.compile(r"\s*<!--\s*intake:[^>]*-->\s*", re.IGNORECASE)
 
 # Heuristica de eficiencia SCOPED->FULL (ADR-0002 (e)). Calibracao formal
 # e futura; default honesto 0.5 ate o protocolo de corpus fechar.
 DEFAULT_SCOPED_MAX_FRACTION = 0.5
 ENV_SCOPED_MAX_FRACTION = "TAB_INTAKE_SCOPED_MAX_FRACTION"
+
+# Drain: residual com este reason nao e auto-integrado (so cycles++).
+REASON_NEEDS_LEADER = "needs-leader-decision"
 
 # Colunas reconhecidas por nome (agnostico a lingua do cabecalho).
 _COL_ALIASES = {
@@ -142,6 +152,10 @@ class WorkCandidate:
     is_local: bool = False
     is_scoped: bool = False
     reason: str = ""  # override opcional do reason de triagem
+    # criterios de aceitacao opcionais (TAB-ADD-002): se candidato E alvo
+    # tiverem o campo nao-vazio, entram no P-dup por descricao; senao so
+    # a descricao normalizada. O nucleo NAO infere criterios de prosa.
+    acceptance: str = ""
     # override da fracao SCOPED; None = env / ini / DEFAULT_SCOPED_MAX_FRACTION
     scoped_max_fraction: float | None = None
     # WSJF (TAB-WSJF): scores opcionais -- nao entram na cascata de rota;
@@ -167,6 +181,19 @@ class IntakeResult:
     promoted_from: str | None = None
     s_ids: list = field(default_factory=list)
     s_fraction: float | None = None
+    dup_match: str | None = None  # id | description_table | description_inbox
+
+
+@dataclass
+class DrainResult:
+    rc: int
+    applied: bool = False
+    error: str | None = None
+    report_text: str = ""
+    classifiable_remaining: int = 0
+    residual_bumped: list = field(default_factory=list)
+    integrated: list = field(default_factory=list)
+    kept: list = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +260,105 @@ def _table_ids(table: dict | None) -> set[str]:
     return {it["id"] for it in table["items"] if it["id"]}
 
 
+def normalize_free_text(text: str) -> str:
+    """Normalizacao mecanica de texto livre (TAB-ADD-002).
+
+    strip + colapsa whitespace + casefold. Nao faz stem/lemma/semantica:
+    equivalencia alem de string normalizada e julgamento do agente.
+    """
+    s = (text or "").strip()
+    s = re.sub(r"\s+", " ", s)
+    return s.casefold()
+
+
+def free_text_for_dedup(text: str) -> str:
+    """Texto livre para P-dup: remove marcador intake recuperavel e normaliza."""
+    s = _INTAKE_MARKER_RE.sub(" ", text or "")
+    return normalize_free_text(s)
+
+
+def _acceptance_compatible(a: str, b: str) -> bool:
+    """Se ambos tiverem criterios nao-vazios, exigem igualdade normalizada.
+    Caso contrario a comparacao de descricao sozinha basta."""
+    aa = (a or "").strip()
+    bb = (b or "").strip()
+    if not aa or not bb:
+        return True
+    return normalize_free_text(aa) == normalize_free_text(bb)
+
+
+def _table_row_descriptions(table: dict | None) -> list[tuple[str, str]]:
+    """Lista (id, descricao bruta da celula) da tabela canônica."""
+    if not table:
+        return []
+    try:
+        header = _header_cells(table)
+    except IntakeError:
+        return []
+    colmap = _col_index_map(header)
+    desc_idx = colmap.get("descricao")
+    if desc_idx is None:
+        return []
+    out: list[tuple[str, str]] = []
+    for it in table["items"]:
+        iid = it.get("id") or ""
+        if not iid:
+            continue
+        cells = _row_cells(table, it["line_no"])
+        desc = cells[desc_idx] if desc_idx < len(cells) else ""
+        out.append((iid, desc))
+    return out
+
+
+def _inbox_free_description(entry: dict) -> str:
+    """Descricao livre da entrada INBOX (sem prefixo [triage] se parseavel)."""
+    triage = entry.get("triage") or {}
+    if triage.get("present"):
+        return triage.get("description") or ""
+    return entry.get("description") or ""
+
+
+def find_duplicate_match(
+    candidate: WorkCandidate,
+    table: dict | None,
+    inbox: list,
+) -> tuple[str | None, str | None]:
+    """Localiza duplicata mecanica. Devolve (existing_id, kind) ou (None, None).
+
+    kind: 'id' | 'description_table' | 'description_inbox'
+
+    Fronteira (TAB-ADD-002): so string normalizada (+ acceptance se ambos
+    tiverem). Sem NLP. ID so na residual NAO conta como id-dup (reentrada
+    TAB-ADD-007); descricao normalizada na residual SIM conta.
+    """
+    iid = (candidate.item_id or "").strip()
+    if iid and iid not in ("-", PLACEHOLDER) and iid in _table_ids(table):
+        return iid, "id"
+
+    cand_desc = free_text_for_dedup(candidate.description)
+    if not cand_desc:
+        return None, None
+    cand_acc = candidate.acceptance or ""
+
+    for row_id, row_desc in _table_row_descriptions(table):
+        if free_text_for_dedup(row_desc) == cand_desc and _acceptance_compatible(
+            cand_acc, ""
+        ):
+            return row_id, "description_table"
+
+    for entry in inbox or []:
+        free = _inbox_free_description(entry)
+        if free_text_for_dedup(free) == cand_desc and _acceptance_compatible(
+            cand_acc, ""
+        ):
+            eid = entry.get("id")
+            if eid and eid not in ("-", PLACEHOLDER):
+                return str(eid), "description_inbox"
+            # sem id utilizavel: marca com token sintetico para strip por raw
+            return entry.get("raw") or "?", "description_inbox"
+    return None, None
+
+
 def _p_campos(candidate: WorkCandidate, table: dict | None) -> bool:
     """P-campos mecanico: flag de julgamento + deps resolvem + descricao
     nao vazia + source valido."""
@@ -256,17 +382,13 @@ def _p_campos(candidate: WorkCandidate, table: dict | None) -> bool:
 
 
 def _p_dup(candidate: WorkCandidate, table: dict | None, inbox: list) -> bool:
-    """P-dup: id ja integrado na TABELA. Residual INBOX com o mesmo id
-    NAO e duplicata -- TAB-ADD-007 re-entra (ex.: apos decisao do lider)
-    e o apply remove a linha residual ao integrar.
-    O parametro inbox fica na assinatura por compat da cascata; nao entra
-    no predicado.
+    """P-dup: id na tabela OU descricao normalizada (TAB-ADD-002).
+
+    ID so na INBOX residual NAO e duplicata por id (TAB-ADD-007). Descricao
+    normalizada igual na residual e.
     """
-    del inbox  # API estavel; residual nao conta como ja-integrado
-    iid = (candidate.item_id or "").strip()
-    if not iid or iid in ("-", PLACEHOLDER):
-        return False
-    return iid in _table_ids(table)
+    existing, _kind = find_duplicate_match(candidate, table, inbox)
+    return existing is not None
 
 
 def decide_route(candidate: WorkCandidate, table: dict | None,
@@ -522,6 +644,69 @@ def _strip_inbox_id(text: str, item_id: str) -> str:
                     continue
         out.append(line)
     return "\n".join(out)
+
+
+def _strip_inbox_raw(text: str, raw: str) -> str:
+    """Remove da INBOX a linha cujo corpo apos '- ' casa com raw exato."""
+    target = (raw or "").strip()
+    if not target:
+        return text
+    lines = text.split("\n")
+    heading, end = _find_inbox_region(lines)
+    if heading is None:
+        return text
+    out: list[str] = []
+    for i, line in enumerate(lines):
+        if heading < i < end:
+            s = line.lstrip(L.BOM).strip().rstrip("\r")
+            if s.startswith("- ") and s[2:].strip() == target:
+                continue
+        out.append(line)
+    return "\n".join(out)
+
+
+def _rewrite_inbox_entry_line(
+    text: str,
+    *,
+    match_raw: str | None = None,
+    match_id: str | None = None,
+    new_body: str,
+) -> str:
+    """Substitui uma linha da INBOX (por raw ou id) por new_body (sem '- ')."""
+    lines = text.split("\n")
+    heading, end = _find_inbox_region(lines)
+    if heading is None:
+        return text
+    sample = next((ln for ln in lines if ln.endswith("\r")), None)
+    body = new_body
+    if sample is not None and not body.endswith("\r"):
+        # terminator so no join; lines store content without final \\n
+        pass
+    out: list[str] = []
+    replaced = False
+    for i, line in enumerate(lines):
+        if heading < i < end and not replaced:
+            s = line.lstrip(L.BOM).strip().rstrip("\r")
+            if s.startswith("- "):
+                raw = s[2:].strip()
+                hit = False
+                if match_raw is not None and raw == match_raw.strip():
+                    hit = True
+                elif match_id is not None:
+                    head, sep, _rest = raw.partition(":")
+                    if sep and head.strip() == match_id.strip():
+                        hit = True
+                if hit:
+                    term = "\r" if line.endswith("\r") else ""
+                    out.append(f"- {new_body}{term}")
+                    replaced = True
+                    continue
+        out.append(line)
+    return "\n".join(out)
+
+
+def classifiable_inbox_count(text: str) -> int:
+    return sum(1 for e in L.inbox_entries(text) if e.get("classifiable"))
 
 
 # ---------------------------------------------------------------------------
@@ -1436,12 +1621,22 @@ def _write_journal(candidate: WorkCandidate, journal_dir: str) -> None:
 # ---------------------------------------------------------------------------
 
 def run_intake(*, todo_path: str, candidate: WorkCandidate,
-              apply: bool = False) -> IntakeResult:
+              apply: bool = False,
+              enforce_clean_tree: bool = True,
+              enforce_empty_classifiable: bool = True) -> IntakeResult:
     """Decide rota e, se apply, persiste. Nunca levanta para fluxos
-    esperados -- devolve IntakeResult com rc."""
+    esperados -- devolve IntakeResult com rc.
+
+    enforce_* = False so para o proprio --drain (apos a 1a escrita a arvore
+    fica suja; classifiable ja foi pre-processado). Chamadores externos
+    devem deixar os defaults True.
+    """
     try:
-        return _run_intake_inner(todo_path=todo_path, candidate=candidate,
-                                 apply=apply)
+        return _run_intake_inner(
+            todo_path=todo_path, candidate=candidate, apply=apply,
+            enforce_clean_tree=enforce_clean_tree,
+            enforce_empty_classifiable=enforce_empty_classifiable,
+        )
     except IntakeError as exc:
         return IntakeResult(
             rc=1, error=str(exc), candidate_id=candidate.candidate_id,
@@ -1455,7 +1650,9 @@ def run_intake(*, todo_path: str, candidate: WorkCandidate,
 
 
 def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
-                      apply: bool) -> IntakeResult:
+                      apply: bool,
+                      enforce_clean_tree: bool = True,
+                      enforce_empty_classifiable: bool = True) -> IntakeResult:
     if not candidate.candidate_id:
         raise IntakeError("candidate_id obrigatorio")
 
@@ -1465,6 +1662,7 @@ def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
         raise IntakeError("nenhuma tabela ID+Status reconhecida no TODO.md")
     inbox = L.inbox_entries(text)
     route = decide_route(candidate, table, inbox)
+    dup_id, dup_kind = find_duplicate_match(candidate, table, inbox)
 
     report_lines = [
         "=== tab_pendencias --add (intake) ===",
@@ -1478,13 +1676,18 @@ def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
     if not apply:
         if route == ROUTE_DUPLICATE:
             report_lines.append(
-                f"DUPLICATE: id {candidate.item_id!r} ja existe -- sem acao"
+                f"DUPLICATE: match={dup_kind} existing={dup_id!r} -- sem acao"
             )
             report = "\n".join(report_lines) + "\n"
             return IntakeResult(
                 rc=0, route=route, applied=False,
-                existing_id=candidate.item_id.strip(),
+                existing_id=(dup_id if dup_kind != "description_inbox"
+                             or (dup_id and ":" not in str(dup_id))
+                             else None) or (
+                    candidate.item_id.strip() if candidate.item_id else None
+                ),
                 report_text=report, candidate_id=candidate.candidate_id,
+                dup_match=dup_kind,
             )
         report_lines.append(
             "dry-run: nenhuma escrita. Rode com --apply para persistir."
@@ -1496,16 +1699,18 @@ def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
         )
 
     # ---- apply ----
-    dirty, dirty_motivo = _working_tree_dirty(todo_path)
-    if dirty:
-        raise IntakeError(dirty_motivo or "working tree suja")
+    if enforce_clean_tree:
+        dirty, dirty_motivo = _working_tree_dirty(todo_path)
+        if dirty:
+            raise IntakeError(dirty_motivo or "working tree suja")
 
-    classifiable = _classifiable_inbox_ids(inbox)
-    if classifiable:
-        raise IntakeError(
-            "classifiable_inbox_present: drene a INBOX antes do intake "
-            f"({', '.join(classifiable)})"
-        )
+    if enforce_empty_classifiable:
+        classifiable = _classifiable_inbox_ids(inbox)
+        if classifiable:
+            raise IntakeError(
+                "classifiable_inbox_present: drene a INBOX antes do intake "
+                f"({', '.join(classifiable)})"
+            )
 
     # item_id obrigatorio ANTES do journal para rotas que criam linha
     # (L0 / SCOPED / FULL) -- senao grava NEW e aborta com orfao inutil.
@@ -1522,8 +1727,25 @@ def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
     if route == ROUTE_DUPLICATE:
         _write_journal(candidate, journal_dir)
         iid = (candidate.item_id or "").strip()
-        # TAB-ADD-007: residual com o mesmo id (enriquecimento) some da INBOX
-        stripped = _strip_inbox_id(text, iid) if iid else text
+        existing = dup_id
+        # TAB-ADD-007 + TAB-ADD-002: limpa residual do id do candidato e do
+        # id casado (descricao na residual ou id na tabela).
+        stripped = text
+        for strip_id in (iid, existing if dup_kind == "id" else None,
+                         existing if dup_kind == "description_table" else None,
+                         existing if dup_kind == "description_inbox" else None):
+            if not strip_id or strip_id in ("-", PLACEHOLDER):
+                continue
+            # description_inbox pode devolver raw (com ':') -- strip por raw
+            if dup_kind == "description_inbox" and strip_id == existing:
+                if ":" in str(strip_id) or any(
+                    e.get("raw") == strip_id for e in inbox
+                ):
+                    stripped = _strip_inbox_raw(stripped, str(strip_id))
+                else:
+                    stripped = _strip_inbox_id(stripped, str(strip_id))
+            else:
+                stripped = _strip_inbox_id(stripped, str(strip_id))
         if stripped != text:
             ok, motivo = _provar_invariantes(
                 stripped, old_table=table, route=route,
@@ -1546,20 +1768,28 @@ def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
                     f"invariante falhou apos escrita: {motivo}"
                 )
             report_lines.append(
-                f"DUPLICATE: id {candidate.item_id!r} ja na tabela; "
-                "residual INBOX do mesmo id removido; journal DONE"
+                f"DUPLICATE: match={dup_kind} existing={existing!r}; "
+                "residual relacionado removido se havia; journal DONE"
             )
         else:
             report_lines.append(
-                f"DUPLICATE: id {candidate.item_id!r} ja existe; journal DONE; "
-                "nenhuma linha criada"
+                f"DUPLICATE: match={dup_kind} existing={existing!r}; "
+                "journal DONE; nenhuma linha criada"
             )
         J.mark_done(journal_dir, candidate.candidate_id)
         report = "\n".join(report_lines) + "\n"
+        existing_out = None
+        if existing and dup_kind in ("id", "description_table"):
+            existing_out = str(existing)
+        elif existing and dup_kind == "description_inbox" and ":" not in str(existing):
+            existing_out = str(existing)
+        elif iid:
+            existing_out = iid
         return IntakeResult(
             rc=0, route=route, applied=True,
-            existing_id=candidate.item_id.strip(),
+            existing_id=existing_out,
             report_text=report, candidate_id=candidate.candidate_id,
+            dup_match=dup_kind,
         )
 
     if route == ROUTE_LOCAL_INTEGRATION:
@@ -1731,6 +1961,317 @@ def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
 
 
 # ---------------------------------------------------------------------------
+# --drain (TAB-INBOX-003/004)
+# ---------------------------------------------------------------------------
+
+def _judgment_key_for_entry(entry: dict) -> str:
+    iid = entry.get("id")
+    if iid and str(iid).strip() and str(iid).strip() not in ("-", PLACEHOLDER):
+        return str(iid).strip()
+    return (entry.get("raw") or "").strip()
+
+
+def _candidate_from_judgment_dict(data: dict) -> WorkCandidate:
+    """Monta WorkCandidate a partir de um dict do --judgments-json."""
+    if not isinstance(data, dict):
+        raise IntakeError("item de judgment deve ser objeto JSON")
+    deps = data.get("dependencies") or []
+    if isinstance(deps, str):
+        deps = [d.strip() for d in re.split(r"[,;]", deps) if d.strip()]
+    cid = data.get("candidate_id") or data.get("item_id") or ""
+    if not cid:
+        raise IntakeError("judgment item exige candidate_id ou item_id")
+    return WorkCandidate(
+        candidate_id=str(cid),
+        description=str(data.get("description") or ""),
+        source=str(data.get("source") or "agent"),
+        evidence=str(data.get("evidence") or ""),
+        source_item=str(data.get("source_item") or ""),
+        dependencies=list(deps),
+        item_id=str(data.get("item_id") or ""),
+        onda=str(data.get("onda") or ""),
+        grupo=str(data.get("grupo") or ""),
+        prioridade=str(data.get("prioridade") or ""),
+        dificuldade=str(data.get("dificuldade") or ""),
+        prereq=str(data.get("prereq") or ""),
+        status=str(data.get("status") or DEFAULT_STATUS),
+        estado_auditado=str(data.get("estado_auditado") or ""),
+        fields_complete=bool(data.get("fields_complete", False)),
+        authority_ok=bool(data.get("authority_ok", True)),
+        is_foundation=bool(data.get("is_foundation", False)),
+        is_local=bool(data.get("is_local", False)),
+        is_scoped=bool(data.get("is_scoped", False)),
+        reason=str(data.get("reason") or ""),
+        acceptance=str(data.get("acceptance") or ""),
+        bv=data.get("bv"),
+        time_criticality=data.get("time_criticality"),
+        risk_reduction=data.get("risk_reduction"),
+        job_size=data.get("job_size"),
+        peer_scores=data.get("peer_scores")
+        if isinstance(data.get("peer_scores"), dict) else None,
+        wsjf_profile=(
+            str(data["wsjf_profile"])
+            if data.get("wsjf_profile") is not None else None
+        ),
+        scoped_max_fraction=(
+            float(data["scoped_max_fraction"])
+            if data.get("scoped_max_fraction") is not None else None
+        ),
+    )
+
+
+def _bump_cycles_fields(fields: dict) -> dict:
+    out = dict(fields)
+    raw = out.get("cycles", "0")
+    try:
+        n = int(raw) if str(raw).isdigit() else 0
+    except (TypeError, ValueError):
+        n = 0
+    out["cycles"] = str(n + 1)
+    return out
+
+
+def _format_residual_body(entry: dict, fields: dict, free_desc: str) -> str:
+    meta = L.format_triage_metadata(
+        since=fields.get("since") or _utc_date_iso(),
+        reason=fields.get("reason") or "missing-info",
+        source=fields.get("source"),
+        cycles=int(fields["cycles"]) if str(fields.get("cycles", "")).isdigit()
+        else 0,
+        ref=fields.get("ref"),
+    )
+    iid = entry.get("id") or PLACEHOLDER
+    return f"{iid}: {meta}{free_desc}"
+
+
+def run_drain(*, todo_path: str, apply: bool = False,
+              judgments: dict | None = None) -> DrainResult:
+    """Drena a INBOX residual (TAB-INBOX-003/004).
+
+    - classifiable (sem triage valido): dry-run lista + exit 2; apply exige
+      entrada em judgments (integrate|split|keep).
+    - residual com triage valido: em apply, incrementa cycles; reason
+      needs-leader-decision NAO auto-integra.
+    - pos-condicao apply ok: classifiable_inbox_count == 0 (senao rc=1).
+    - working tree limpa exigida no apply (igual intake).
+    """
+    try:
+        return _run_drain_inner(
+            todo_path=todo_path, apply=apply, judgments=judgments or {},
+        )
+    except IntakeError as exc:
+        return DrainResult(
+            rc=1, applied=False, error=str(exc),
+            report_text=f"erro: {exc}\n",
+        )
+    except J.IntakeJournalError as exc:
+        return DrainResult(
+            rc=1, applied=False, error=str(exc),
+            report_text=f"erro journal: {exc}\n",
+        )
+
+
+def _run_drain_inner(*, todo_path: str, apply: bool,
+                     judgments: dict) -> DrainResult:
+    text = _read_todo(todo_path)
+    table = L.parse_table(text)
+    if table is None:
+        raise IntakeError("nenhuma tabela ID+Status reconhecida no TODO.md")
+    entries = L.inbox_entries(text)
+    classifiable = [e for e in entries if e.get("classifiable")]
+    residual = [e for e in entries if not e.get("classifiable")]
+
+    report_lines = [
+        "=== tab_pendencias --drain ===",
+        f"mode: {'apply' if apply else 'dry-run'}",
+        f"classifiable: {len(classifiable)}",
+        f"residual: {len(residual)}",
+    ]
+
+    missing_judgments: list[str] = []
+    for e in classifiable:
+        key = _judgment_key_for_entry(e)
+        if key not in judgments:
+            missing_judgments.append(key or "(sem-chave)")
+
+    for e in classifiable:
+        key = _judgment_key_for_entry(e)
+        report_lines.append(
+            f"classifiable: {key!r} desc={_inbox_free_description(e)[:60]!r}"
+        )
+    for e in residual:
+        fields = (e.get("triage") or {}).get("fields") or {}
+        report_lines.append(
+            f"residual: {e.get('id')!r} reason={fields.get('reason')!r} "
+            f"cycles={fields.get('cycles', '0')}"
+        )
+
+    if not apply:
+        if classifiable or residual:
+            if classifiable and missing_judgments:
+                report_lines.append(
+                    "dry-run: classifiable exige --judgments-json no apply; "
+                    f"faltando: {', '.join(missing_judgments)}"
+                )
+            else:
+                report_lines.append(
+                    "dry-run: nenhuma escrita. Rode com --apply para persistir."
+                )
+            report = "\n".join(report_lines) + "\n"
+            return DrainResult(
+                rc=2, applied=False, report_text=report,
+                classifiable_remaining=len(classifiable),
+            )
+        report_lines.append("INBOX vazia -- nada a drenar.")
+        return DrainResult(
+            rc=0, applied=False, report_text="\n".join(report_lines) + "\n",
+            classifiable_remaining=0,
+        )
+
+    # ---- apply ----
+    dirty, dirty_motivo = _working_tree_dirty(todo_path)
+    if dirty:
+        raise IntakeError(dirty_motivo or "working tree suja")
+
+    if classifiable and missing_judgments:
+        raise IntakeError(
+            "classifiable_sem_judgment: forneca --judgments-json para: "
+            + ", ".join(missing_judgments)
+        )
+
+    # Validar judgments antes de mutar
+    to_integrate: list[WorkCandidate] = []
+    keep_specs: list[tuple[dict, dict]] = []  # (entry, judgment)
+    for e in classifiable:
+        key = _judgment_key_for_entry(e)
+        j = judgments[key]
+        if not isinstance(j, dict):
+            raise IntakeError(f"judgment de {key!r} deve ser objeto")
+        action = (j.get("action") or "").strip().lower()
+        if action == "keep":
+            reason = j.get("reason") or "missing-info"
+            if reason not in L.TRIAGE_REASONS:
+                raise IntakeError(
+                    f"keep em {key!r}: reason fora do vocabulario: {reason!r}"
+                )
+            keep_specs.append((e, j))
+        elif action == "integrate":
+            items = j.get("items")
+            if items is None and j.get("item_id"):
+                items = [j]
+            if not items or len(items) != 1:
+                raise IntakeError(
+                    f"integrate em {key!r} exige exatamente 1 item "
+                    "(campo items[0] ou campos flat)"
+                )
+            to_integrate.append(_candidate_from_judgment_dict(items[0]))
+        elif action == "split":
+            items = j.get("items") or []
+            if not items:
+                raise IntakeError(f"split em {key!r} exige items nao-vazio")
+            for it in items:
+                to_integrate.append(_candidate_from_judgment_dict(it))
+        else:
+            raise IntakeError(
+                f"judgment de {key!r}: action deve ser "
+                f"integrate|split|keep (recebido {action!r})"
+            )
+
+    # 1) residual: cycles++ (inclui needs-leader -- sem auto-integrar)
+    work = text
+    bumped: list[str] = []
+    for e in residual:
+        fields = dict((e.get("triage") or {}).get("fields") or {})
+        free = _inbox_free_description(e)
+        new_fields = _bump_cycles_fields(fields)
+        body = _format_residual_body(e, new_fields, free)
+        work = _rewrite_inbox_entry_line(
+            work, match_raw=e.get("raw"), new_body=body,
+        )
+        bumped.append(str(e.get("id") or e.get("raw")))
+
+    # 2) keep: classifiable -> residual com triage
+    kept_ids: list[str] = []
+    for e, j in keep_specs:
+        reason = j.get("reason") or "missing-info"
+        free = _inbox_free_description(e)
+        if j.get("description"):
+            free = str(j["description"])
+        fields = {
+            "since": _utc_date_iso(),
+            "reason": reason,
+            "source": j.get("source") or "agent",
+            "cycles": "0",
+        }
+        body = _format_residual_body(e, fields, free)
+        work = _rewrite_inbox_entry_line(
+            work, match_raw=e.get("raw"), new_body=body,
+        )
+        kept_ids.append(_judgment_key_for_entry(e))
+
+    # 3) remove linhas de integrate/split (originais classifiable)
+    integrate_keys = set()
+    for e in classifiable:
+        key = _judgment_key_for_entry(e)
+        j = judgments[key]
+        action = (j.get("action") or "").strip().lower()
+        if action in ("integrate", "split"):
+            work = _strip_inbox_raw(work, e.get("raw") or "")
+            integrate_keys.add(key)
+
+    # Escreve estado intermediario (inbox preparada) se algo mudou
+    if work != text:
+        ok, motivo = _escrever_atomico(todo_path, work)
+        if not ok:
+            raise IntakeError(f"escrita atomica (pre-intake) falhou: {motivo}")
+        text = work
+
+    # 4) run_intake por candidato (arvore ja suja; classifiable deve ser 0)
+    integrated_ids: list[str] = []
+    for cand in to_integrate:
+        result = run_intake(
+            todo_path=todo_path,
+            candidate=cand,
+            apply=True,
+            enforce_clean_tree=False,
+            enforce_empty_classifiable=True,
+        )
+        if result.rc != 0:
+            raise IntakeError(
+                f"intake falhou para {cand.candidate_id!r} "
+                f"(route={result.route}): {result.error or result.report_text}"
+            )
+        integrated_ids.append(cand.item_id or cand.candidate_id)
+        report_lines.append(
+            f"integrated: {cand.item_id or cand.candidate_id!r} "
+            f"route={result.route}"
+        )
+
+    final_text = _read_todo(todo_path)
+    remaining = classifiable_inbox_count(final_text)
+    report_lines.append(f"classifiable_remaining: {remaining}")
+    report_lines.append(f"residual_bumped: {bumped}")
+    report_lines.append(f"kept: {kept_ids}")
+    report_lines.append(f"integrated: {integrated_ids}")
+
+    if remaining != 0:
+        report = "\n".join(report_lines) + "\n"
+        return DrainResult(
+            rc=1, applied=True, error="classifiable_inbox_count != 0",
+            report_text=report, classifiable_remaining=remaining,
+            residual_bumped=bumped, integrated=integrated_ids, kept=kept_ids,
+        )
+
+    report_lines.append("drain ok: classifiable_inbox_count == 0")
+    return DrainResult(
+        rc=0, applied=True,
+        report_text="\n".join(report_lines) + "\n",
+        classifiable_remaining=0,
+        residual_bumped=bumped, integrated=integrated_ids, kept=kept_ids,
+    )
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -1812,6 +2353,11 @@ def _candidate_from_args(args, json_obj=None) -> WorkCandidate:
         is_local=is_local,
         is_scoped=is_scoped,
         reason=str(args.reason or data.get("reason") or ""),
+        acceptance=str(
+            getattr(args, "acceptance", None)
+            or data.get("acceptance")
+            or ""
+        ),
         scoped_max_fraction=(
             float(data["scoped_max_fraction"])
             if data.get("scoped_max_fraction") is not None
@@ -1840,13 +2386,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
         prog="todo_intake",
         description=(
             "Motor mecanico de intake (ADR-0002): classifica WorkCandidate "
-            "e persiste L0 / residual INBOX / SCOPED_REORDER / FULL_REORDER."
+            "e persiste L0 / residual INBOX / SCOPED_REORDER / FULL_REORDER; "
+            "--drain tria a INBOX residual."
         ),
     )
     p.add_argument("--todo", required=False, default=None,
                    help="Caminho do TODO.md (default: ./TODO.md via find_todo)")
     p.add_argument("--apply", action="store_true",
                    help="Persiste a rota (default: dry-run)")
+    p.add_argument("--drain", action="store_true",
+                   help="Drena a INBOX (TAB-INBOX-004); ver --judgments-json")
+    p.add_argument(
+        "--judgments-json", default=None,
+        help="JSON de julgamentos do drain (path ou '-' = stdin)",
+    )
     p.add_argument("--candidate-id", default=None)
     p.add_argument("--item-id", default=None)
     p.add_argument("--description", default=None)
@@ -1868,6 +2421,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Julgamento: P-escopado (L1)")
     p.add_argument("--reason", default=None,
                    help="Override do reason de triagem (vocabulario fechado)")
+    p.add_argument("--acceptance", default=None,
+                   help="Criterios de aceitacao opcionais (TAB-ADD-002)")
     p.add_argument("--bv", default=None, type=int,
                    help="WSJF business value (fib int)")
     p.add_argument("--time-criticality", default=None, type=int,
@@ -1883,6 +2438,26 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _load_judgments(path_or_dash: str) -> dict:
+    if path_or_dash == "-":
+        raw = sys.stdin.read()
+    else:
+        try:
+            with open(path_or_dash, encoding="utf-8", newline="") as fh:
+                raw = fh.read()
+        except OSError as exc:
+            raise IntakeError(
+                f"falha ao ler judgments-json ({type(exc).__name__}: {exc})"
+            ) from exc
+    try:
+        obj = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError as exc:
+        raise IntakeError(f"judgments-json invalido: {exc}") from exc
+    if not isinstance(obj, dict):
+        raise IntakeError("judgments-json deve ser um objeto {id: judgment}")
+    return obj
+
+
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     parser = build_arg_parser()
@@ -1896,15 +2471,6 @@ def main(argv=None) -> int:
         return 1
 
     try:
-        json_obj = None
-        if args.json:
-            raw = sys.stdin.read()
-            try:
-                json_obj = json.loads(raw) if raw.strip() else {}
-            except json.JSONDecodeError as exc:
-                print(f"erro: JSON stdin invalido: {exc}", file=sys.stderr)
-                return 1
-
         todo = args.todo
         if not todo:
             root = L.repo_root(os.getcwd()) or os.getcwd()
@@ -1914,9 +2480,41 @@ def main(argv=None) -> int:
                       file=sys.stderr)
                 return 1
 
-        candidate = _candidate_from_args(args, json_obj)
-        result = run_intake(todo_path=todo, candidate=candidate,
-                            apply=args.apply)
+        if args.drain:
+            judgments = {}
+            if args.judgments_json:
+                judgments = _load_judgments(args.judgments_json)
+            elif args.json:
+                # --json no drain = judgments em stdin
+                raw = sys.stdin.read()
+                try:
+                    obj = json.loads(raw) if raw.strip() else {}
+                except json.JSONDecodeError as exc:
+                    print(f"erro: JSON stdin invalido: {exc}", file=sys.stderr)
+                    return 1
+                if not isinstance(obj, dict):
+                    print("erro: judgments stdin deve ser objeto",
+                          file=sys.stderr)
+                    return 1
+                judgments = obj
+            result = run_drain(
+                todo_path=todo, apply=args.apply, judgments=judgments,
+            )
+        else:
+            json_obj = None
+            if args.json:
+                raw = sys.stdin.read()
+                try:
+                    json_obj = json.loads(raw) if raw.strip() else {}
+                except json.JSONDecodeError as exc:
+                    print(f"erro: JSON stdin invalido: {exc}", file=sys.stderr)
+                    return 1
+
+            candidate = _candidate_from_args(args, json_obj)
+            if args.acceptance:
+                candidate.acceptance = args.acceptance
+            result = run_intake(todo_path=todo, candidate=candidate,
+                                apply=args.apply)
     except IntakeError as exc:
         print(f"erro: {exc}", file=sys.stderr)
         return 1

@@ -82,6 +82,61 @@ def _run_cli(cwd, *args):
 # parser nem repetindo a chamada de run() para produzir o esperado).
 # ---------------------------------------------------------------------------
 
+def test_tab_triage_required_circuit_breaker(tmp_path, capsys):
+    """TAB-INBOX-002: classifiable>0 OU inbox>=3 OU cycles>=2 emite sinal.
+
+    needs-leader-decision sozinho NAO dispara (contagem separada).
+    """
+    # 1 residual needs-leader, cycles=0 -- NAO dispara
+    texto = (
+        _HEADER_9
+        + _row("H-1", "⏳ Pendente")
+        + "\n## INBOX (descobertas não priorizadas)\n"
+        + "- L-1: [triage since=2026-08-01 reason=needs-leader-decision "
+        "cycles=0] wait leader\n"
+    )
+    d1 = tmp_path / "nl"
+    d1.mkdir()
+    root = _repo(d1, texto)
+    res = H.run(root=str(root))
+    out = capsys.readouterr().out
+    assert res["tab_triage_required"] is False
+    assert "TAB_TRIAGE_REQUIRED" not in out
+    assert res["needs_leader_decision_count"] == 1
+
+    # classifiable -> dispara
+    texto2 = (
+        _HEADER_9
+        + _row("H-1", "⏳ Pendente")
+        + "\n## INBOX (descobertas não priorizadas)\n"
+        + "- C-1: bare discovery\n"
+    )
+    d2 = tmp_path / "cl"
+    d2.mkdir()
+    root2 = _repo(d2, texto2)
+    res2 = H.run(root=str(root2))
+    out2 = capsys.readouterr().out
+    assert res2["tab_triage_required"] is True
+    assert "TAB_TRIAGE_REQUIRED" in out2
+    assert res2["classifiable_inbox_count"] == 1
+
+    # cycles>=2 residual -> dispara
+    texto3 = (
+        _HEADER_9
+        + _row("H-1", "⏳ Pendente")
+        + "\n## INBOX (descobertas não priorizadas)\n"
+        + "- R-1: [triage since=2026-08-01 reason=missing-info "
+        "cycles=2] still missing\n"
+    )
+    d3 = tmp_path / "cy"
+    d3.mkdir()
+    root3 = _repo(d3, texto3)
+    res3 = H.run(root=str(root3))
+    out3 = capsys.readouterr().out
+    assert res3["tab_triage_required"] is True
+    assert "cycles>=2" in out3
+
+
 def test_contagem_por_categoria_bate_com_contagem_independente(tmp_path, capsys):
     # Construcao deliberada: cada bucket tem uma contagem DIFERENTE, para que
     # um bug que troque duas contagens de lugar (ex.: pendentes <-> presos)
@@ -356,6 +411,9 @@ def test_run_tabela_sem_itens_devolve_zeros(tmp_path):
     assert res == {"itens": 0, "concluidos": 0, "pendentes": 0,
                     "aguardando_verificacao": 0, "inbox": 0,
                     "classifiable_inbox_count": 0, "residual_inbox_count": 0,
+                    "needs_leader_decision_count": 0,
+                    "high_cycle_residual_count": 0,
+                    "tab_triage_required": False,
                     "oldest_residual_since": None,
                     "oldest_residual_age_days": None,
                     "oldest_residual_cycles": None}

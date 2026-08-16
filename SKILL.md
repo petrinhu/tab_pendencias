@@ -65,7 +65,7 @@ Trabalho novo descoberto no meio do sprint NÃO espera reordenar: vai para a INB
   - <ID tentativo ou —>: descrição curta do que apareceu
   ```
 - **Concorrência (worktrees/PRs paralelos):** se vários agents/branches anexam ao mesmo tempo, troque a seção por um arquivo-por-descoberta em `inbox/` (ex: `inbox/2026-06-20-slug.md`) para não gerar conflito de merge. Resolução de conflito da INBOX: **sempre união, NUNCA descartar uma linha** (perder item é o que a INBOX existe para evitar).
-- **Dreno:** `--create` e `--reorder` ESVAZIAM a INBOX (e o `inbox/`), integrando cada item na ordenação (topological + WSJF + ondas) e removendo-o da INBOX. INBOX não-vazia é gatilho natural de `--reorder`.
+- **Dreno:** preferir `--drain` (exception queue: classifiable com julgamento agentivo + residual só envelhece `cycles`). `--create` e `--reorder` também ESVAZIAM a INBOX (e o `inbox/`), integrando na ordenação. INBOX classifiable / grande / cycles altos emitem `TAB_TRIAGE_REQUIRED` no health.
 
 > **Dois tipos de `TODO.md`:** o de **projeto** (itens editáveis; item↔commit faz sentido; esta seção se aplica) e o **hub agregador** (contagens derivadas de vários projetos; NÃO marcar à mão nem usar INBOX — regenerar por script). A convenção de frescor vale no de projeto.
 
@@ -223,7 +223,11 @@ cascata fixa de rota.
 
 **Cascata** (primeiro que casa vence):
 
-1. ID já **na tabela** → `DUPLICATE` (não cria linha; limpa residual INBOX do mesmo id se houver)
+1. ID já **na tabela** **ou** descrição normalizada (strip + colapsa whitespace +
+   casefold) igual a item da tabela/INBOX residual, com critérios de aceitação
+   iguais se **ambos** tiverem o campo → `DUPLICATE` (não cria linha; limpa
+   residual relacionado se houver). Fronteira: equivalência **além** de string
+   normalizada é julgamento do agente (sem NLP no núcleo).
 2. campos incompletos / dep inexistente / source inválido → `NEEDS_TRIAGE` (INBOX residual)
 3. sem autoridade → `NEEDS_LEADER_DECISION` (INBOX residual)
 4. fundação → `FULL_REORDER` (topo estável + ondas; `--apply` grava)
@@ -231,8 +235,9 @@ cascata fixa de rota.
 6. escopado → `SCOPED_REORDER` (subgrafo S; `--apply` grava com equivalência fora de S)
 7. default → `FULL_REORDER`
 
-P-dup **não** conta id só na INBOX residual: residual re-entra no pipeline
-(ex.: após o líder decidir). Id só na residual + flags de integração → rota
+P-dup por **id** **não** conta id só na INBOX residual: residual re-entra no
+pipeline (ex.: após o líder decidir). P-dup por **descrição normalizada**
+**sim** casa residual. Id só na residual + flags de integração → rota
 L0/SCOPED/FULL e o núcleo remove a linha residual do mesmo id ao gravar.
 
 **Contrato de L0:** zero células de linhas existentes mudam; marcador
@@ -283,6 +288,75 @@ Gatilhos em linguagem natural ("adicione isto às pendências", "registra esta
 feature", "isso precisa entrar no TODO") usam o mesmo pipeline. A skill
 preenche o julgamento (local/escopado/fundação/autoridade/campos) e chama o
 núcleo; não joga L0 na INBOX por conveniência.
+
+### Fluxo agentivo de `--add` (agente julga, motor persiste)
+
+Subagentes **não** editam `TODO.md`. Devolvem descoberta no bloco:
+
+```text
+DISCOVERED_WORK
+source_item: <ID atual>
+description: <trabalho descoberto>
+evidence: <arquivo:linha/teste/log>
+known_dependencies: <IDs ou unknown>
+blast_radius: <local/component/system/unknown>
+```
+
+A thread principal:
+
+1. Lê o bloco (prosa já julgada pelo agente).
+2. Converte com `tools/intake_agent_bridge.py` (stdlib, **sem LLM**):
+   `parse_discovered_work` + `judgment_from_discovered` mapeia
+   `blast_radius` → flags (`local`→`is_local`, `component`→`is_scoped`,
+   `system`→`is_foundation`, `unknown`→`fields_complete=False`).
+3. Ou preenche as mesmas flags via CLI (`--local` / `--scoped` / …).
+4. Chama `todo_intake.run_intake(..., apply=True)` -- o motor só **persiste**.
+
+Fronteira: o agente **julga** (prosa, impacto, autoridade); o motor
+**classifica por flags e grava**. Não há NLP no núcleo.
+
+### `--drain` (TAB-INBOX-004)
+
+Opera a INBOX como **exception queue**. Motor: `tools/todo_intake.py --drain`.
+
+```text
+python3 tools/todo_intake.py --drain --todo PATH
+python3 tools/todo_intake.py --drain --todo PATH --apply
+python3 tools/todo_intake.py --drain --todo PATH --apply --judgments-json PATH
+# ou --judgments-json -  (stdin) / --json com --drain
+```
+
+Comportamento:
+
+1. Lê INBOX via `inbox_entries`.
+2. **classifiable** (sem `[triage ...]` válido): dry-run lista e exit 2;
+   `--apply` exige julgamento em `--judgments-json` (senão exit 1).
+3. Residual com triage **válido**: em apply, incrementa `cycles` no metadado;
+   `needs-leader-decision` **não** auto-integra (só envelhece).
+4. Judgments (por id da linha INBOX):
+
+```json
+{
+  "FIX-RISCO-1": {
+    "action": "split",
+    "items": [
+      {"candidate_id":"...", "item_id":"FIX-RISCO-A", "description":"...",
+       "source":"audit", "fields_complete": true, "is_local": true,
+       "authority_ok": true}
+    ]
+  }
+}
+```
+
+   `action`: `integrate` (1 item), `split` (N items), `keep` (+ `reason` de
+   triage). Após integrate/split remove a linha original e chama `run_intake`
+   apply por candidato (journal write-ahead por candidato).
+5. Pós-condição de apply bem-sucedido: `classifiable_inbox_count == 0`
+   (senão rc=1). Working tree do TODO limpa no início do apply.
+
+Health (`todo_health.py`) emite `TAB_TRIAGE_REQUIRED` quando
+`classifiable_count>0` ou `inbox_count>=3` ou residual com `cycles>=2`.
+Contagem de `needs-leader-decision` é separada e **não** polui o sinal sozinha.
 
 ## `--audit`
 
