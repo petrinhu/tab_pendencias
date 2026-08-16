@@ -11,6 +11,118 @@ Todas as mudanças notáveis deste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.1.0] - 2026-08-16
+
+### Adicionado
+
+- **Detector de drift do pin de submódulo** (`tools/submodule_pin_drift.py`, TAB-SOT-007): fecha
+  o buraco de distribuição que motivou a Fase 0 do plano de melhoria -- o gitlink de
+  `skills/tab_pendencias` em `claude-memory` ficou 67 commits atrás da revisão publicada sem que
+  nada acusasse, e um `clone --recursive` restaurava a skill sem o toolkit inteiro. Read-only,
+  warning-only e offline-first: lê o SHA pinado por `git ls-tree HEAD` (não `git submodule
+  status`, que falha quando o submódulo nunca foi inicializado), consulta o remoto só por
+  `git ls-remote` (nunca `git fetch`, mesma política do CHK-09) e, sem rede, declara
+  `nao_verificavel` -- nunca `atualizado`: fingir frescor quando não deu para consultar nada é
+  pior que não ter detector. Distingue as **cinco posições relativas** entre o pin e a última
+  release (igual, atrás, à frente, divergente em outra linha de história, indeterminado) em vez
+  de tratar qualquer diferença como atraso -- a primeira versão do detector, corrigida antes de
+  chegar a este lançamento, disparava aviso também para um pin à frente da tag, que é o estado
+  normal de um repositório entre duas releases; alarme que dispara sempre é alarme que se aprende
+  a ignorar. Caminho e URL do submódulo são parâmetros, com `.gitmodules` como único fallback --
+  zero nome de projeto embutido, conforme o requisito canônico de ser agnóstico a projeto. Nunca
+  faz `git submodule update --remote`, auto-commit ou auto-push; o código de saída é sinal, não
+  bloqueio. Documentado em `tools/README.md`, com um snippet de job do GitHub Actions
+  deliberadamente não ligado a nenhum workflow deste repositório -- o gêmeo de CI pertence ao
+  repositório consumidor, fora do escopo desta fatia.
+- **ADR-0002 aceito** (`docs/adr/0002-maquina-de-estados-de-intake-e-inbox-como-fila-de-excecao.md`):
+  desenha uma máquina de estados de intake -- cascata ordenada de guardas com default -- que
+  substitui "toda descoberta nova vai para a INBOX e alguém drena depois" e define a INBOX como
+  fila de exceção residual. **É arquitetura aprovada pelo líder, não comportamento entregue**:
+  nenhum código de intake foi tocado nesta release nem em nenhuma anterior. A superfície de
+  comando do produto continua sendo só `--audit`, `--fix`, `--create` e `--reorder`; não existe
+  `--add` nem drenagem automática da INBOX.
+- **`--fix` alcançável por linguagem natural** (SKILL-DESC-1): o comando já existia, implementado
+  e documentado no corpo do `SKILL.md`, mas faltava no `argument-hint` e na linha de roteamento.
+  Num clone limpo, quem pedia "corrigir a tabela" não era roteado para ele -- funcionalidade
+  pronta e inalcançável. Corrigido só o roteamento; a reescrita da `description:` do frontmatter
+  que decide *se* a skill é invocada ficou fora de propósito, por mudar comportamento de disparo
+  sem revisão dedicada (registrada para decisão do líder).
+
+### Corrigido
+
+- **`todo_sync.py` crashava de verdade no Windows (ENC-WIN-1), em versão já publicada.** O script
+  imprime emoji direto em stdout sem nunca reconfigurar o stream para UTF-8; no console padrão do
+  Windows (codepage cp1252) isso não degrada, crasha com `UnicodeEncodeError` e traceback cru,
+  violando também o contrato de exit code -- e é justamente o script que escreve na `TODO.md` do
+  usuário. `todo_health.py` e `todo_freshness.py` já tinham o guard; faltava no irmão que mais
+  precisava dele.
+- **Varredura sistemática de encoding e caminho no Windows** (WIN-CLI-1, WIN-GITMOD-1), feita por
+  enumeração AST dos 55 call sites de `subprocess` do repositório, não por grep: 37 chamadas em
+  modo texto sem `encoding=` fixado, todas corrigidas. Dois defeitos de produto encontrados na
+  varredura, os dois em versão já publicada:
+  - `chk_frescor.py` invocava `todo_sync.py` por subprocesso sem fixar encoding; no Windows a
+    saída do filho (já UTF-8 correto) decodificava com a codepage local, o erro morria numa
+    thread daemon da stdlib, `stdout` virava `None` em silêncio, e a proposta do CHK-10
+    simplesmente não chegava ao relatório -- relatório incompleto sem sinalizar nada.
+  - `todo_audit.py` e `todo_fix.py` nunca reconfiguravam stdout/stderr para UTF-8, apesar de
+    texto não-ASCII no próprio fonte; os outros quatro entrypoints já tinham o guard.
+
+  Também corrigidos, no mesmo levantamento: `todo_lib.py`, `submodule_pin_drift.py` e
+  `guard_no_real_fixtures.py` capturavam saída de `git` em modo texto sem encoding. Os 15 testes
+  de `test_submodule_pin_drift.py` que falhavam no Windows não eram defeito do módulo novo: a
+  fixture gravava a URL do remoto no `.gitmodules` com separador nativo do SO, e o `git config`
+  trata barra invertida como escape (`bad config line`) -- o produto se comportava corretamente,
+  capturando o erro e devolvendo mensagem graciosa em vez de crashar; a fixture foi corrigida
+  para normalizar a barra. Dois testes adicionais de permissão/substituição de arquivo, que
+  codificavam semântica POSIX que o Windows não compartilha, foram pulados com motivo explícito
+  em vez de terem a asserção relaxada (ver "Cobertura conhecida" abaixo).
+
+  Não verificado por execução real em Windows nesta release: a máquina de desenvolvimento é
+  Linux. Os mecanismos foram reproduzidos aqui com git e Python reais -- inclusive o texto de
+  erro idêntico ao do CI, byte a byte -- mas o silêncio específico do Windows (a exceção que
+  morre na thread leitora em vez de propagar) não é reproduzível fora dele; a prova final foi a
+  volta de CI verde no job `windows-latest`.
+
+- **Classificação de status em tabela legada promovia sozinha item de design (PRED-FALLBACK-2),
+  defeito de integridade de dado presente desde a v1.0.2.** No fallback de tabela sem emoji, o
+  predicado de elegibilidade a flip reconhecia os compostos "pendente design"/"andamento design"
+  só por adjacência exata de string; qualquer separador diferente de espaço simples, palavra
+  intercalada, ou o radical "andamento" caíam de volta na regra de posição, onde o radical vence
+  o qualificador. Como quem consome esse predicado é `todo_sync.py` -- o script que escreve na
+  `TODO.md` do usuário --, um item de design em tabela legada podia ser promovido sozinho a
+  "Pendente verificação", em silêncio, num arquivo de terceiro; a regra D-1 proíbe flip de item
+  de design sem exceção. Trocado por co-ocorrência restrita de radical mais qualificador, em vez
+  da prioridade fixa do formato legado (que resolveria este caso mas ressuscitaria outros quatro
+  já corrigidos). Auditoria por matriz enumerada de 216 combinações: 90 divergiam do
+  comportamento esperado antes do conserto, 0 depois.
+
+- **CI vermelho desde 28/07 -- as duas releases anteriores, v1.0.1 e v1.0.2, foram publicadas
+  nesse estado -- volta a ficar verde nas nove tarefas** pela primeira vez desde então. Causa
+  comum às cinco plataformas da matriz (CI-BRANCH-1): a fixture que fabrica repositórios git de
+  teste herdava o `init.defaultBranch` do ambiente -- "main" na máquina de desenvolvimento,
+  "master" nos runners --, quebrando uma asserção do CHK-09 que dependia do nome do branch. Não
+  era defeito do produto: era suposição implícita de ambiente na própria fixture, o tipo exato
+  de suposição que o requisito de agnosticismo de plataforma proíbe. Mais duas falhas exclusivas
+  do job `archlinux` (CI-ROOT-1), reproduzidas em container real: `git` recusando o repositório
+  por "dubious ownership" (checkout populado com o UID do runner-host, passos rodando como root
+  do container) -- resolvido registrando `safe.directory` só para o workspace do job, nunca
+  `*` -- e um teste que esperava falha de escrita sem permissão, inalcançável porque root ignora
+  bits de permissão POSIX.
+
+### Cobertura conhecida
+
+- **Dois testes de `test_todo_fix.py`, os únicos que provam o comportamento do `--fix` diante de
+  arquivo/diretório sem permissão de escrita, ficam sem exercício em parte da matriz de CI.**
+  `test_apply_arquivo_somente_leitura_e_substituido_via_rename_atomico` é pulado no Windows
+  (`MoveFileEx` recusa destino somente-leitura, ao contrário de `os.replace` no POSIX, cujo
+  comportamento o teste assume). `test_apply_diretorio_sem_permissao_de_escrita_falha_limpo` é
+  pulado tanto no Windows (`os.chmod` não implementa bits de escrita de diretório lá) quanto sob
+  root (que ignora bits de permissão POSIX) -- e é a única prova de que `--fix` falha limpo, sem
+  corromper o `TODO.md` original, quando não consegue escrever. Nenhum dos skips relaxa a
+  asserção original: os dois documentam divergência real de modelo de permissão entre
+  plataformas, com motivo explícito e visível em `-rs`. Registrado como cobertura perdida, não
+  como decisão silenciosa.
+
 ## [1.0.2] - 2026-07-29
 
 ### Corrigido
