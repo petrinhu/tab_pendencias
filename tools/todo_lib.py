@@ -34,11 +34,24 @@ Vocabulario de status da skill tab_pendencias:
   ✅ Concluído | 🔄 Em andamento | 🟡 Parcial | ⏳ Pendente | 💡 Decisão tomada
   | 🎨 Pendente design | 🔍 Pendente verificação
 """
+import configparser
+import datetime
 import os
 import re
 import subprocess
 
 BOM = "﻿"
+
+# Defaults da secao [signals] em .tab_pendencias.ini (Fase 6 / INTAKE-AGE-1).
+# Idade em dias e o eixo que avanca sem drain -- cycles so sobem no drain.
+SIGNALS_DEFAULTS = {
+    "triage_max_cycles": 2,
+    "triage_max_age_days": 1,
+    "verification_aging_min_count": 5,
+    "verification_aging_min_days": 7,
+    "status_sync_min_commits": 5,
+    "status_sync_min_days": 3,
+}
 
 
 def git(args, cwd=None):
@@ -609,3 +622,70 @@ def inbox_entries(text):
         out.append({"raw": raw, "id": iid, "description": desc,
                     "triage": triage, "classifiable": not triage["valid"]})
     return out
+
+
+def residual_is_aged(entry, *, now, max_cycles=2, max_age_days=1):
+    """Predicado de envelhecimento da INBOX residual (INTAKE-AGE-1 / ADR-0002).
+
+    Um residual envelhece por **OU** (liveness sem depender de drain):
+      - cycles >= max_cycles (default 2), contador que o drain incrementa; ou
+      - idade em dias desde `since` >= max_age_days (default 1), eixo de
+        calendario que avanca mesmo quando ninguem roda --drain.
+
+    `entry` e um item de `inbox_entries` (precisa de triage valido). Entrada
+    classificavel / sem triage valido / sem since parseavel e cycles baixo
+    devolve False. `now` e `datetime.date` injetavel (testes).
+    """
+    if now is None:
+        now = datetime.date.today()
+    triage = (entry or {}).get("triage") or {}
+    if not triage.get("valid"):
+        return False
+    fields = triage.get("fields") or {}
+    raw_c = fields.get("cycles", "0")
+    try:
+        cycles = int(raw_c) if str(raw_c).isdigit() else 0
+    except (TypeError, ValueError):
+        cycles = 0
+    if cycles >= int(max_cycles):
+        return True
+    since = fields.get("since")
+    if not since:
+        return False
+    try:
+        d = datetime.date.fromisoformat(str(since))
+    except (TypeError, ValueError):
+        return False
+    age_days = (now - d).days
+    return age_days >= int(max_age_days)
+
+
+def load_signals_config(todo_path=None):
+    """Le `[signals]` de `.tab_pendencias.ini` ao lado do TODO.md.
+
+    `todo_path` None ou ausente -> defaults embutidos. INI ausente, secao
+    ausente ou chave invalida: devolve defaults (fail-open, nunca explode).
+    """
+    cfg = dict(SIGNALS_DEFAULTS)
+    if not todo_path:
+        return cfg
+    root = os.path.dirname(os.path.abspath(todo_path))
+    ini_path = os.path.join(root, ".tab_pendencias.ini")
+    if not os.path.isfile(ini_path):
+        return cfg
+    try:
+        cp = configparser.ConfigParser()
+        cp.read(ini_path, encoding="utf-8")
+        if not cp.has_section("signals"):
+            return cfg
+        for key in SIGNALS_DEFAULTS:
+            if not cp.has_option("signals", key):
+                continue
+            raw = cp.get("signals", key).strip()
+            try:
+                cfg[key] = int(raw)
+            except (TypeError, ValueError):
+                pass
+    except (configparser.Error, OSError):
+        return dict(SIGNALS_DEFAULTS)
+    return cfg

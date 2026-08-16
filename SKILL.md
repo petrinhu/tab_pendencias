@@ -65,9 +65,34 @@ Trabalho novo descoberto no meio do sprint NÃO espera reordenar: vai para a INB
   - <ID tentativo ou —>: descrição curta do que apareceu
   ```
 - **Concorrência (worktrees/PRs paralelos):** se vários agents/branches anexam ao mesmo tempo, troque a seção por um arquivo-por-descoberta em `inbox/` (ex: `inbox/YYYYMMDD-HHMMSS-<session>-<slug>.md` via `tools/concurrent_inbox.py`) para não gerar conflito de merge. Isso é **fallback entre sessões**, não backlog normal. Resolução de conflito da INBOX: **sempre união, NUNCA descartar uma linha** (perder item é o que a INBOX existe para evitar).
-- **Dreno:** preferir `--drain` (exception queue: classifiable com julgamento agentivo + residual só envelhece `cycles`). `--create` e `--reorder` também ESVAZIAM a INBOX (e o `inbox/`), integrando na ordenação. INBOX classifiable / grande / cycles altos / `inbox/` concorrente emitem `TAB_TRIAGE_REQUIRED` no health (`TAB_CONCURRENT_INBOX_PRESENT` quando há `.md` em `inbox/`).
+- **Dreno:** preferir `--drain` (exception queue: classifiable com julgamento agentivo + residual envelhece por `cycles` **ou** idade em dias). `--create` e `--reorder` também ESVAZIAM a INBOX (e o `inbox/`), integrando na ordenação. Sinais de frescor: ver secao **Sinais de frescor (`TAB_*`)** abaixo e `references/sinais-de-frescor.md`.
 
 > **Dois tipos de `TODO.md`:** o de **projeto** (itens editáveis; item↔commit faz sentido; esta seção se aplica) e o **hub agregador** (contagens derivadas de vários projetos; NÃO marcar à mão nem usar INBOX — regenerar por script). A convenção de frescor vale no de projeto.
+
+### Sinais de frescor (`TAB_*`)
+
+Motor: `tools/session_signals.py` (read-only, offline, sem LLM). Adapter de
+hook Claude Code: `tools/hooks/tab_pendencias_reminder.py` (stdin JSON ->
+stdout `{continue:true, additionalContext?}`; exit sempre 0; zero regra de
+negocio propria). Health imprime as mesmas linhas `TAB_*`.
+
+Contrato completo: [`references/sinais-de-frescor.md`](references/sinais-de-frescor.md).
+
+| Sinal | Gatilho resumido | Acao da thread |
+|---|---|---|
+| `TAB_TODO_CREATE_REQUIRED` | git sem `TODO.md` | `--create` |
+| `TAB_STATUS_SYNC_RECOMMENDED` | ha ⏳/🔄 e tabela defasada (commits/dias) | `todo_sync.py` (barato) |
+| `TAB_TRIAGE_REQUIRED` | classifiable **ou** residual aged **ou** `inbox/` | `--drain` (nao full reorder por relogio) |
+| `TAB_CONCURRENT_INBOX_PRESENT` | `inbox/*.md` pendente | dreno do fallback |
+| `TAB_LEADER_DECISION_AGED` | residual `needs-leader-decision` envelhecido | 2-3 opcoes + re-intake |
+| `TAB_VERIFICATION_AGING` | muitos 🔍 ou 🔍 + dias sem tocar TODO | onda TST-*/AUD-* |
+| `TAB_INTAKE_RECOVERY_REQUIRED` | orfaos no journal de intake | recuperacao idempotente |
+
+**Envelhecimento residual (INTAKE-AGE-1):** `cycles >= triage_max_cycles`
+(default 2) **ou** idade desde `since` >= `triage_max_age_days` (default 1).
+A idade de calendario avanca mesmo sem `--drain` (liveness). Leader fresco
+**nao** polui `TAB_TRIAGE_REQUIRED`; leader aged dispara `TAB_LEADER_DECISION_AGED`
+e entra no TRIAGE. Limiares em `.tab_pendencias.ini` secao `[signals]`.
 
 ---
 
@@ -369,11 +394,12 @@ Comportamento:
 5. Pós-condição de apply bem-sucedido: `classifiable_inbox_count == 0`
    (senão rc=1). Working tree do TODO limpa no início do apply.
 
-Health (`todo_health.py`) emite `TAB_TRIAGE_REQUIRED` quando
-`classifiable_count>0` ou `inbox_count>=3` ou residual com `cycles>=2`
-ou `inbox/` concorrente com `.md` pendente. Também emite
-`TAB_CONCURRENT_INBOX_PRESENT` nesse último caso. Contagem de
-`needs-leader-decision` é separada e **não** polui o sinal sozinha.
+Health (`todo_health.py`) consome `session_signals.collect_signals` e imprime
+as linhas `TAB_*` (ver secao **Sinais de frescor** e
+`references/sinais-de-frescor.md`). `TAB_TRIAGE_REQUIRED` = classifiable **ou**
+residual aged (cycles/idade) **ou** `inbox/` concorrente -- **nao**
+`inbox_count>=3` so de leader frescos. Contagem de `needs-leader-decision`
+fresco e separada; so o aged emite `TAB_LEADER_DECISION_AGED` (+ TRIAGE).
 
 ## `--audit`
 

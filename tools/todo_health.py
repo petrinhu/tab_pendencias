@@ -23,6 +23,7 @@ Da o dado para "medir antes de escalar":
     onda TST-*/AUD-* nunca rodou)
   - tamanho da INBOX (descobertas nao priorizadas)
   - adesao a citar ID nos commits (do $GIT_DIR/todo-freshness.log)
+  - sinais TAB_* via session_signals (Fase 6)
 
 Uso: python3 todo_health.py
 
@@ -37,11 +38,7 @@ import sys
 import traceback
 
 import todo_lib as L
-
-try:
-    import concurrent_inbox as CI
-except ImportError:  # pragma: no cover
-    CI = None
+import session_signals as SS
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -98,14 +95,16 @@ def _adesao(root):
     return f"{len(citaram)}/{len(code)} commits de codigo citaram ID ({pct}%)"
 
 
-def _residual_summary(entries):
+def _residual_summary(entries, now=None):
     """Entre as entradas residuais (NAO classificaveis, ADR-0002 secao f),
     acha a de 'since' mais antigo -- e mede a idade em dias (contra
-    datetime.date.today(), fuso local) e o 'cycles' dela (default 0
+    `now` ou datetime.date.today()) e o 'cycles' dela (default 0
     quando o campo nao veio, per o proprio ADR). Devolve None quando nao
     ha residual algum (INBOX vazia ou 100% classificavel) -- distinto de
     um dict com zeros, para run()/main() nunca confundir "sem residual"
     com "residual do dia 0"."""
+    if now is None:
+        now = datetime.date.today()
     oldest_entry = oldest_date = None
     for e in entries:
         if e["classifiable"]:
@@ -126,7 +125,7 @@ def _residual_summary(entries):
     return {
         "id": oldest_entry["id"],
         "since": oldest_entry["triage"]["fields"]["since"],
-        "age_days": (datetime.date.today() - oldest_date).days,
+        "age_days": (now - oldest_date).days,
         "cycles": cycles,
     }
 
@@ -142,16 +141,26 @@ def _residual_summary(entries):
 ERRO_LEITURA = object()
 
 
-def run(root=None, verbose=False):
+def run(root=None, verbose=False, now=None):
     """Nucleo testavel. Retorna um dict com as metricas, None (estado valido
     sem dado: nao e repo git / sem TODO.md / sem tabela) ou ERRO_LEITURA
-    (leitura do TODO.md falhou -- erro de execucao, D-6/ENC-1)."""
+    (leitura do TODO.md falhou -- erro de execucao, D-6/ENC-1).
+
+    `now` (datetime.date) e injetavel para predicados de aging (Fase 6).
+    """
+    if now is None:
+        now = datetime.date.today()
     root = root or L.repo_root()
     if not root:
         print("Nao e um repositorio git.")
         return None
     todo = L.find_todo(root)
     if not todo:
+        # Sinal CREATE (se git) sem inventar contagens de tabela.
+        report = SS.collect_signals(root, now=now)
+        machine = SS.format_machine(report)
+        if machine:
+            print(machine)
         print("Sem TODO.md na raiz.")
         return None
     try:
@@ -176,7 +185,11 @@ def run(root=None, verbose=False):
     entries = L.inbox_entries(text)
     classifiable = [e for e in entries if e["classifiable"]]
     residual = [e for e in entries if not e["classifiable"]]
-    residual_summary = _residual_summary(entries)
+    residual_summary = _residual_summary(entries, now=now)
+
+    cfg = L.load_signals_config(todo)
+    report = SS.collect_signals(root, now=now, cfg=cfg)
+    m = report.metrics
 
     print(f"Saude da TODO.md ({len(items)} itens):")
     print(f"  ✅ concluidos: {len(done)}")
@@ -197,23 +210,20 @@ def run(root=None, verbose=False):
     if residual:
         print(f"       residuais (reason valida, aguardando saida "
               f"controlada): {len(residual)}")
-    needs_leader = [
-        e for e in residual
-        if (e.get("triage") or {}).get("fields", {}).get("reason")
-        == "needs-leader-decision"
-    ]
+    needs_leader = m.get("needs_leader_count", 0)
     if needs_leader:
-        # contagem separada -- NAO polui TAB_TRIAGE_REQUIRED sozinha
+        # contagem separada -- NAO polui TAB_TRIAGE_REQUIRED sozinha (sem age)
         print(f"       needs-leader-decision (aguardando lider, "
-              f"sem poluir triagem): {len(needs_leader)}")
+              f"sem poluir triagem se frescos): {needs_leader}")
     high_cycle = []
+    max_cycles = int(cfg.get("triage_max_cycles", 2))
     for e in residual:
         raw_c = (e.get("triage") or {}).get("fields", {}).get("cycles", "0")
         try:
             cyc = int(raw_c) if str(raw_c).isdigit() else 0
         except (TypeError, ValueError):
             cyc = 0
-        if cyc >= 2:
+        if cyc >= max_cycles:
             high_cycle.append(e)
     if residual_summary:
         print(f"       residual mais antigo -> "
@@ -221,59 +231,45 @@ def run(root=None, verbose=False):
               f"(since={residual_summary['since']}, "
               f"idade={residual_summary['age_days']}d, "
               f"cycles={residual_summary['cycles']})")
-    # TAB-CONC-002/003: arquivos em inbox/ (fallback entre sessoes) --
-    # NAO e a secao ## INBOX do TODO.md.
-    concurrent_count = 0
-    if CI is not None:
-        try:
-            concurrent_count = CI.count_pending(root)
-        except Exception:
-            concurrent_count = 0
-    if concurrent_count > 0:
-        print(f"  TAB_CONCURRENT_INBOX_PRESENT "
-              f"(inbox/ files={concurrent_count})")
-    # TAB-INBOX-002 circuit breaker mecanico (sem LLM):
-    # classifiable>0 OU inbox>=3 OU residual com cycles>=2
-    # OU concurrent inbox/ presente (TAB-CONC-003 parcial).
-    # needs-leader-decision sozinho NAO dispara (ADR-0002 F9).
-    triage_required = (
-        len(classifiable) > 0
-        or len(inbox) >= 3
-        or len(high_cycle) > 0
-        or concurrent_count > 0
-    )
-    if triage_required:
-        reasons = []
-        if classifiable:
-            reasons.append(f"classifiable={len(classifiable)}")
-        if len(inbox) >= 3:
-            reasons.append(f"inbox_count={len(inbox)}")
-        if high_cycle:
-            reasons.append(f"cycles>=2={len(high_cycle)}")
-        if concurrent_count > 0:
-            reasons.append(f"concurrent_inbox={concurrent_count}")
-        print(f"  TAB_TRIAGE_REQUIRED ({', '.join(reasons)})")
+
+    # Linhas TAB_* (machine format) -- fonte unica: session_signals.
+    machine = SS.format_machine(report)
+    if machine:
+        for line in machine.splitlines():
+            print(f"  {line}")
+
     ad = _adesao(root)
     print(f"  adesao a citar ID: {ad}" if ad
           else "  adesao a citar ID: (sem dados ainda no todo-freshness.log)")
     if pend:
         print("Dica: rode todo_sync.py para sincronizar status entregue->🔍 "
               "(determinístico); /tab_pendencias --reorder para re-priorizar.")
-    return {"itens": len(items), "concluidos": len(done), "pendentes": len(pend),
-            "aguardando_verificacao": len(verif), "inbox": len(inbox),
-            "classifiable_inbox_count": len(classifiable),
-            "residual_inbox_count": len(residual),
-            "needs_leader_decision_count": len(needs_leader),
-            "high_cycle_residual_count": len(high_cycle),
-            "concurrent_inbox_count": concurrent_count,
-            "tab_concurrent_inbox_present": concurrent_count > 0,
-            "tab_triage_required": triage_required,
-            "oldest_residual_since":
-                residual_summary["since"] if residual_summary else None,
-            "oldest_residual_age_days":
-                residual_summary["age_days"] if residual_summary else None,
-            "oldest_residual_cycles":
-                residual_summary["cycles"] if residual_summary else None}
+
+    flags = report.to_flags()
+    concurrent_count = m.get("concurrent_inbox_count", 0)
+    triage_required = report.is_active("TAB_TRIAGE_REQUIRED")
+    return {
+        "itens": len(items),
+        "concluidos": len(done),
+        "pendentes": len(pend),
+        "aguardando_verificacao": len(verif),
+        "inbox": len(inbox),
+        "classifiable_inbox_count": len(classifiable),
+        "residual_inbox_count": len(residual),
+        "needs_leader_decision_count": needs_leader,
+        "high_cycle_residual_count": len(high_cycle),
+        "aged_residual_count": m.get("aged_residual_count", 0),
+        "concurrent_inbox_count": concurrent_count,
+        "tab_concurrent_inbox_present": concurrent_count > 0,
+        "tab_triage_required": triage_required,
+        "oldest_residual_since":
+            residual_summary["since"] if residual_summary else None,
+        "oldest_residual_age_days":
+            residual_summary["age_days"] if residual_summary else None,
+        "oldest_residual_cycles":
+            residual_summary["cycles"] if residual_summary else None,
+        **flags,
+    }
 
 
 def main(argv):

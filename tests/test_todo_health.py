@@ -21,6 +21,7 @@ CHK-11, ainda nao implementado, no TODO.md). Este arquivo cobre:
 Nao reusa os helpers `_repo`/`_git` de test_cli_contract.py de proposito:
 cada arquivo de teste e auto-contido (nenhuma dependencia entre suites).
 """
+import datetime
 import os
 import re
 import subprocess
@@ -36,6 +37,7 @@ import todo_lib as L
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS_DIR = os.path.join(REPO_ROOT, "tools")
 HEALTH = os.path.join(TOOLS_DIR, "todo_health.py")
+NOW = datetime.date(2026, 8, 16)
 
 _ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
         "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
@@ -83,22 +85,23 @@ def _run_cli(cwd, *args):
 # ---------------------------------------------------------------------------
 
 def test_tab_triage_required_circuit_breaker(tmp_path, capsys):
-    """TAB-INBOX-002: classifiable>0 OU inbox>=3 OU cycles>=2 emite sinal.
+    """Fase 6: classifiable>0 OU residual aged OU concurrent emite sinal.
 
-    needs-leader-decision sozinho NAO dispara (contagem separada).
+    needs-leader-decision fresco (cycles=0, since=hoje) NAO dispara.
+    inbox_count>=3 so de leader novos NAO dispara (ADR-0002 F9 refinado).
     """
-    # 1 residual needs-leader, cycles=0 -- NAO dispara
+    # 1 residual needs-leader fresco -- NAO dispara
     texto = (
         _HEADER_9
         + _row("H-1", "⏳ Pendente")
         + "\n## INBOX (descobertas não priorizadas)\n"
-        + "- L-1: [triage since=2026-08-01 reason=needs-leader-decision "
+        + "- L-1: [triage since=2026-08-16 reason=needs-leader-decision "
         "cycles=0] wait leader\n"
     )
     d1 = tmp_path / "nl"
     d1.mkdir()
     root = _repo(d1, texto)
-    res = H.run(root=str(root))
+    res = H.run(root=str(root), now=NOW)
     out = capsys.readouterr().out
     assert res["tab_triage_required"] is False
     assert "TAB_TRIAGE_REQUIRED" not in out
@@ -114,27 +117,28 @@ def test_tab_triage_required_circuit_breaker(tmp_path, capsys):
     d2 = tmp_path / "cl"
     d2.mkdir()
     root2 = _repo(d2, texto2)
-    res2 = H.run(root=str(root2))
+    res2 = H.run(root=str(root2), now=NOW)
     out2 = capsys.readouterr().out
     assert res2["tab_triage_required"] is True
     assert "TAB_TRIAGE_REQUIRED" in out2
     assert res2["classifiable_inbox_count"] == 1
 
-    # cycles>=2 residual -> dispara
+    # cycles>=2 residual -> aged -> dispara
     texto3 = (
         _HEADER_9
         + _row("H-1", "⏳ Pendente")
         + "\n## INBOX (descobertas não priorizadas)\n"
-        + "- R-1: [triage since=2026-08-01 reason=missing-info "
+        + "- R-1: [triage since=2026-08-16 reason=missing-info "
         "cycles=2] still missing\n"
     )
     d3 = tmp_path / "cy"
     d3.mkdir()
     root3 = _repo(d3, texto3)
-    res3 = H.run(root=str(root3))
+    res3 = H.run(root=str(root3), now=NOW)
     out3 = capsys.readouterr().out
     assert res3["tab_triage_required"] is True
-    assert "cycles>=2" in out3
+    assert "TAB_TRIAGE_REQUIRED" in out3
+    assert "aged_residual" in out3
 
 
 def test_concurrent_inbox_present_signal(tmp_path, capsys):
@@ -156,14 +160,14 @@ def test_concurrent_inbox_present_signal(tmp_path, capsys):
         "DISCOVERED_WORK\ndescription: from other session\nblast_radius: local\n",
         timestamp="20260816-120000",
     )
-    res = H.run(root=str(root))
+    res = H.run(root=str(root), now=NOW)
     out = capsys.readouterr().out
     assert res["tab_concurrent_inbox_present"] is True
     assert res["concurrent_inbox_count"] == 1
     assert res["tab_triage_required"] is True
     assert "TAB_CONCURRENT_INBOX_PRESENT" in out
     assert "TAB_TRIAGE_REQUIRED" in out
-    assert "concurrent_inbox=1" in out
+    assert "concurrent_inbox" in out
 
 
 def test_contagem_por_categoria_bate_com_contagem_independente(tmp_path, capsys):
@@ -433,21 +437,39 @@ def test_run_todo_vazio_devolve_none(tmp_path, capsys):
 
 def test_run_tabela_sem_itens_devolve_zeros(tmp_path):
     """Cabecalho + separador, mas nenhuma linha de dado: tabela existe, 0
-    itens -- estado valido, nao erro."""
+    itens -- estado valido, nao erro. Flags TAB_* aditivas (Fase 6) entram
+    no dict sem quebrar as chaves legadas."""
     texto = _HEADER_9
     root = _repo(tmp_path, texto)
-    res = H.run(root=str(root))
-    assert res == {"itens": 0, "concluidos": 0, "pendentes": 0,
-                    "aguardando_verificacao": 0, "inbox": 0,
-                    "classifiable_inbox_count": 0, "residual_inbox_count": 0,
-                    "needs_leader_decision_count": 0,
-                    "high_cycle_residual_count": 0,
-                    "concurrent_inbox_count": 0,
-                    "tab_concurrent_inbox_present": False,
-                    "tab_triage_required": False,
-                    "oldest_residual_since": None,
-                    "oldest_residual_age_days": None,
-                    "oldest_residual_cycles": None}
+    res = H.run(root=str(root), now=NOW)
+    base = {
+        "itens": 0, "concluidos": 0, "pendentes": 0,
+        "aguardando_verificacao": 0, "inbox": 0,
+        "classifiable_inbox_count": 0, "residual_inbox_count": 0,
+        "needs_leader_decision_count": 0,
+        "high_cycle_residual_count": 0,
+        "aged_residual_count": 0,
+        "concurrent_inbox_count": 0,
+        "tab_concurrent_inbox_present": False,
+        "tab_triage_required": False,
+        "oldest_residual_since": None,
+        "oldest_residual_age_days": None,
+        "oldest_residual_cycles": None,
+    }
+    for k, v in base.items():
+        assert res[k] == v, k
+    # flags aditivas dos SIGNAL_IDS (todas False neste cenario limpo)
+    for sid in (
+        "tab_todo_create_required",
+        "tab_status_sync_recommended",
+        "tab_triage_required",
+        "tab_concurrent_inbox_present",
+        "tab_leader_decision_aged",
+        "tab_verification_aging",
+        "tab_intake_recovery_required",
+    ):
+        assert sid in res
+        assert res[sid] is False
 
 
 def test_run_tabela_legada_8_colunas(tmp_path):
