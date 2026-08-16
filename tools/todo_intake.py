@@ -17,26 +17,38 @@
 """
 tools/todo_intake.py -- nucleo offline de intake (ADR-0002).
 
-Fatia vertical TAB-ADD-001 / TAB-ADD-002-meca / TAB-ADD-003-cascata /
-TAB-ADD-004-L0: recebe um WorkCandidate ja julgado (flags booleanas de
-predicado preenchidas por quem chama -- o nucleo NAO infere de prosa),
-decide a rota pela cascata fixa, e em --apply persiste apenas o que esta
-implementado nesta fatia:
+Fatia vertical TAB-ADD-001..004-L0 + TAB-ADD-005 (SCOPED) + TAB-ADD-006
+(FULL) + TAB-ADD-007 (strip residual): recebe um WorkCandidate ja julgado
+(flags booleanas de predicado preenchidas por quem chama -- o nucleo NAO
+infere de prosa), decide a rota pela cascata fixa, e em --apply persiste:
 
-  DUPLICATE            -- nao cria linha; journal DONE
-  LOCAL_INTEGRATION    -- append puro de 1 linha (L0)
+  DUPLICATE            -- nao cria linha; limpa residual mesmo id se houver
+  LOCAL_INTEGRATION    -- append puro de 1 linha (L0); strip residual mesmo id
   NEEDS_TRIAGE         -- residual INBOX com [triage reason=missing-info]
   NEEDS_LEADER_DECISION -- residual INBOX com [triage reason=needs-leader-decision]
-  SCOPED_REORDER       -- dry-run ok; apply aborta not_implemented
-  FULL_REORDER         -- dry-run ok; apply aborta not_implemented
+  SCOPED_REORDER       -- menor subgrafo S; equivalencia-restrita fora de S;
+                          promove a FULL se |S|/n > fracao ou S multi-Grupo;
+                          strip residual mesmo id
+  FULL_REORDER         -- topo estavel + ondas W1..; sem renumerar IDs;
+                          W1 (Status de existentes intocado); strip residual
 
-Journal write-ahead (intake_journal) antes de mutacao; mark_done apos
-escrita validada. Escrita atomica (temp + os.replace), encoding utf-8,
-newline preservado. stdlib only.
+Subgrafo S (pragmatico, TAB-ADD-005): deps abertas do candidato + ancestrais
+nao-done transitivos + descendentes transitivos + peers de mesma onda
+(ou mesmo nivel topo se onda ausente). |S|/n usa so ids EXISTENTES.
+Headings no meio da tabela: best-effort / fora do escopo fino desta fatia
+(fixtures de teste nao usam heading entre data rows; o rebuild colapsa
+data rows num bloco contiguo apos o separator).
+
+SCOPED/FULL montam o texto em memoria primeiro; journal write-ahead so
+depois do build ok, imediatamente antes da escrita atomica; mark_done
+apos validacao. L0/residual/DUPLICATE: journal antes da mutacao (estavel).
+Escrita atomica (temp + os.replace), encoding utf-8, newline preservado.
+stdlib only.
 """
 from __future__ import annotations
 
 import argparse
+import configparser
 import json
 import os
 import re
@@ -66,8 +78,15 @@ VALID_SOURCES = frozenset({"user", "bus", "agent", "audit", "test"})
 
 DEFAULT_STATUS = "⏳ Pendente"
 PLACEHOLDER = "—"
+# hifen ASCII e travessao unicode (conteudo de celula "vazio")
+_EMPTY_CELL = frozenset({"", "-", PLACEHOLDER, "—", "--"})
 INBOX_HEADING = "## INBOX (descobertas não priorizadas)"
 INTAKE_MARKER_TMPL = "<!-- intake:{cid} -->"
+
+# Heuristica de eficiencia SCOPED->FULL (ADR-0002 (e)). Calibracao formal
+# e futura; default honesto 0.5 ate o protocolo de corpus fechar.
+DEFAULT_SCOPED_MAX_FRACTION = 0.5
+ENV_SCOPED_MAX_FRACTION = "TAB_INTAKE_SCOPED_MAX_FRACTION"
 
 # Colunas reconhecidas por nome (agnostico a lingua do cabecalho).
 _COL_ALIASES = {
@@ -122,6 +141,8 @@ class WorkCandidate:
     is_local: bool = False
     is_scoped: bool = False
     reason: str = ""  # override opcional do reason de triagem
+    # override da fracao SCOPED; None = env / ini / DEFAULT_SCOPED_MAX_FRACTION
+    scoped_max_fraction: float | None = None
 
 
 @dataclass
@@ -133,6 +154,9 @@ class IntakeResult:
     existing_id: str | None = None
     report_text: str = ""
     candidate_id: str = ""
+    promoted_from: str | None = None
+    s_ids: list = field(default_factory=list)
+    s_fraction: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -193,18 +217,6 @@ def _col_index_map(header_cells: list[str]) -> dict[str, int]:
     return out
 
 
-def _existing_ids(table: dict | None, inbox: list) -> set[str]:
-    ids: set[str] = set()
-    if table:
-        for it in table["items"]:
-            if it["id"]:
-                ids.add(it["id"])
-    for e in inbox:
-        if e.get("id"):
-            ids.add(e["id"])
-    return ids
-
-
 def _table_ids(table: dict | None) -> set[str]:
     if not table:
         return set()
@@ -234,10 +246,17 @@ def _p_campos(candidate: WorkCandidate, table: dict | None) -> bool:
 
 
 def _p_dup(candidate: WorkCandidate, table: dict | None, inbox: list) -> bool:
+    """P-dup: id ja integrado na TABELA. Residual INBOX com o mesmo id
+    NAO e duplicata -- TAB-ADD-007 re-entra (ex.: apos decisao do lider)
+    e o apply remove a linha residual ao integrar.
+    O parametro inbox fica na assinatura por compat da cascata; nao entra
+    no predicado.
+    """
+    del inbox  # API estavel; residual nao conta como ja-integrado
     iid = (candidate.item_id or "").strip()
     if not iid or iid in ("-", PLACEHOLDER):
         return False
-    return iid in _existing_ids(table, inbox)
+    return iid in _table_ids(table)
 
 
 def decide_route(candidate: WorkCandidate, table: dict | None,
@@ -468,6 +487,592 @@ def _build_residual_text(text: str, candidate: WorkCandidate,
     return "\n".join(lines)
 
 
+def _strip_inbox_id(text: str, item_id: str) -> str:
+    """Remove da secao INBOX linhas com o mesmo id (TAB-ADD-007).
+
+    So remove bullets `- ID: ...` cujo token de id casa exatamente com
+    item_id. Outras linhas da INBOX e o heading permanecem. Sem secao
+    INBOX ou id vazio/placeholder: no-op (texto inalterado).
+    """
+    iid = (item_id or "").strip()
+    if not iid or iid in ("-", PLACEHOLDER):
+        return text
+    lines = text.split("\n")
+    heading, end = _find_inbox_region(lines)
+    if heading is None:
+        return text
+    out: list[str] = []
+    for i, line in enumerate(lines):
+        if heading < i < end:
+            s = line.lstrip(L.BOM).strip().rstrip("\r")
+            if s.startswith("- "):
+                raw = s[2:].strip()
+                head, sep, _rest = raw.partition(":")
+                if sep and head.strip() == iid:
+                    continue
+        out.append(line)
+    return "\n".join(out)
+
+
+# ---------------------------------------------------------------------------
+# grafo / SCOPED S / FULL reorder (TAB-ADD-005 / TAB-ADD-006)
+# ---------------------------------------------------------------------------
+
+def _split_dep_tokens(raw: str) -> list[str]:
+    """Tokens de dependencia a partir de celula ou campo livre.
+
+    Split por virgula ou ponto-e-virgula; strip; ignora vazio/hifen/travessao.
+    Nao aplica a politica "ID inteiro vence" do chk_graph: intake so aceita
+    IDs que ja existem na tabela conhecida (filtro no chamador).
+    """
+    text = (raw or "").strip()
+    if text in _EMPTY_CELL:
+        return []
+    out = []
+    for part in re.split(r"[,;]", text):
+        p = part.strip()
+        if p and p not in _EMPTY_CELL:
+            out.append(p)
+    return out
+
+
+def _candidate_dep_ids(candidate: WorkCandidate, known: set[str]) -> list[str]:
+    """Deps do candidato que existem na tabela (ordem estavel, dedup)."""
+    seen: set[str] = set()
+    ordered: list[str] = []
+    sources: list[str] = []
+    for d in candidate.dependencies or []:
+        sources.extend(_split_dep_tokens(d if isinstance(d, str) else str(d)))
+    if candidate.prereq:
+        sources.extend(_split_dep_tokens(candidate.prereq))
+    for t in sources:
+        if t in known and t not in seen:
+            seen.add(t)
+            ordered.append(t)
+    return ordered
+
+
+def _row_cells(table: dict, line_no: int) -> list[str]:
+    raw = table["lines"][line_no]
+    return L._cells(raw.lstrip(L.BOM).strip().rstrip("\r"))
+
+
+def _item_meta_map(table: dict) -> dict[str, dict]:
+    """id -> {status, line_no, index, cells, prereqs, onda, grupo, raw}."""
+    header = _header_cells(table)
+    colmap = _col_index_map(header)
+    known = {it["id"] for it in table["items"] if it["id"]}
+    meta: dict[str, dict] = {}
+    for idx, it in enumerate(table["items"]):
+        iid = it["id"]
+        if not iid:
+            continue
+        cells = _row_cells(table, it["line_no"])
+        prereq_raw = ""
+        if "prereq" in colmap and colmap["prereq"] < len(cells):
+            prereq_raw = cells[colmap["prereq"]]
+        # so referencias validas na tabela entram no grafo de reorder
+        prereqs = [p for p in _split_dep_tokens(prereq_raw) if p in known]
+        onda = ""
+        if "onda" in colmap and colmap["onda"] < len(cells):
+            onda = cells[colmap["onda"]]
+        grupo = ""
+        if "grupo" in colmap and colmap["grupo"] < len(cells):
+            grupo = cells[colmap["grupo"]]
+        meta[iid] = {
+            "status": it["status"],
+            "line_no": it["line_no"],
+            "index": idx,
+            "cells": list(cells),
+            "prereqs": prereqs,
+            "onda": onda,
+            "grupo": grupo,
+            "raw": table["lines"][it["line_no"]],
+        }
+    return meta
+
+
+def _topo_levels(graph: dict[str, list[str]], nodes: list[str]) -> dict[str, int]:
+    """Nivel topológico: 0 = sem prereq no grafo; senao 1+max(prereqs)."""
+    levels: dict[str, int] = {}
+
+    def level_of(nid: str, stack: set[str]) -> int:
+        if nid in levels:
+            return levels[nid]
+        if nid in stack:
+            # ciclo -- o detector principal levanta; aqui trava em 0
+            levels[nid] = 0
+            return 0
+        stack.add(nid)
+        prereqs = [p for p in graph.get(nid, []) if p in graph or p in levels
+                   or p in nodes]
+        # so conta prereqs que sao nos do grafo sob ordenacao
+        node_set = set(nodes)
+        prereqs = [p for p in graph.get(nid, []) if p in node_set]
+        if not prereqs:
+            levels[nid] = 0
+        else:
+            levels[nid] = 1 + max(level_of(p, stack) for p in prereqs)
+        stack.discard(nid)
+        return levels[nid]
+
+    for n in nodes:
+        level_of(n, set())
+    return levels
+
+
+def _detect_cycle(graph: dict[str, list[str]], nodes: list[str]) -> list[str] | None:
+    """DFS: devolve um ciclo (lista de ids) ou None."""
+    node_set = set(nodes)
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = {n: WHITE for n in nodes}
+    parent: dict[str, str | None] = {n: None for n in nodes}
+
+    def dfs(u: str) -> list[str] | None:
+        color[u] = GRAY
+        for v in graph.get(u, []):
+            if v not in node_set:
+                continue
+            if color[v] == GRAY:
+                # reconstruir ciclo u -> ... -> v -> u
+                cyc = [v]
+                cur = u
+                while cur != v and cur is not None:
+                    cyc.append(cur)
+                    cur = parent.get(cur)
+                cyc.append(v)
+                cyc.reverse()
+                return cyc
+            if color[v] == WHITE:
+                parent[v] = u
+                found = dfs(v)
+                if found:
+                    return found
+        color[u] = BLACK
+        return None
+
+    for n in nodes:
+        if color[n] == WHITE:
+            found = dfs(n)
+            if found:
+                return found
+    return None
+
+
+def _stable_topo_sort(graph: dict[str, list[str]],
+                      nodes: list[str],
+                      orig_index: dict[str, int]) -> list[str]:
+    """Kahn estavel: entre ready, menor orig_index primeiro (W2 / TAB-WSJF)."""
+    node_set = set(nodes)
+    indeg = {n: 0 for n in nodes}
+    children: dict[str, list[str]] = {n: [] for n in nodes}
+    for n in nodes:
+        for p in graph.get(n, []):
+            if p not in node_set:
+                continue
+            # aresta p -> n (p deve vir antes de n)
+            children[p].append(n)
+            indeg[n] += 1
+
+    ready = sorted(
+        [n for n in nodes if indeg[n] == 0],
+        key=lambda x: orig_index.get(x, 10**9),
+    )
+    out: list[str] = []
+    while ready:
+        u = ready.pop(0)
+        out.append(u)
+        for v in children[u]:
+            indeg[v] -= 1
+            if indeg[v] == 0:
+                ready.append(v)
+                ready.sort(key=lambda x: orig_index.get(x, 10**9))
+    if len(out) != len(nodes):
+        cyc = _detect_cycle(graph, nodes)
+        label = " -> ".join(cyc) if cyc else "unknown"
+        raise IntakeError(f"dependency_cycle: {label}")
+    return out
+
+
+def _build_full_graph(meta: dict[str, dict],
+                      candidate: WorkCandidate,
+                      cand_id: str) -> tuple[dict[str, list[str]], list[str], dict[str, int]]:
+    """Grafo id -> lista de prereqs; nos = existentes + candidato; indices."""
+    graph: dict[str, list[str]] = {}
+    nodes: list[str] = []
+    orig_index: dict[str, int] = {}
+    for iid, m in meta.items():
+        nodes.append(iid)
+        orig_index[iid] = m["index"]
+        graph[iid] = list(m["prereqs"])
+    known = set(meta)
+    cand_deps = _candidate_dep_ids(candidate, known)
+    if cand_id in graph:
+        raise IntakeError(f"item_id {cand_id!r} colide com id existente no grafo")
+    nodes.append(cand_id)
+    orig_index[cand_id] = len(meta)  # desempate: depois dos existentes
+    graph[cand_id] = cand_deps
+    return graph, nodes, orig_index
+
+
+def compute_safe_subgraph_S(
+    table: dict,
+    candidate: WorkCandidate,
+    meta: dict[str, dict] | None = None,
+) -> set[str]:
+    """Menor subgrafo seguro S de ids EXISTENTES (candidato nao entra em |S|).
+
+    1. deps = dependencies/prereq do candidato presentes na tabela
+    2. open_deps = deps cujo status NAO e done (L.is_done)
+    3. fecha para tras: ancestrais transitivos nao-done
+    4. fecha para frente: descendentes transitivos na tabela
+    5. peers: mesma onda do contexto de insercao com overlap de prereq,
+       ou mesmo nivel topológico se onda ausente
+    """
+    if meta is None:
+        meta = _item_meta_map(table)
+    known = set(meta)
+    if not known:
+        return set()
+    deps = _candidate_dep_ids(candidate, known)
+    open_deps = {d for d in deps if not L.is_done(meta[d]["status"])}
+    S: set[str] = set(open_deps)
+
+    # ancestrais nao-done
+    stack = list(open_deps)
+    while stack:
+        cur = stack.pop()
+        for p in meta[cur]["prereqs"]:
+            if p not in known:
+                continue
+            if L.is_done(meta[p]["status"]):
+                continue
+            if p not in S:
+                S.add(p)
+                stack.append(p)
+
+    # descendentes: quem depende (transitivo) de algo em S
+    dependents: dict[str, list[str]] = {i: [] for i in known}
+    for iid, m in meta.items():
+        for p in m["prereqs"]:
+            if p in dependents:
+                dependents[p].append(iid)
+    stack = list(S)
+    while stack:
+        cur = stack.pop()
+        for d in dependents.get(cur, []):
+            if d not in S:
+                S.add(d)
+                stack.append(d)
+
+    # peers
+    target_waves: set[str] = set()
+    for d in open_deps:
+        w = (meta[d]["onda"] or "").strip()
+        if w not in _EMPTY_CELL:
+            target_waves.add(w)
+    cw = (candidate.onda or "").strip()
+    if cw not in _EMPTY_CELL:
+        target_waves.add(cw)
+
+    if target_waves:
+        base = set(S) | set(open_deps)
+        for iid, m in meta.items():
+            w = (m["onda"] or "").strip()
+            if w not in target_waves:
+                continue
+            pr = set(m["prereqs"])
+            if iid in base or (pr & base) or (not pr and open_deps):
+                S.add(iid)
+    else:
+        # nivel topo pelo grafo so de existentes
+        graph_ex = {i: list(meta[i]["prereqs"]) for i in known}
+        levels = _topo_levels(graph_ex, list(known))
+        if open_deps:
+            target_levels = {levels[d] for d in open_deps if d in levels}
+        else:
+            # candidato sem deps abertas: nivel 0 peers (itens raiz nao-done)
+            target_levels = {0}
+        for iid, m in meta.items():
+            if levels.get(iid) in target_levels and not L.is_done(m["status"]):
+                pr = set(m["prereqs"])
+                if iid in open_deps or (pr & S) or (not pr and not open_deps):
+                    S.add(iid)
+
+    return S
+
+
+def resolve_scoped_max_fraction(
+    candidate: WorkCandidate,
+    todo_path: str | None = None,
+) -> float:
+    """Ordem: candidate.scoped_max_fraction > env > ini > default 0.5."""
+    if candidate.scoped_max_fraction is not None:
+        return float(candidate.scoped_max_fraction)
+    env = os.environ.get(ENV_SCOPED_MAX_FRACTION)
+    if env is not None and str(env).strip() != "":
+        try:
+            return float(env)
+        except ValueError:
+            pass
+    if todo_path:
+        root = os.path.dirname(os.path.abspath(todo_path)) or "."
+        ini_path = os.path.join(root, ".tab_pendencias.ini")
+        if os.path.isfile(ini_path):
+            cp = configparser.ConfigParser()
+            try:
+                cp.read(ini_path, encoding="utf-8")
+                if cp.has_option("intake", "scoped_reorder_max_fraction"):
+                    return float(cp.get("intake", "scoped_reorder_max_fraction"))
+            except (configparser.Error, ValueError, OSError):
+                pass
+    return DEFAULT_SCOPED_MAX_FRACTION
+
+
+def should_promote_scoped_to_full(
+    S: set[str],
+    meta: dict[str, dict],
+    fraction: float,
+) -> tuple[bool, str]:
+    """Promove se |S|/n > fraction ou S toca >1 Grupo distinto."""
+    n = len(meta)
+    if n == 0:
+        return False, ""
+    frac = len(S) / n
+    if frac > fraction:
+        return True, f"|S|/n={frac:.3f} > {fraction}"
+    grupos = set()
+    for iid in S:
+        g = (meta[iid].get("grupo") or "").strip()
+        if g not in _EMPTY_CELL:
+            grupos.add(g)
+    if len(grupos) > 1:
+        return True, f"S multi-Grupo: {sorted(grupos)}"
+    return False, ""
+
+
+def _format_cells_row(cells: list[str], terminator: str = "") -> str:
+    body = "| " + " | ".join(cells) + " |"
+    return body + terminator
+
+
+def _set_cell(cells: list[str], idx: int | None, value: str) -> None:
+    if idx is None or idx < 0:
+        return
+    while len(cells) <= idx:
+        cells.append(PLACEHOLDER)
+    cells[idx] = value
+
+
+def _wave_label(level: int) -> str:
+    return f"W{level + 1}"
+
+
+def _build_reorder_rows(
+    table: dict,
+    candidate: WorkCandidate,
+    meta: dict[str, dict],
+    S: set[str] | None = None,
+) -> tuple[list[str], list[str], dict[str, int]]:
+    """Constroi linhas de dados reordenadas (FULL ou SCOPED).
+
+    Retorna (ordered_ids, data_row_strings, levels).
+
+    S is None (FULL): recalcula onda de todos os existentes.
+    S is not None (SCOPED nao promovido): fora de S preserva raw byte-a-byte
+    (meta[iid]["raw"]); em S reformata e pode atualizar so onda; status
+    de existentes sempre intocado. Candidato = linha nova com marker.
+
+    Prereq de existentes intocado. Candidato usa prereq/deps do candidate.
+    Headings no meio: nao preservados no bloco de data (ver docstring modulo).
+    """
+    cand_id = (candidate.item_id or "").strip()
+    if not cand_id:
+        raise IntakeError("FULL_REORDER/SCOPED_REORDER exige item_id nao vazio")
+
+    header = _header_cells(table)
+    colmap = _col_index_map(header)
+    ncols = table["ncols"]
+    graph, nodes, orig_index = _build_full_graph(meta, candidate, cand_id)
+
+    cyc = _detect_cycle(graph, nodes)
+    if cyc:
+        raise IntakeError(f"dependency_cycle: {' -> '.join(cyc)}")
+
+    ordered = _stable_topo_sort(graph, nodes, orig_index)
+    levels = _topo_levels(graph, nodes)
+
+    # terminador a partir de uma linha de dados existente
+    sample_ln = next(iter(meta.values()))["line_no"] if meta else 0
+    term = _cell_terminator(table["lines"][sample_ln] if table["lines"] else "")
+
+    onda_idx = colmap.get("onda")
+    rows_out: list[str] = []
+    for iid in ordered:
+        if iid == cand_id:
+            values = {
+                "id": cand_id,
+                "onda": _wave_label(levels.get(cand_id, 0)),
+                "grupo": candidate.grupo or PLACEHOLDER,
+                "descricao": _description_with_marker(candidate),
+                "prioridade": candidate.prioridade or PLACEHOLDER,
+                "prereq": _prereq_cell(candidate),
+                "dificuldade": candidate.dificuldade or PLACEHOLDER,
+                "status": candidate.status or DEFAULT_STATUS,
+                "estado_auditado": candidate.estado_auditado or PLACEHOLDER,
+            }
+            # FULL/SCOPED: onda do candidato por nivel topo (TAB-ADD-006)
+            row = _format_row(ncols, colmap, values, terminator=term)
+            rows_out.append(row)
+            continue
+
+        m = meta[iid]
+        # SCOPED: fora de S = raw original intacto (cinto; equivalencia valida)
+        if S is not None and iid not in S:
+            rows_out.append(m["raw"])
+            continue
+
+        cells = list(m["cells"])
+        # garantir ncols
+        if len(cells) < ncols:
+            cells.extend([PLACEHOLDER] * (ncols - len(cells)))
+        elif len(cells) > ncols:
+            cells = cells[:ncols]
+        if onda_idx is not None:
+            _set_cell(cells, onda_idx, _wave_label(levels.get(iid, 0)))
+        # W1: status permanece cells[status_idx] original
+        rows_out.append(_format_cells_row(cells, terminator=term))
+
+    return ordered, rows_out, levels
+
+
+def _data_line_span(meta: dict[str, dict]) -> tuple[int, int]:
+    """(first_data_line_no, last_data_line_no) inclusive."""
+    if not meta:
+        raise IntakeError("tabela sem itens para reorder")
+    nos = [m["line_no"] for m in meta.values()]
+    return min(nos), max(nos)
+
+
+def _rewrite_table_data_block(
+    text: str,
+    table: dict,
+    meta: dict[str, dict],
+    new_data_rows: list[str],
+) -> str:
+    """Substitui o bloco de data rows (min..max line_no) pelas novas linhas.
+
+    Preserva header, separator e todo texto fora do span de data.
+    Headings que estavam ENTRE data rows no span original sao removidos
+    com o span (best-effort; fora do escopo fino desta fatia).
+    """
+    lines = list(table["lines"])
+    if not meta:
+        # tabela so com header: inserir apos separator
+        # achar separator apos header
+        header_i = None
+        for i, line in enumerate(lines):
+            s = line.lstrip(L.BOM).strip().rstrip("\r")
+            if s.startswith("|") and L._is_header(L._cells(s)):
+                header_i = i
+                break
+        if header_i is None:
+            raise IntakeError("cabecalho nao encontrado no rewrite")
+        sep_i = header_i + 1
+        insert_at = sep_i + 1
+        new_lines = lines[:insert_at] + new_data_rows + lines[insert_at:]
+        return "\n".join(new_lines)
+
+    first, last = _data_line_span(meta)
+    new_lines = lines[:first] + new_data_rows + lines[last + 1:]
+    return "\n".join(new_lines)
+
+
+def build_full_reorder_text(
+    text: str,
+    table: dict,
+    candidate: WorkCandidate,
+    meta: dict[str, dict] | None = None,
+) -> tuple[str, list[str], set[str]]:
+    """FULL_REORDER em memoria.
+
+    Retorna (novo_texto, ordered_ids, moved_existing_ids).
+    """
+    if meta is None:
+        meta = _item_meta_map(table)
+    ordered, rows, _levels = _build_reorder_rows(
+        table, candidate, meta, S=None,
+    )
+    novo = _rewrite_table_data_block(text, table, meta, rows)
+    cand_id = (candidate.item_id or "").strip()
+    # ids existentes cuja posicao relativa mudou ou linha sera reescrita
+    old_order = [it["id"] for it in table["items"] if it["id"]]
+    new_existing_order = [i for i in ordered if i != cand_id]
+    moved = set()
+    if old_order != new_existing_order:
+        # qualquer id cuja posicao mudou
+        old_pos = {i: n for n, i in enumerate(old_order)}
+        for n, i in enumerate(new_existing_order):
+            if old_pos.get(i) != n:
+                moved.add(i)
+    # ondas podem mudar mesmo com mesma ordem -- todos com onda recalculada
+    # em FULL todos existentes sao "tocados" na celula onda se coluna existe
+    header = _header_cells(table)
+    colmap = _col_index_map(header)
+    if "onda" in colmap:
+        moved |= set(old_order)
+    return novo, ordered, moved
+
+
+def build_scoped_reorder_text(
+    text: str,
+    table: dict,
+    candidate: WorkCandidate,
+    S: set[str],
+    meta: dict[str, dict] | None = None,
+) -> tuple[str, list[str], set[str]]:
+    """SCOPED: topo com raw fora de S intacto + prova de equivalencia.
+
+    Path com S (nao FULL): ids ∉ S reusam meta[iid]['raw'] byte-a-byte.
+    Se algum id ∉ S ainda diverger (cinto e suspensorio), aborta com
+    scoped_equivalence_failed (nao escreve -- caller trata).
+    """
+    if meta is None:
+        meta = _item_meta_map(table)
+    ordered, rows, _levels = _build_reorder_rows(
+        table, candidate, meta, S=S,
+    )
+    novo = _rewrite_table_data_block(text, table, meta, rows)
+    # validar equivalencia fora de S antes de devolver
+    novo_table = L.parse_table(novo)
+    if novo_table is None:
+        raise IntakeError("scoped_equivalence_failed: resultado sem tabela")
+    new_raw = _raw_lines_by_id(novo_table)
+    for iid, m in meta.items():
+        if iid in S:
+            continue
+        if iid not in new_raw:
+            raise IntakeError(
+                f"scoped_equivalence_failed: id {iid!r} sumiu"
+            )
+        if new_raw[iid] != m["raw"]:
+            raise IntakeError(
+                f"scoped_equivalence_failed: id {iid!r} fora de S mudou "
+                "(raw_line diverge; re-rode como FULL_REORDER)"
+            )
+    cand_id = (candidate.item_id or "").strip()
+    old_order = [it["id"] for it in table["items"] if it["id"]]
+    new_existing_order = [i for i in ordered if i != cand_id]
+    moved = set()
+    if old_order != new_existing_order:
+        old_pos = {i: n for n, i in enumerate(old_order)}
+        for n, i in enumerate(new_existing_order):
+            if old_pos.get(i) != n:
+                moved.add(i)
+    # so conta moved dentro de S (fora de S e raw-identico por contrato)
+    return novo, ordered, moved & S
+
+
 # ---------------------------------------------------------------------------
 # invariantes + escrita atomica
 # ---------------------------------------------------------------------------
@@ -499,6 +1104,7 @@ def _provar_invariantes(
     route: str,
     expected_item_delta: int,
     preserve_raw_ids: bool,
+    preserve_raw_ids_except: set[str] | None = None,
 ) -> tuple[bool, str | None]:
     novo = L.parse_table(novo_texto)
     if novo is None:
@@ -526,17 +1132,27 @@ def _provar_invariantes(
                 f"{new_status[iid]!r}"
             )
 
-    # L0: linhas brutas de IDs antigos identicas
-    if preserve_raw_ids:
+    # L0: preserve_raw_ids=True -> todos os ids antigos.
+    # SCOPED: preserve_raw_ids_except=S -> todos exceto S.
+    # FULL: nenhum dos dois (so W1 + contagem).
+    check_raw = preserve_raw_ids or (preserve_raw_ids_except is not None)
+    if check_raw:
+        except_ids = preserve_raw_ids_except or set()
         old_raw = _raw_lines_by_id(old_table)
         new_raw = _raw_lines_by_id(novo)
         for iid, raw in old_raw.items():
+            if iid in except_ids:
+                continue
             if iid not in new_raw:
-                return False, f"L0: linha de {iid!r} ausente apos append"
+                return False, f"linha de {iid!r} ausente apos escrita"
             if new_raw[iid] != raw:
+                if preserve_raw_ids and not except_ids:
+                    return False, (
+                        f"L0: bytes da linha de {iid!r} mudaram (append puro "
+                        "exige zero tocada)"
+                    )
                 return False, (
-                    f"L0: bytes da linha de {iid!r} mudaram (append puro "
-                    "exige zero tocada)"
+                    f"scoped: bytes da linha de {iid!r} fora de S mudaram"
                 )
 
     both = _ids_in_table_and_inbox(novo_texto)
@@ -678,24 +1294,54 @@ def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
             f"({', '.join(classifiable)})"
         )
 
-    if route in (ROUTE_SCOPED_REORDER, ROUTE_FULL_REORDER):
-        raise IntakeError(f"not_implemented:{route}")
-
-    # L0 exige item_id nao vazio ANTES do journal -- senao grava NEW e
-    # aborta depois, deixando orfao permanente sem mutacao util.
-    if route == ROUTE_LOCAL_INTEGRATION:
+    # item_id obrigatorio ANTES do journal para rotas que criam linha
+    # (L0 / SCOPED / FULL) -- senao grava NEW e aborta com orfao inutil.
+    if route in (
+        ROUTE_LOCAL_INTEGRATION, ROUTE_SCOPED_REORDER, ROUTE_FULL_REORDER,
+    ):
         if not (candidate.item_id or "").strip():
-            raise IntakeError("LOCAL_INTEGRATION exige item_id nao vazio")
+            raise IntakeError(
+                f"{route} exige item_id nao vazio"
+            )
 
     journal_dir = _journal_dir_for_todo(todo_path)
-    _write_journal(candidate, journal_dir)
 
     if route == ROUTE_DUPLICATE:
+        _write_journal(candidate, journal_dir)
+        iid = (candidate.item_id or "").strip()
+        # TAB-ADD-007: residual com o mesmo id (enriquecimento) some da INBOX
+        stripped = _strip_inbox_id(text, iid) if iid else text
+        if stripped != text:
+            ok, motivo = _provar_invariantes(
+                stripped, old_table=table, route=route,
+                expected_item_delta=0, preserve_raw_ids=True,
+            )
+            if not ok:
+                raise IntakeError(
+                    f"invariante falhou antes da escrita: {motivo}"
+                )
+            ok, motivo = _escrever_atomico(todo_path, stripped)
+            if not ok:
+                raise IntakeError(f"escrita atomica falhou: {motivo}")
+            escrito = _read_todo(todo_path)
+            ok, motivo = _provar_invariantes(
+                escrito, old_table=table, route=route,
+                expected_item_delta=0, preserve_raw_ids=True,
+            )
+            if not ok:
+                raise IntakeError(
+                    f"invariante falhou apos escrita: {motivo}"
+                )
+            report_lines.append(
+                f"DUPLICATE: id {candidate.item_id!r} ja na tabela; "
+                "residual INBOX do mesmo id removido; journal DONE"
+            )
+        else:
+            report_lines.append(
+                f"DUPLICATE: id {candidate.item_id!r} ja existe; journal DONE; "
+                "nenhuma linha criada"
+            )
         J.mark_done(journal_dir, candidate.candidate_id)
-        report_lines.append(
-            f"DUPLICATE: id {candidate.item_id!r} ja existe; journal DONE; "
-            "nenhuma linha criada"
-        )
         report = "\n".join(report_lines) + "\n"
         return IntakeResult(
             rc=0, route=route, applied=True,
@@ -704,7 +1350,10 @@ def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
         )
 
     if route == ROUTE_LOCAL_INTEGRATION:
+        _write_journal(candidate, journal_dir)
         novo = _build_l0_text(text, table, candidate)
+        # TAB-ADD-007: apos montar a linha, limpa residual com o mesmo id
+        novo = _strip_inbox_id(novo, (candidate.item_id or "").strip())
         ok, motivo = _provar_invariantes(
             novo, old_table=table, route=route,
             expected_item_delta=1, preserve_raw_ids=True,
@@ -714,7 +1363,6 @@ def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
         ok, motivo = _escrever_atomico(todo_path, novo)
         if not ok:
             raise IntakeError(f"escrita atomica falhou: {motivo}")
-        # revalidar no disco
         escrito = _read_todo(todo_path)
         ok, motivo = _provar_invariantes(
             escrito, old_table=table, route=route,
@@ -733,7 +1381,92 @@ def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
             report_text=report, candidate_id=candidate.candidate_id,
         )
 
+    if route in (ROUTE_SCOPED_REORDER, ROUTE_FULL_REORDER):
+        # Build em memoria ANTES do journal: ciclo/equivalencia nao deixa
+        # orfao NEW (journal so imediatamente antes da escrita atomica).
+        meta = _item_meta_map(table)
+        n = len(meta)
+        S: set[str] = set()
+        promoted_from = None
+        effective_route = route
+        s_fraction = None
+
+        if route == ROUTE_SCOPED_REORDER:
+            S = compute_safe_subgraph_S(table, candidate, meta=meta)
+            frac_limit = resolve_scoped_max_fraction(candidate, todo_path)
+            s_fraction = (len(S) / n) if n else 0.0
+            promote, why = should_promote_scoped_to_full(S, meta, frac_limit)
+            if promote:
+                promoted_from = ROUTE_SCOPED_REORDER
+                effective_route = ROUTE_FULL_REORDER
+                report_lines.append(
+                    f"promoted_from={ROUTE_SCOPED_REORDER} -> "
+                    f"{ROUTE_FULL_REORDER} ({why})"
+                )
+            else:
+                report_lines.append(
+                    f"|S|/n={s_fraction:.3f} (limit={frac_limit}); "
+                    f"|S|={len(S)} ids={sorted(S)[:12]}"
+                )
+
+        if effective_route == ROUTE_SCOPED_REORDER:
+            novo, ordered, moved = build_scoped_reorder_text(
+                text, table, candidate, S, meta=meta,
+            )
+            preserve_except = set(S)
+            use_preserve_raw = False
+        else:
+            novo, ordered, moved = build_full_reorder_text(
+                text, table, candidate, meta=meta,
+            )
+            preserve_except = None
+            use_preserve_raw = False
+
+        # TAB-ADD-007: strip residual com o mesmo id antes da prova/escrita
+        novo = _strip_inbox_id(novo, (candidate.item_id or "").strip())
+
+        ok, motivo = _provar_invariantes(
+            novo, old_table=table, route=effective_route,
+            expected_item_delta=1,
+            preserve_raw_ids=use_preserve_raw,
+            preserve_raw_ids_except=preserve_except,
+        )
+        if not ok:
+            raise IntakeError(f"invariante falhou antes da escrita: {motivo}")
+
+        _write_journal(candidate, journal_dir)
+        ok, motivo = _escrever_atomico(todo_path, novo)
+        if not ok:
+            raise IntakeError(f"escrita atomica falhou: {motivo}")
+        escrito = _read_todo(todo_path)
+        ok, motivo = _provar_invariantes(
+            escrito, old_table=table, route=effective_route,
+            expected_item_delta=1,
+            preserve_raw_ids=use_preserve_raw,
+            preserve_raw_ids_except=preserve_except,
+        )
+        if not ok:
+            raise IntakeError(f"invariante falhou apos escrita: {motivo}")
+        J.mark_done(journal_dir, candidate.candidate_id)
+        moved_list = sorted(moved)[:20]
+        report_lines.append(
+            f"{effective_route}: inseriu {candidate.item_id!r} "
+            f"(marker intake:{candidate.candidate_id}); "
+            f"ordem={ordered}; moved={moved_list}"
+        )
+        if s_fraction is not None:
+            report_lines.append(f"s_fraction={s_fraction:.3f}")
+        report = "\n".join(report_lines) + "\n"
+        return IntakeResult(
+            rc=0, route=effective_route, applied=True,
+            report_text=report, candidate_id=candidate.candidate_id,
+            promoted_from=promoted_from,
+            s_ids=sorted(S),
+            s_fraction=s_fraction,
+        )
+
     if route in (ROUTE_NEEDS_TRIAGE, ROUTE_NEEDS_LEADER_DECISION):
+        _write_journal(candidate, journal_dir)
         novo = _build_residual_text(text, candidate, route)
         ok, motivo = _provar_invariantes(
             novo, old_table=table, route=route,
@@ -843,6 +1576,11 @@ def _candidate_from_args(args, json_obj=None) -> WorkCandidate:
         is_local=is_local,
         is_scoped=is_scoped,
         reason=str(args.reason or data.get("reason") or ""),
+        scoped_max_fraction=(
+            float(data["scoped_max_fraction"])
+            if data.get("scoped_max_fraction") is not None
+            else None
+        ),
     )
 
 
@@ -851,8 +1589,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         prog="todo_intake",
         description=(
             "Motor mecanico de intake (ADR-0002): classifica WorkCandidate "
-            "e persiste L0 / residual INBOX. SCOPED/FULL: so dry-run nesta "
-            "fatia."
+            "e persiste L0 / residual INBOX / SCOPED_REORDER / FULL_REORDER."
         ),
     )
     p.add_argument("--todo", required=False, default=None,

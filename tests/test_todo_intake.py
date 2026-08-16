@@ -1,8 +1,10 @@
-"""tests/test_todo_intake.py -- TAB-ADD-001/002-meca/003-cascata/004-L0.
+"""tests/test_todo_intake.py -- TAB-ADD-001..007 (intake + SCOPED/FULL + strip).
 
 Motor offline de intake (`tools/todo_intake.py`): cascata de rota ADR-0002 (d),
-dedup mecanica por ID exato, integracao L0 (append puro), residual INBOX com
-metadado [triage ...], journal write-ahead e precondicoes de apply.
+dedup mecanica por ID exato (tabela), integracao L0 (append puro), residual
+INBOX com metadado [triage ...], strip residual apos integracao (007),
+SCOPED/FULL apply (raw fora de S, topo, journal), journal write-ahead e
+precondicoes de apply.
 
 Nao reusa helpers de outros arquivos de teste (convencao da suite, ver
 test_intake_journal.py). Fixtures sinteticas apenas -- IDs estilo #01 e prosa
@@ -137,11 +139,12 @@ def test_decide_route_duplicate_por_id_na_tabela():
     assert I.decide_route(c, table, inbox) == I.ROUTE_DUPLICATE
 
 
-def test_decide_route_duplicate_por_id_na_inbox():
+def test_decide_route_id_so_na_inbox_residual_nao_e_duplicate():
+    """TAB-ADD-007: P-dup conta so a tabela -- residual re-entra no pipeline."""
     table = L.parse_table(TODO_COM_INBOX_RESIDUAL)
     inbox = L.inbox_entries(TODO_COM_INBOX_RESIDUAL)
     c = _cand(item_id="#88", is_local=True)
-    assert I.decide_route(c, table, inbox) == I.ROUTE_DUPLICATE
+    assert I.decide_route(c, table, inbox) == I.ROUTE_LOCAL_INTEGRATION
 
 
 def test_decide_route_needs_triage_quando_fields_incomplete():
@@ -459,26 +462,6 @@ def test_apply_com_working_tree_suja_falha(tmp_path):
         or "mudança" in result.error.lower() or "mudanca" in result.error.lower()
 
 
-def test_scoped_apply_not_implemented_sem_tocar_arquivo(tmp_path):
-    repo, todo = _repo_com_todo(tmp_path)
-    antes = todo.read_text(encoding="utf-8")
-    c = _cand(is_local=False, is_scoped=True, item_id="#04")
-    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
-    assert result.rc == 1
-    assert "not_implemented:SCOPED_REORDER" in (result.error or "")
-    assert todo.read_text(encoding="utf-8") == antes
-
-
-def test_full_apply_not_implemented_sem_tocar_arquivo(tmp_path):
-    repo, todo = _repo_com_todo(tmp_path)
-    antes = todo.read_text(encoding="utf-8")
-    c = _cand(is_foundation=True, item_id="#04")
-    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
-    assert result.rc == 1
-    assert "not_implemented:FULL_REORDER" in (result.error or "")
-    assert todo.read_text(encoding="utf-8") == antes
-
-
 def test_duplicate_apply_nao_cria_linha_journal_done(tmp_path):
     repo, todo = _repo_com_todo(tmp_path)
     n_antes = len(L.parse_table(todo.read_text(encoding="utf-8"))["items"])
@@ -503,6 +486,93 @@ def test_dry_run_com_classifiable_nao_bloqueia(tmp_path):
     result = I.run_intake(todo_path=str(todo), candidate=c, apply=False)
     assert result.rc == 2
     assert result.route == I.ROUTE_LOCAL_INTEGRATION
+
+
+# ---------------------------------------------------------------------------
+# TAB-ADD-007 -- strip residual INBOX com mesmo id apos integracao
+# ---------------------------------------------------------------------------
+
+TODO_RESIDUAL_LEADER = (
+    TODO_BASE +
+    "\n## INBOX (descobertas não priorizadas)\n"
+    "- DEC-1: [triage since=2026-08-16 reason=needs-leader-decision "
+    "source=user cycles=0] pick a route for the packing station "
+    "<!-- intake:cand-dec-old -->\n"
+    "- #77: [triage since=2026-08-16 reason=missing-info cycles=0] "
+    "keep this other residual\n"
+)
+
+TODO_RESIDUAL_COM_ID_DE_TABELA = (
+    TODO_BASE +
+    "\n## INBOX (descobertas não priorizadas)\n"
+    "- #02: [triage since=2026-08-16 reason=needs-leader-decision "
+    "source=user cycles=0] stale residual of already-integrated id "
+    "<!-- intake:cand-stale -->\n"
+    "- #77: [triage since=2026-08-16 reason=missing-info cycles=0] "
+    "keep this other residual\n"
+)
+
+
+def test_strip_inbox_id_remove_so_linha_do_id():
+    """Unitario: so a linha do id alvo some; heading e outras linhas ficam."""
+    text = TODO_RESIDUAL_LEADER
+    out = I._strip_inbox_id(text, "DEC-1")
+    assert "DEC-1:" not in out
+    assert "#77:" in out
+    assert "## INBOX (descobertas não priorizadas)" in out
+    # tabela intocada
+    assert "| #01 |" in out and "| #03 |" in out
+    # id inexistente: no-op
+    assert I._strip_inbox_id(text, "NOPE") == text
+    # id vazio: no-op
+    assert I._strip_inbox_id(text, "") == text
+    assert I._strip_inbox_id(text, "-") == text
+
+
+def test_l0_apply_remove_residual_mesmo_id_preserva_outros(tmp_path):
+    """Apos decisao do lider: L0 com DEC-1 entra na tabela e some da INBOX."""
+    repo, todo = _repo_com_todo(tmp_path, texto=TODO_RESIDUAL_LEADER)
+    c = _cand(
+        candidate_id="cand-dec-reentry",
+        item_id="DEC-1",
+        description="Wire packing station after leader go",
+        is_local=True,
+        fields_complete=True,
+        authority_ok=True,
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    assert result.route == I.ROUTE_LOCAL_INTEGRATION
+    text = todo.read_text(encoding="utf-8")
+    table = L.parse_table(text)
+    assert any(it["id"] == "DEC-1" for it in table["items"])
+    entries = L.inbox_entries(text)
+    ids = [e["id"] for e in entries]
+    assert "DEC-1" not in ids
+    assert "#77" in ids
+    # invariante: nunca id simultaneo tabela+INBOX
+    assert not I._ids_in_table_and_inbox(text)
+    _assert_journal_done(repo, "cand-dec-reentry")
+
+
+def test_duplicate_apply_limpa_residual_mesmo_id(tmp_path):
+    """DUPLICATE (id ja na tabela) enriquece limpando residual com o mesmo id."""
+    repo, todo = _repo_com_todo(tmp_path, texto=TODO_RESIDUAL_COM_ID_DE_TABELA)
+    n_antes = len(L.parse_table(todo.read_text(encoding="utf-8"))["items"])
+    cid = "cand-dup-strip"
+    c = _cand(item_id="#02", candidate_id=cid, is_local=True)
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    assert result.route == I.ROUTE_DUPLICATE
+    text = todo.read_text(encoding="utf-8")
+    n_depois = len(L.parse_table(text)["items"])
+    assert n_depois == n_antes
+    entries = L.inbox_entries(text)
+    ids = [e["id"] for e in entries]
+    assert "#02" not in ids
+    assert "#77" in ids
+    assert not I._ids_in_table_and_inbox(text)
+    _assert_journal_done(repo, cid)
 
 
 # ---------------------------------------------------------------------------
@@ -546,3 +616,329 @@ def test_cli_dry_run_l0_exit_2(tmp_path):
     )
     assert r.returncode == 2
     assert "LOCAL_INTEGRATION" in r.stdout or "LOCAL_INTEGRATION" in r.stderr
+
+
+# ---------------------------------------------------------------------------
+# FULL_REORDER / SCOPED_REORDER (TAB-ADD-005 / TAB-ADD-006)
+# ---------------------------------------------------------------------------
+
+TODO_CYCLE = (
+    "# Cycle fixture\n\n"
+    + HEADER_9
+    + "| #A | W1 | Core | Node A of the cycle | High | #B | Low | "
+    "⏳ Pendente | - |\n"
+    + "| #B | W1 | Core | Node B of the cycle | High | #A | Low | "
+    "⏳ Pendente | - |\n"
+)
+
+
+def test_full_reorder_insere_apos_cadeia_e_preserva_status(tmp_path):
+    """FULL: A->B, candidato C depende B => ordem A,B,C; status A/B intactos."""
+    repo, todo = _repo_com_todo(tmp_path)
+    status_antes = {
+        it["id"]: it["status"]
+        for it in L.parse_table(todo.read_text(encoding="utf-8"))["items"]
+    }
+    c = _cand(
+        is_local=False, is_scoped=False, is_foundation=True,
+        item_id="#04",
+        candidate_id="cand-full-1",
+        description="Calibrate the end-of-line camera",
+        dependencies=["#03"],
+        prereq="#03",
+        grupo="Safety",
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    assert result.route == I.ROUTE_FULL_REORDER
+    assert result.applied is True
+    table = L.parse_table(todo.read_text(encoding="utf-8"))
+    ids = [it["id"] for it in table["items"]]
+    assert ids == ["#01", "#02", "#03", "#04"]
+    for it in table["items"]:
+        if it["id"] in status_antes:
+            assert it["status"] == status_antes[it["id"]]
+    row04 = next(x for x in table["items"] if x["id"] == "#04")
+    raw04 = table["lines"][row04["line_no"]]
+    assert "<!-- intake:cand-full-1 -->" in raw04
+    assert "Calibrate the end-of-line camera" in raw04
+    _assert_journal_done(repo, "cand-full-1")
+
+
+def test_full_reorder_ciclo_aborta_arquivo_intacto(tmp_path):
+    """Ciclo: rc=1 dependency_cycle; arquivo intacto; sem journal orfao."""
+    repo, todo = _repo_com_todo(tmp_path, texto=TODO_CYCLE)
+    antes = todo.read_text(encoding="utf-8")
+    cid = "cand-cycle"
+    c = _cand(
+        is_local=False, is_scoped=False, is_foundation=True,
+        item_id="#C",
+        candidate_id=cid,
+        description="Would hang on cycle",
+        dependencies=["#A"],
+        prereq="#A",
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 1
+    assert "dependency_cycle" in (result.error or "")
+    assert todo.read_text(encoding="utf-8") == antes
+    # build falhou antes do journal -- sem NEW orfao nem DONE indevido
+    jd = J.journal_dir_for(cwd=str(repo))
+    assert not os.path.exists(J.candidate_path(jd, cid))
+    orphans = [rec["candidate_id"] for _p, rec in J.list_orphans(jd)]
+    assert cid not in orphans
+
+
+# Fixture single-Grupo: evita promo multi-Grupo (Core+Safety) do TODO_BASE.
+TODO_SCOPED_CHAIN = (
+    "# Aurora Widgets -- Engineering Backlog\n\n"
+    "## Ticket table\n\n"
+    + HEADER_9
+    + "| #D1 | W1 | Core | Distant finished bootstrap | High | - | "
+    "Medium | ✅ Concluído | yes |\n"
+    + "| #C1 | W1 | Core | Mid conveyor sensor | High | #D1 | Medium | "
+    "🔄 Em andamento | - |\n"
+    + "| #C2 | W2 | Core | End-of-line stop debounce | High | #C1 | Low | "
+    "⏳ Pendente | - |\n"
+    + "\n## Notes\n\nSynthetic fixture only.\n"
+)
+
+
+def test_scoped_reorder_preserva_raw_fora_de_S(tmp_path):
+    """SCOPED: item distante no topo + cadeia no fim; raw fora de S identico."""
+    repo, todo = _repo_com_todo(tmp_path, texto=TODO_SCOPED_CHAIN)
+    antes = todo.read_text(encoding="utf-8")
+    table_antes = L.parse_table(antes)
+    raw_antes = {
+        it["id"]: table_antes["lines"][it["line_no"]]
+        for it in table_antes["items"]
+    }
+    c = _cand(
+        is_local=False, is_scoped=True, is_foundation=False,
+        item_id="#N1",
+        candidate_id="cand-scoped-1",
+        description="Add a packaging label checksum",
+        dependencies=["#C2"],
+        prereq="#C2",
+        grupo="Core",
+        onda="W3",
+        scoped_max_fraction=1.0,  # evita promo por fracao
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    assert result.route == I.ROUTE_SCOPED_REORDER, result.report_text
+    table = L.parse_table(todo.read_text(encoding="utf-8"))
+    raw_depois = {
+        it["id"]: table["lines"][it["line_no"]]
+        for it in table["items"] if it["id"] in raw_antes
+    }
+    # #D1 concluido e fora da cadeia aberta -- raw byte-a-byte
+    assert raw_depois["#D1"] == raw_antes["#D1"]
+    for iid in raw_antes:
+        if iid in (result.s_ids or []):
+            continue
+        assert raw_depois[iid] == raw_antes[iid], (
+            f"raw de {iid!r} fora de S mudou"
+        )
+    assert any(it["id"] == "#N1" for it in table["items"])
+    _assert_journal_done(repo, "cand-scoped-1")
+
+
+def test_scoped_s_vazio_preserva_todos_raws_existentes(tmp_path):
+    """SCOPED sem deps abertas: S vazio; todos raws existentes intatos."""
+    repo, todo = _repo_com_todo(tmp_path)
+    table_antes = L.parse_table(todo.read_text(encoding="utf-8"))
+    raw_antes = {
+        it["id"]: table_antes["lines"][it["line_no"]]
+        for it in table_antes["items"]
+    }
+    c = _cand(
+        is_local=False, is_scoped=True, is_foundation=False,
+        item_id="#04",
+        candidate_id="cand-scoped-empty-s",
+        description="Independent packaging note",
+        dependencies=[],
+        prereq="-",
+        scoped_max_fraction=1.0,
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    assert result.route == I.ROUTE_SCOPED_REORDER
+    table = L.parse_table(todo.read_text(encoding="utf-8"))
+    for it in table["items"]:
+        if it["id"] in raw_antes:
+            raw = table["lines"][it["line_no"]]
+            assert raw == raw_antes[it["id"]], (
+                f"raw de {it['id']!r} mudou sob S vazio/minimo"
+            )
+    assert any(it["id"] == "#04" for it in table["items"])
+    _assert_journal_done(repo, "cand-scoped-empty-s")
+
+
+def test_scoped_fracao_baixa_promove_full(tmp_path):
+    repo, todo = _repo_com_todo(tmp_path)
+    c = _cand(
+        is_local=False, is_scoped=True,
+        item_id="#04",
+        candidate_id="cand-promote",
+        description="Promote when S is large relative to n",
+        dependencies=["#03"],
+        prereq="#03",
+        scoped_max_fraction=0.0,
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    assert result.route == I.ROUTE_FULL_REORDER
+    assert result.promoted_from == I.ROUTE_SCOPED_REORDER
+    assert "promoted_from" in result.report_text
+    assert any(
+        it["id"] == "#04"
+        for it in L.parse_table(todo.read_text(encoding="utf-8"))["items"]
+    )
+
+
+def test_scoped_multi_grupo_promove_full(tmp_path):
+    """S toca Core+#02 e Safety+#03: promove multi-Grupo (nao por fracao).
+
+    Mata mutante que dropa o ramo multi-Grupo em should_promote_scoped_to_full.
+    """
+    repo, todo = _repo_com_todo(tmp_path)  # TODO_BASE: #02 Core + #03 Safety
+    c = _cand(
+        is_local=False, is_scoped=True, is_foundation=False,
+        fields_complete=True,
+        item_id="#04",
+        candidate_id="cand-multi-g",
+        description="Cross-group scoped insertion under Safety stop",
+        dependencies=["#03"],
+        prereq="#03",
+        grupo="Safety",
+        scoped_max_fraction=1.0,  # nao promove por fracao
+    )
+    # Prova de precondicao: S real cobre 2 Grupos
+    table = L.parse_table(todo.read_text(encoding="utf-8"))
+    S = I.compute_safe_subgraph_S(table, c)
+    assert "#02" in S and "#03" in S, S
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    assert result.route == I.ROUTE_FULL_REORDER, result.report_text
+    assert result.promoted_from == I.ROUTE_SCOPED_REORDER
+    assert "multi-Grupo" in (result.report_text or "")
+    assert any(
+        it["id"] == "#04"
+        for it in L.parse_table(todo.read_text(encoding="utf-8"))["items"]
+    )
+    _assert_journal_done(repo, "cand-multi-g")
+
+
+def test_scoped_full_dry_run_rc2_sem_escrita(tmp_path):
+    repo, todo = _repo_com_todo(tmp_path)
+    antes = todo.read_text(encoding="utf-8")
+    cases = [
+        dict(is_local=False, is_scoped=True, is_foundation=False,
+             candidate_id="cand-dry-s"),
+        dict(is_local=False, is_scoped=False, is_foundation=True,
+             candidate_id="cand-dry-f"),
+    ]
+    for kwargs in cases:
+        c = _cand(item_id="#04", **kwargs)
+        result = I.run_intake(todo_path=str(todo), candidate=c, apply=False)
+        assert result.rc == 2
+        assert result.applied is False
+        assert todo.read_text(encoding="utf-8") == antes
+
+
+def test_full_w1_status_andamento_e_concluido_intactos(tmp_path):
+    repo, todo = _repo_com_todo(tmp_path)
+    table_antes = L.parse_table(todo.read_text(encoding="utf-8"))
+    st = {it["id"]: it["status"] for it in table_antes["items"]}
+    assert any("✅" in s for s in st.values())
+    assert any("🔄" in s for s in st.values())
+    c = _cand(
+        is_foundation=True, is_local=False,
+        item_id="#10",
+        candidate_id="cand-w1",
+        description="Sensor watchdog timer",
+        dependencies=["#02"],
+        prereq="#02",
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    table = L.parse_table(todo.read_text(encoding="utf-8"))
+    for it in table["items"]:
+        if it["id"] in st:
+            assert it["status"] == st[it["id"]], it
+
+
+def test_scoped_item_id_vazio_antes_do_journal(tmp_path):
+    repo, todo = _repo_com_todo(tmp_path)
+    antes = todo.read_text(encoding="utf-8")
+    cid = "cand-scoped-empty"
+    c = _cand(
+        is_local=False, is_scoped=True, item_id="",
+        candidate_id=cid,
+        description="missing id",
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 1
+    assert "item_id" in (result.error or "").lower()
+    assert todo.read_text(encoding="utf-8") == antes
+    jd = J.journal_dir_for(cwd=str(repo))
+    assert not os.path.exists(J.candidate_path(jd, cid))
+
+
+def test_full_item_id_vazio_antes_do_journal(tmp_path):
+    repo, todo = _repo_com_todo(tmp_path)
+    cid = "cand-full-empty"
+    c = _cand(
+        is_foundation=True, is_local=False, item_id="",
+        candidate_id=cid,
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 1
+    assert "item_id" in (result.error or "").lower()
+    jd = J.journal_dir_for(cwd=str(repo))
+    assert not os.path.exists(J.candidate_path(jd, cid))
+
+
+def test_full_agnostico_ids_hash_prosa_ingles(tmp_path):
+    repo, todo = _repo_com_todo(tmp_path)
+    c = _cand(
+        is_foundation=True, is_local=False,
+        item_id="#10",
+        candidate_id="cand-en-full",
+        description="Reconcile weekly defect counters after sensor fix",
+        dependencies=["#03"],
+        prereq="#03",
+        grupo="Reporting",
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    text = todo.read_text(encoding="utf-8")
+    assert "#10" in text
+    assert "Reconcile weekly defect counters" in text
+    assert "<!-- intake:cand-en-full -->" in text
+
+
+def test_scoped_journal_done_em_disco(tmp_path):
+    """SCOPED single-Grupo: journal DONE e rota NAO promove (contra multi-Grupo)."""
+    repo, todo = _repo_com_todo(tmp_path, texto=TODO_SCOPED_CHAIN)
+    cid = "cand-scoped-j"
+    c = _cand(
+        is_local=False, is_scoped=True, is_foundation=False,
+        item_id="#N2",
+        candidate_id=cid,
+        description="Scoped journal proof",
+        dependencies=["#C2"],
+        prereq="#C2",
+        grupo="Core",
+        scoped_max_fraction=1.0,  # evita promo por fracao
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    assert result.route == I.ROUTE_SCOPED_REORDER, result.report_text
+    assert result.promoted_from is None
+    assert any(
+        it["id"] == "#N2"
+        for it in L.parse_table(todo.read_text(encoding="utf-8"))["items"]
+    )
+    _assert_journal_done(repo, cid)

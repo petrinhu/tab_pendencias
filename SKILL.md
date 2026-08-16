@@ -223,20 +223,49 @@ cascata fixa de rota.
 
 **Cascata** (primeiro que casa vence):
 
-1. ID já na tabela ou na INBOX → `DUPLICATE` (não cria linha)
+1. ID já **na tabela** → `DUPLICATE` (não cria linha; limpa residual INBOX do mesmo id se houver)
 2. campos incompletos / dep inexistente / source inválido → `NEEDS_TRIAGE` (INBOX residual)
 3. sem autoridade → `NEEDS_LEADER_DECISION` (INBOX residual)
-4. fundação → `FULL_REORDER` (nesta fatia: dry-run ok; `--apply` ainda `not_implemented`)
+4. fundação → `FULL_REORDER` (topo estável + ondas; `--apply` grava)
 5. local (L0) → `LOCAL_INTEGRATION` (append puro de 1 linha no fim da tabela)
-6. escopado → `SCOPED_REORDER` (idem: apply ainda `not_implemented`)
+6. escopado → `SCOPED_REORDER` (subgrafo S; `--apply` grava com equivalência fora de S)
 7. default → `FULL_REORDER`
+
+P-dup **não** conta id só na INBOX residual: residual re-entra no pipeline
+(ex.: após o líder decidir). Id só na residual + flags de integração → rota
+L0/SCOPED/FULL e o núcleo remove a linha residual do mesmo id ao gravar.
 
 **Contrato de L0:** zero células de linhas existentes mudam; marcador
 recuperável `<!-- intake:CANDIDATE_ID -->` na descrição (para o journal
-`recover_orphans`). Journal write-ahead antes de mutar; `mark_done` após
-escrita validada. Working tree do `TODO.md` limpa é pré-condição de
-`--apply`. Se a INBOX residual tiver item **classificável** (sem `[triage ...]`
-válido), o apply aborta com `classifiable_inbox_present` -- drain-first.
+`recover_orphans`). Journal write-ahead antes de mutar (L0/residual/DUPLICATE);
+`mark_done` após escrita validada. Working tree do `TODO.md` limpa é
+pré-condição de `--apply`. Se a INBOX residual tiver item **classificável**
+(sem `[triage ...]` válido), o apply aborta com `classifiable_inbox_present`
+-- drain-first.
+
+**Contrato SCOPED/FULL (TAB-ADD-005/006):** `item_id` obrigatório; W1
+(Status de linhas pré-existentes nunca muda); FULL faz topological sort
+estável + ondas `W1..` e insere o candidato com o marcador intake.
+SCOPED calcula o menor subgrafo seguro `S` (deps abertas + ancestrais
+não-done + descendentes + peers de onda); se `|S|/n` exceder
+`scoped_reorder_max_fraction` (default 0.5; override via
+`WorkCandidate.scoped_max_fraction`, env `TAB_INTAKE_SCOPED_MAX_FRACTION`
+ou `.tab_pendencias.ini` `[intake]`) **ou** `S` tocar mais de um `Grupo`,
+promove a FULL (`promoted_from=SCOPED_REORDER`). Fora de `S`, a linha
+bruta de cada id existente permanece byte-a-byte idêntica; violação
+aborta com `scoped_equivalence_failed` sem escrever. SCOPED/FULL montam
+o texto em memória **antes** do journal (ciclo/equivalência não deixam
+órfão NEW); journal imediatamente antes da escrita atômica.
+
+**Após decisão do líder (TAB-ADD-007):** residual `needs-leader-decision`
+não fica estacionado. A skill/agente (não o Python) apresenta 2–3 opções
+com trade-offs. Quando o líder decide, a **thread chama de novo o intake**
+com as flags de julgamento preenchidas (`fields_complete=True`, rota
+`local` / `scoped` / `full` / fundação conforme o caso,
+`authority_ok=True`). O núcleo integra e **remove da INBOX residual
+qualquer linha com o mesmo `item_id`** (outras linhas da INBOX ficam;
+heading vazio pode permanecer). Apresentar opções e colher a decisão é
+dever da skill/agente; o strip do residual é mecânico no apply.
 
 **Uso mecânico (CLI):**
 

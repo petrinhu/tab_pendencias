@@ -209,10 +209,13 @@ por definicao.
 Predicados, todos definidos por medicao sobre o snapshot (nenhum le conteudo livre em nenhuma
 lingua; nenhum le retorica do remetente):
 
-- **P-dup**: existe item na tabela ou linha na INBOX com o mesmo ID explicito, ou com a mesma
-  evidencia-alvo e criterios de aceitacao equivalentes (a equivalencia semantica e julgamento;
-  o empate por string identica **nao** basta quando os criterios de aceitacao diferem --
-  TAB-ADD-002.7).
+- **P-dup**: existe item na **tabela canonica** com o mesmo ID explicito (dedup mecanica por
+  string de ID exato). **Emenda 2026-08-16 (campanha Fase 2 / TAB-ADD-007):** ID presente
+  **apenas** na INBOX residual **nao** e `DUPLICATE` -- e reentrada apos decisao do lider
+  (strip da linha residual + integracao L0/SCOPED/FULL). Residual e exception queue, nao
+  inventário de "ja integrado". Equivalencia semantica (mesma evidencia-alvo e criterios de
+  aceitacao) continua julgamento agentivo, fora do nucleo (TAB-ADD-002.7: empate por string
+  de descricao **nao** basta quando os criterios diferem).
 - **P-campos**: os campos minimos do `WorkCandidate` estao preenchidos com evidencia
   (descricao, origem, evidencia, projeto receptor), e toda dependencia declarada por ID
   resolve na tabela.
