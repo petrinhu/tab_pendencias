@@ -2182,6 +2182,14 @@ def _run_drain_inner(*, todo_path: str, apply: bool,
         report_lines.append(
             f"classifiable: {key!r} desc={_inbox_free_description(e)[:60]!r}"
         )
+        # TAB-CUT-001: linha legada sem bloco [triage ...] (present=False)
+        # e classifiable por definicao; o dry-run avisa a semântica antiga.
+        triage = e.get("triage") or {}
+        if not triage.get("present"):
+            report_lines.append(
+                f"legacy_inbox_line: {key!r} "
+                "(sem [triage ...] -- janela cutover TAB-CUT-001)"
+            )
     for e in residual:
         fields = (e.get("triage") or {}).get("fields") or {}
         report_lines.append(

@@ -113,7 +113,11 @@ from pathlib import Path
 
 # Ver CAMADA 1 na docstring: 3x a tabela canonica atual (33 linhas de dados),
 # ainda 1 ordem de grandeza abaixo das fixtures reais.
-LIMITE_LINHAS_DADOS = 100
+# A tabela canonica deste repo cresceu com as ondas da campanha de intake
+# (Fases 2-11): ~107 linhas de dados em 2026-08-16. O limite serve para
+# barrar fixtures de consumidores vivos coladas por engano, nao para
+# congelar o tamanho da TODO.md do produto. Margem ate 150.
+LIMITE_LINHAS_DADOS = 150
 
 ENV_TERMOS_PROIBIDOS = "TAB_PENDENCIAS_GUARD_FORBIDDEN_TERMS"
 ARQUIVO_TERMOS_LOCAL = ".guard_forbidden_terms"

@@ -105,6 +105,18 @@
 | TAB-BUS-003 | W22 | Bus | Reference `references/bus-versus-inbox.md` (inbox do bus != INBOX do TODO). Corpus sintetico `tests/corpus/bus/`. | Media | TAB-BUS-001 | Baixa | 🔍 Pendente verificação | — |
 | TAB-HUB-001 | W22 | Hub | Guarda `is_derived_hub` + `hub_is_derived_readonly` em run_intake/run_drain apply quando `[hub] derived=true`. Reference `references/hub-agregador.md`. | Alta | TAB-ADD-001 | Baixa | 🔍 Pendente verificação | — |
 | TAB-HUB-GEN | W22 | Hub | Gerador deterministico do hub agregador (ainda nao existe no produto; anti-OE: nao inventar nesta fatia). | Baixa | TAB-HUB-001 | Media | ⏳ Pendente | — |
+| TAB-CUT-001 | W23 | Cutover | Compat INBOX legada: linha sem `[triage ...]` valido e classifiable; dry-run de `--drain` emite `legacy_inbox_line`; sem exigir edicao manual de todos os TODOs. | Alta | TAB-INBOX-004 | Baixa | 🔍 Pendente verificação | — |
+| TAB-CUT-002 | W23 | Cutover | Dogfood no proprio repo: `scripts/dogfood_metrics.py` + criterio `classifiable==0` (este repo ja drenou FIX-RISCO). | Alta | TAB-CUT-001 | Baixa | 🔍 Pendente verificação | — |
+| TAB-CUT-003 | W23 | Cutover | Canary generico em perfis sinteticos (`project-small`, `project-large`); nao migrar todos de uma vez. Doc em `references/cutover-and-rollback.md`. | Media | TAB-CUT-002 | Baixa | 🔍 Pendente verificação | — |
+| TAB-CUT-004 | W23 | Cutover | Metricas before/after (inbox_total, classifiable, oldest_age_days, n_items/n_verif/n_pending, sinais TAB_*; checklist operacional no reference). | Alta | TAB-CUT-002 | Media | 🔍 Pendente verificação | — |
+| TAB-CUT-005 | W23 | Cutover | Rollback: parar escrita auto, preservar journal/inbox/, captura conservadora, nunca apagar candidatos. | Alta | TAB-CUT-001 | Baixa | 🔍 Pendente verificação | — |
+| TAB-TST-001 | W24 | Testes | Corpus sintético de contrato F10-01..26 em `tests/test_fase10_corpus.py` (rotas L0/FULL/SCOPED/triage/dup, topologia, WIP pin, residual aged, drain, hub derived, BOM/CRLF, 8 cols). | Alta | TAB-ADD-001, TAB-WSJF-003, TAB-INBOX-004 | Alta | 🔍 Pendente verificação | — |
+| TAB-TST-002 | W24 | Testes | Propriedades `no_lost_work`, `classifiable_zero_after_apply`, `topology_valid`, `wip_stable`, `sender_no_priority` em `tests/test_fase10_properties.py` (>=5 applies). | Alta | TAB-TST-001 | Media | 🔍 Pendente verificação | — |
+| TAB-TST-003 | W24 | Testes | Contract snapshots reais: reusa política CONTR-1/AC-REAL (fixtures locais imutáveis por hash; nunca versionar TODO vivo). Cobertura de regressão em `test_contract_real_corpus.py` + corpus sintético F10. | Media | CONTR-1 | Baixa | 🔍 Pendente verificação | — |
+| TAB-TST-004 | W24 | Testes | Mutation adversarial em cópia `/var/tmp` (`tests/test_fase10_mutation.py`): topology identity, force L0 em foundation, residual_is_aged always False, BUS_SOURCES empty -- sonda vermelha; tools/ intocado. | Alta | TAB-TST-001 | Media | 🔍 Pendente verificação | — |
+| TAB-TST-005 | W24 | Testes | E2E instalação: copytree produto, recovery_drill smoke, session hook adapter, `--add`/`--drain` dry-run, `--audit` barato (`tests/test_fase10_e2e_install.py`). | Alta | TAB-VAULT-005, TAB-HOOK-004 | Media | 🔍 Pendente verificação | — |
+| TAB-SEC-001 | W24 | Segurança | Fronteira pública x privada: fixtures sintéticas consumer-a, guards stdlib + no-real-fixtures verdes, sem corpo de bus privado versionado (`tests/test_fase10_compat_sec.py`). | Alta | SANIT-1, LEAK-2 | Media | 🔍 Pendente verificação | — |
+| TAB-COMPAT-001 | W24 | Compat | 8/9 colunas legíveis, INBOX legada drenável, core offline (sem import de rede), guards CI OK (`tests/test_fase10_compat_sec.py`). | Alta | TAB-ADD-001, CI-1 | Media | 🔍 Pendente verificação | — |
 
 ## INBOX (descobertas não priorizadas)
 

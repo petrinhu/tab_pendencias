@@ -1435,6 +1435,11 @@ def test_drain_dry_run_lista_e_exit_2(tmp_path):
     assert result.applied is False
     assert result.classifiable_remaining == 1
     assert "classifiable" in result.report_text
+    # TAB-CUT-001: linha legada sem [triage] emite legacy_inbox_line
+    assert "legacy_inbox_line: '#50'" in result.report_text
+    assert "TAB-CUT-001" in result.report_text
+    # residual com triage valido NAO gera legacy_inbox_line
+    assert "legacy_inbox_line: '#88'" not in result.report_text
     assert todo.read_text(encoding="utf-8") == antes
 
 
