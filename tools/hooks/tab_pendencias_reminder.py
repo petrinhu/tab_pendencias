@@ -33,7 +33,9 @@ import os
 import sys
 
 # tools/ e o pai de tools/hooks/ -- garante import flat do monorepo.
-_HOOKS_DIR = os.path.dirname(os.path.abspath(__file__))
+# realpath: quando o hook e invocado via symlink (ex.: ~/.grok/hooks/scripts/),
+# abspath aponta para o link e o parent deixa de ser tools/ -- o import quebra.
+_HOOKS_DIR = os.path.dirname(os.path.realpath(__file__))
 _TOOLS_DIR = os.path.dirname(_HOOKS_DIR)
 if _TOOLS_DIR not in sys.path:
     sys.path.insert(0, _TOOLS_DIR)
