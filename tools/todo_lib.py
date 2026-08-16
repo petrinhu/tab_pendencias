@@ -318,12 +318,30 @@ def status_classification_via(status):
 # status CANONICOS de duas palavras, nao "pendente" com anotacao livre --
 # tem de vencer independente da posicao, senao 'Pendente design' venceria
 # por 'pendente'@0 e viraria flipavel, ressuscitando o caso grave do BUG-5
-# dentro do proprio fallback que o corrigiu. `\s+` exige adjacencia direta
-# (so espaco entre as duas palavras): 'Pendente (verificar ...)' NAO casa
-# aqui (ha "(" no meio) e cai na regra de posicao abaixo, como deve.
-_LEGACY_COMPOSITE = (
-    (re.compile(r"\bpendente\s+design\b"), "design"),
-    (re.compile(r"\bpendente\s+verifica"), "verificacao"),
+# dentro do proprio fallback que o corrigiu.
+#
+# GEMEO-DESIGN (2026-08-16): a 1a versao deste composto so casava a forma
+# adjacente exata "pendente\s+design" (radical fixo "pendente", separador
+# so espaco) -- hifen ("Pendente-design"), palavra intercalada ("Pendente
+# depois design") e o radical "andamento" ("andamento design") escapavam em
+# silencio e voltavam a ser flip-eligible. D-1 nao fala de FORMA, fala de
+# CATEGORIA: qualquer celula legada que junte um radical (pendente/
+# andamento) com o qualificador "design" descreve o composto "🎨 Pendente
+# design", nao "pendente" com anotacao -- por isso a deteccao e por
+# CO-OCORRENCIA (radical E qualificador em qualquer posicao/ordem/
+# separador), nao por adjacencia regex.
+#
+# "verifica" preserva a exclusao do infinitivo "verificar" (verbo em nota
+# livre -- 'Pendente (verificar disponibilidade)' e 'Em andamento (verificar
+# com o time)' continuam SEM ser o composto, caindo na regra de posicao
+# abaixo, como os 2 testes W15 exigem): o lookahead nega especificamente
+# "r" + fronteira de palavra (o infinitivo), preservando
+# "verificação"/"verificado"/"verifica" (substantivo/participio -- o status
+# composto de fato).
+_LEGACY_RADICAL = re.compile(r"\b(?:pendente|andamento)\b")
+_LEGACY_QUALIFIER = (
+    (re.compile(r"\bverifica(?!r\b)"), "verificacao"),
+    (re.compile(r"\bdesign\b"), "design"),
 )
 
 # Vocabulario simples do fallback e o kind que cada radical decide quando
@@ -347,13 +365,22 @@ def _classify_legacy(status):
     as ocorrencias do vocabulario canonico com \\b na frente, a de MENOR
     indice na celula decide (empate nao existe, posicoes sao distintas) --
     o mesmo principio que a camada de emoji ja usa (o emoji ABRE a celula,
-    o resto e anotacao). Compostos sao casados ANTES da regra de posicao
-    (ver _LEGACY_COMPOSITE). Devolve a mesma categoria de _status_kind, ou
-    None quando nenhum vocabulo do fallback foi reconhecido."""
+    o resto e anotacao).
+
+    Compostos sao decididos ANTES da regra de posicao, por CO-OCORRENCIA
+    (ver _LEGACY_RADICAL/_LEGACY_QUALIFIER, GEMEO-DESIGN): so disparam
+    quando um radical (pendente/andamento) E um qualificador (design/
+    verifica-nao-infinitivo) aparecem os DOIS na celula, em qualquer
+    posicao/ordem/separador -- 'Concluído e verificado' nao tem radical
+    (so 'conclu'), entao nunca entra aqui, e 'conclu'@0 continua vencendo
+    por posicao abaixo, como o teste W15 exige. Devolve a mesma categoria
+    de _status_kind, ou None quando nenhum vocabulo do fallback foi
+    reconhecido."""
     s = status.lower()
-    for pattern, kind in _LEGACY_COMPOSITE:
-        if pattern.search(s):
-            return kind
+    if _LEGACY_RADICAL.search(s):
+        for pattern, kind in _LEGACY_QUALIFIER:
+            if pattern.search(s):
+                return kind
     best_pos, best_kind = None, None
     for word, kind in _LEGACY_WORD_KIND:
         m = re.search(r"\b" + word, s)
