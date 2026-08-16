@@ -59,7 +59,8 @@ TODO_PREREQ_INEXISTENTE = (
 
 def _run(args, cwd):
     return subprocess.run([sys.executable, AUDIT, *args], cwd=cwd,
-                          capture_output=True, text=True)
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
 
 
 def _git(cwd, *a):
@@ -613,7 +614,8 @@ def test_modulo_importa_em_outras_versoes_de_python_instaladas():
         "print('OK', c.id)"
     )
     for exe in encontrados:
-        r = subprocess.run([exe, "-c", script], capture_output=True, text=True)
+        r = subprocess.run([exe, "-c", script], capture_output=True,
+                           text=True, encoding="utf-8", errors="replace")
         assert r.returncode == 0, (exe, r.stdout, r.stderr)
         assert "OK X" in r.stdout, (exe, r.stdout, r.stderr)
 

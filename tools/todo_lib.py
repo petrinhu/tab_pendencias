@@ -44,7 +44,8 @@ BOM = "﻿"
 def git(args, cwd=None):
     try:
         r = subprocess.run(["git", *args], cwd=cwd, capture_output=True,
-                           text=True, timeout=15)
+                           text=True, encoding="utf-8", errors="replace",
+                           timeout=15)
     except Exception:
         return ""
     return r.stdout if r.returncode == 0 else ""

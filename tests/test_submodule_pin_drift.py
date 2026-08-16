@@ -31,7 +31,8 @@ ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
 
 def _git(cwd, *args, check=True):
     return subprocess.run(["git", *args], cwd=cwd, env=ENV,
-                          capture_output=True, text=True, check=check)
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", check=check)
 
 
 def _sha(cwd):
@@ -71,6 +72,18 @@ def _make_super_with_gitlink(tmp_path, submodule_path, pinned_sha,
     super_.mkdir()
     git_init_isolado(super_)
     if remote_url is not None:
+        # GITMOD-WIN-1: o formato de arquivo do git config trata '\' como
+        # caractere de ESCAPE dentro de um valor NAO citado (git-config(1)) --
+        # um path absoluto do Windows (`C:\Users\...`) gravado cru vira uma
+        # sequencia de escape invalida e o proprio `git config -f .gitmodules
+        # --get-regexp` (chamado por resolve_url_from_gitmodules) falha com
+        # "fatal: bad config line" (medido localmente com git real, mesma
+        # regra em qualquer SO -- nao e um comportamento so-do-runner). Como
+        # `remote_url` aqui e sempre um path local de teste (nunca uma URL
+        # http/ssh de verdade), normalizar pra barra ('/') evita o problema
+        # de escape por completo -- git aceita path local com '/' tanto no
+        # Windows quanto no POSIX.
+        remote_url = remote_url.replace("\\", "/")
         (super_ / ".gitmodules").write_text(
             f'[submodule "sub"]\n\tpath = {submodule_path}\n'
             f'\turl = {remote_url}\n', encoding="utf-8")
@@ -122,7 +135,10 @@ def test_resolve_url_from_gitmodules(tmp_path):
                                       remote_url=str(remote))
     url, err = D.resolve_url_from_gitmodules(str(super_), "sub", timeout=5)
     assert err is None
-    assert url == str(remote)
+    # GITMOD-WIN-1 (ver _make_super_with_gitlink): a URL gravada no
+    # .gitmodules eh normalizada para '/' -- comparar contra a mesma
+    # normalizacao, nao contra str(remote) cru (que no Windows tem '\').
+    assert url == str(remote).replace("\\", "/")
 
 
 def test_resolve_url_sem_gitmodules_devolve_none_com_motivo(tmp_path):
@@ -419,7 +435,8 @@ def test_check_drift_branch_opcional_flipa_para_desatualizado(tmp_path):
 
 def _run_cli(args, cwd):
     return subprocess.run([sys.executable, SCRIPT, *args], cwd=cwd,
-                          capture_output=True, text=True)
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
 
 
 def test_cli_help_exit0():

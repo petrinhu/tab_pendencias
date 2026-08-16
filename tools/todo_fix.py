@@ -93,6 +93,12 @@ import todo_audit as A
 import todo_lib as L
 from checks import chk_core
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 _CONHECIDOS = ("escapar_pipe_cru", "remover_fragmento_duplicado")
 
 
@@ -352,7 +358,8 @@ def _working_tree_status(root, todo_path):
     rel = os.path.relpath(os.path.abspath(todo_path), rr)
     try:
         r = subprocess.run(["git", "status", "--porcelain", "--", rel],
-                           cwd=rr, capture_output=True, text=True, timeout=15)
+                           cwd=rr, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=15)
     except Exception as exc:
         return True, f"git status falhou ao executar ({type(exc).__name__}: {exc})"
     if r.returncode != 0:

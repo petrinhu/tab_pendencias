@@ -72,7 +72,8 @@ def _repo(tmp_path, todo_text):
 
 def _run_cli(cwd, *args):
     return subprocess.run([sys.executable, HEALTH, *args], cwd=cwd,
-                          capture_output=True, text=True)
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +154,8 @@ def test_lista_de_presos_trunca_em_10_e_avisa_o_resto(tmp_path):
     texto = _HEADER_9 + "".join(linhas)
     root = _repo(tmp_path, texto)
     r = subprocess.run([sys.executable, HEALTH], cwd=root,
-                       capture_output=True, text=True)
+                       capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
     n_presos = r.stdout.count("presos em 🔍 ->")
     assert n_presos == 10, r.stdout
     assert "(+2)" in r.stdout, r.stdout

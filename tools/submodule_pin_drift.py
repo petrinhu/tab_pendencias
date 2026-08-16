@@ -182,7 +182,8 @@ def _git(cwd, args, timeout):
     update/fetch -- mesma politica de checks/chk_frescor.py)."""
     try:
         r = subprocess.run(["git", *args], cwd=cwd, capture_output=True,
-                           text=True, timeout=timeout)
+                           text=True, encoding="utf-8", errors="replace",
+                           timeout=timeout)
     except Exception as exc:
         return False, f"{type(exc).__name__}: {exc}"
     if r.returncode != 0:

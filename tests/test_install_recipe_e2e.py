@@ -41,7 +41,8 @@ _HEADER_9 = (
 
 def _git(cwd, *args, check=True):
     return subprocess.run(["git", *args], cwd=cwd, env=_ENV,
-                          capture_output=True, text=True, check=check)
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", check=check)
 
 
 def _row(iid, status):

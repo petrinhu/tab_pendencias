@@ -40,7 +40,8 @@ G = _load_guard()
 
 def _git(cwd, *args, check=True):
     return subprocess.run(["git", *args], cwd=cwd, env=ENV,
-                          capture_output=True, text=True, check=check)
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", check=check)
 
 
 def _repo(tmp_path):
@@ -61,7 +62,8 @@ def _run_guard(root, env_extra=None):
     if env_extra:
         env.update(env_extra)
     return subprocess.run([sys.executable, GUARD_PATH], cwd=root, env=env,
-                          capture_output=True, text=True)
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
 
 
 # ------------------------------ unidade: mascaramento -----------------------

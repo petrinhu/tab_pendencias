@@ -54,7 +54,8 @@ def _git(cwd, *a):
 
 def _run_cli(args, cwd):
     return subprocess.run([sys.executable, FIX, *args], cwd=cwd,
-                          capture_output=True, text=True)
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
 
 
 HEADER_9 = (
@@ -238,12 +239,14 @@ def test_apply_aborta_se_working_tree_do_todo_sujo(tmp_path):
     todo.write_text(todo.read_text(encoding="utf-8") + "\n<!-- edicao em voo -->\n",
                     encoding="utf-8")           # modificacao NAO commitada
     sujo_antes = subprocess.run(["git", "status", "--porcelain"], cwd=root,
-                                capture_output=True, text=True).stdout
+                                capture_output=True, text=True,
+                                encoding="utf-8", errors="replace").stdout
     result = F.run_fix(str(root), apply_classes=["all"])
     assert result.rc == 1
     assert result.applied is False
     sujo_depois = subprocess.run(["git", "status", "--porcelain"], cwd=root,
-                                 capture_output=True, text=True).stdout
+                                 capture_output=True, text=True,
+                                 encoding="utf-8", errors="replace").stdout
     assert sujo_antes == sujo_depois           # nada mudou, nem o dirty-diff
 
 
@@ -309,6 +312,21 @@ def test_apply_funciona_em_tabela_legada_8_colunas(tmp_path):
 
 # --------------------------- casos que dao medo ------------------------------
 
+@pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason=(
+        "WIN-CHMOD-1 (medido no CI, 16/08/26): a premissa POSIX do teste -- "
+        "os.replace()/rename() ignora os bits do ARQUIVO-alvo, so exige "
+        "escrita no diretorio -- nao vale no Windows. La, "
+        "MoveFileEx/ReplaceFile RECUSA destino com o atributo somente-"
+        "leitura (o proprio docstring abaixo ja previa essa divergencia). "
+        "O produto trata isso corretamente (OSError generico ao redor de "
+        "os.replace em _escrever_atomico -> rc=1 limpo, sem corromper o "
+        "TODO.md original -- ver test_apply_interrupcao_no_replace_nao_"
+        "corrompe_original), entao isto e uma diferenca de SEMANTICA DE "
+        "PLATAFORMA a documentar, nao um defeito a consertar."
+    ),
+)
 def test_apply_arquivo_somente_leitura_e_substituido_via_rename_atomico(tmp_path):
     """No POSIX, `os.replace` e um `rename()`: exige permissao de ESCRITA no
     DIRETORIO (proximo teste), nao no arquivo-alvo -- os bits do proprio
@@ -338,6 +356,18 @@ def test_apply_arquivo_somente_leitura_e_substituido_via_rename_atomico(tmp_path
         "EUID==0 (nao container, nao plataforma): roda normal como "
         "usuario comum em qualquer SO/ambiente, inclusive dentro de "
         "container."
+    ),
+)
+@pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason=(
+        "WIN-CHMOD-1 (medido no CI, 16/08/26): os.chmod() no Windows nao "
+        "implementa os bits de execucao/escrita POSIX para DIRETORIOS (so "
+        "alterna o atributo somente-leitura de ARQUIVO) -- chmod 0o555 "
+        "aqui e um no-op, a escrita do TODO.md tem sucesso normalmente, e "
+        "a precondicao do teste (escrita deve falhar) nunca se "
+        "estabelece. Diferenca de modelo de permissao da plataforma, nao "
+        "um defeito do produto."
     ),
 )
 def test_apply_diretorio_sem_permissao_de_escrita_falha_limpo(tmp_path):

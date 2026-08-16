@@ -61,7 +61,8 @@ def _repo(tmp_path, status_v12="⏳ Pendente"):
     _git(tmp_path, "add", "TODO.md")
     _git(tmp_path, "commit", "-qm", "tabela")
     base = subprocess.run(["git", "rev-list", "--max-parents=0", "HEAD"],
-                          cwd=tmp_path, capture_output=True, text=True
+                          cwd=tmp_path, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace"
                           ).stdout.split()[0]
     return tmp_path, todo, base
 
@@ -215,7 +216,8 @@ def test_hookiso1_hook_ambiente_nao_escreve_log_dentro_da_fixture(tmp_path):
     _git(root, "commit", "-qm", "feat: termina login V-12")
 
     gd = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=root,
-                        capture_output=True, text=True).stdout.strip()
+                        capture_output=True, text=True,
+                        encoding="utf-8", errors="replace").stdout.strip()
     gd = gd if os.path.isabs(gd) else os.path.join(str(root), gd)
     log = os.path.join(gd, "todo-freshness.log")
     assert not os.path.exists(log), (
@@ -231,11 +233,11 @@ def test_hookiso1_core_hookspath_local_sobrescreve_o_global(tmp_path):
     root, todo, base = _repo(tmp_path)
     global_path = subprocess.run(
         ["git", "config", "--global", "--get", "core.hooksPath"],
-        capture_output=True, text=True
+        capture_output=True, text=True, encoding="utf-8", errors="replace"
     ).stdout.strip()
     local_path = subprocess.run(
         ["git", "config", "core.hooksPath"], cwd=root,
-        capture_output=True, text=True
+        capture_output=True, text=True, encoding="utf-8", errors="replace"
     ).stdout.strip()
     assert local_path != "", "core.hooksPath local nao foi configurado na fixture"
     assert str(root) in local_path, (

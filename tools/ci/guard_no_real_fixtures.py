@@ -138,6 +138,8 @@ def _git_ls_files(root: Path) -> list[str]:
         cwd=root,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=True,
     )
     return [line for line in result.stdout.splitlines() if line]

@@ -90,7 +90,8 @@ def _repo(tmp_path, status="⏳ Pendente", crlf=False):
     g("add", "TODO.md")
     g("commit", "-qm", "tabela")
     base = subprocess.run(["git", "rev-list", "--max-parents=0", "HEAD"],
-                          cwd=tmp_path, capture_output=True, text=True
+                          cwd=tmp_path, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace"
                           ).stdout.split()[0]
     (tmp_path / "a.py").write_text("x")
     g("add", "a.py")

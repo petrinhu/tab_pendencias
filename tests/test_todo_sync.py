@@ -6,7 +6,8 @@ import todo_sync as S
 
 def _sha1(root):
     return subprocess.run(["git", "rev-list", "--max-parents=0", "HEAD"],
-                          cwd=root, capture_output=True, text=True
+                          cwd=root, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace"
                           ).stdout.split()[0]
 
 

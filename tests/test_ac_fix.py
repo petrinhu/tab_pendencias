@@ -50,7 +50,8 @@ def _git(cwd, *a):
 
 def _run_cli(args, cwd):
     return subprocess.run([sys.executable, FIX, *args], cwd=cwd,
-                          capture_output=True, text=True)
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
 
 
 def _repo_bytes(tmp_path, raw_bytes, filename="TODO.md"):

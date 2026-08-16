@@ -174,7 +174,8 @@ def _git(root, args, timeout):
     SEM gravar nada local, ao contrario de `fetch`)."""
     try:
         r = subprocess.run(["git", *args], cwd=root, capture_output=True,
-                           text=True, timeout=timeout)
+                           text=True, encoding="utf-8", errors="replace",
+                           timeout=timeout)
     except Exception as exc:
         return False, f"{type(exc).__name__}: {exc}"
     if r.returncode != 0:
@@ -565,7 +566,8 @@ def chk10(ctx):
 
     try:
         r = subprocess.run([sys.executable, _TODO_SYNC_PATH], cwd=ctx.root,
-                           capture_output=True, text=True, timeout=30)
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=30)
     except subprocess.TimeoutExpired:
         msg = (f"{_AVISO_CANONICO} {baseline_msg}\ntodo_sync.py não "
               "respondeu em 30s (timeout) -- não foi possível determinar "

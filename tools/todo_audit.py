@@ -78,6 +78,12 @@ from dataclasses import dataclass
 
 import todo_lib as L
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 # SYMLINK-1 (avaliacao, nao alterado): `abspath` aqui e proposital, nao um
 # descuido gemeo do achado. `__file__` e o caminho deste MODULO na propria

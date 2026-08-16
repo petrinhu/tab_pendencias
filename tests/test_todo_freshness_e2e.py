@@ -40,7 +40,8 @@ _HEADER_9 = (
 
 def _git(cwd, *args, check=True):
     return subprocess.run(["git", *args], cwd=cwd, env=_ENV,
-                          capture_output=True, text=True, check=check)
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", check=check)
 
 
 # _git_init_isolado (protecao HOOKISO-1 contra o core.hooksPath GLOBAL desta
@@ -54,7 +55,8 @@ def _row(iid, status):
 
 def _run_fresh(cwd):
     return subprocess.run([sys.executable, FRESH], cwd=cwd,
-                          capture_output=True, text=True)
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
 
 
 def _log_path(root):
@@ -275,7 +277,8 @@ def test_e2e_verbose_acrescenta_traceback_da_excecao_engolida(tmp_path):
     _commit_todo_md_com_bytes_invalidos(tmp_path)
 
     r = subprocess.run([sys.executable, FRESH, "--verbose"], cwd=tmp_path,
-                       capture_output=True, text=True)
+                       capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
     assert r.returncode == 0, (r.stdout, r.stderr)
     assert "UnicodeDecodeError" in r.stderr
     assert "Traceback (most recent call last)" in r.stderr
@@ -297,14 +300,16 @@ def test_e2e_exit0_mesmo_com_flag_desconhecida(tmp_path):
     flag invalida."""
     root = _init_repo_com_tabela(tmp_path)
     r = subprocess.run([sys.executable, FRESH, "--nao-existe"], cwd=root,
-                       capture_output=True, text=True)
+                       capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
     assert r.returncode == 0, (r.stdout, r.stderr)
 
 
 def test_e2e_exit0_com_help(tmp_path):
     root = _init_repo_com_tabela(tmp_path)
     r = subprocess.run([sys.executable, FRESH, "--help"], cwd=root,
-                       capture_output=True, text=True)
+                       capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
     assert r.returncode == 0, (r.stdout, r.stderr)
 
 

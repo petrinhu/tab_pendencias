@@ -26,7 +26,8 @@ ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
 
 def _git(cwd, *args, check=True):
     return subprocess.run(["git", *args], cwd=cwd, env=ENV,
-                          capture_output=True, text=True, check=check)
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", check=check)
 
 
 def _md5(path):
@@ -414,7 +415,8 @@ def test_chk10_com_proposta_real_emite_exatamente_um_finding(tmp_path):
     # sem isso, o commit que cita F-1 logo abaixo cairia na semantica de
     # '1a execucao' do proprio todo_sync e nao proporia nada (rc=0).
     subprocess.run([sys.executable, sync, "--apply"], cwd=root,
-                  capture_output=True, text=True)
+                  capture_output=True, text=True,
+                  encoding="utf-8", errors="replace")
     (root / "codigo.py").write_text("x = 1\n", encoding="utf-8")
     _git(root, "add", "codigo.py")
     _git(root, "commit", "-qm", "feat: entrega F-1")
@@ -435,7 +437,8 @@ def test_chk10_nao_infla_contagem_mesmo_com_varios_ids_citados(tmp_path):
     ]))
     sync = os.path.join(TOOLS_DIR, "todo_sync.py")
     subprocess.run([sys.executable, sync, "--apply"], cwd=root,
-                  capture_output=True, text=True)
+                  capture_output=True, text=True,
+                  encoding="utf-8", errors="replace")
     for i in ("N-1", "N-2", "N-3"):
         (root / f"src_{i}.py").write_text("x = 1\n", encoding="utf-8")
         _git(root, "add", f"src_{i}.py")
@@ -450,7 +453,8 @@ def test_chk10_menciona_aviso_canonico_e_baseline_quando_ha_achado(tmp_path):
     root = _repo(tmp_path, _todo([_row("S-2", "placeholder")]))
     sync = os.path.join(TOOLS_DIR, "todo_sync.py")
     subprocess.run([sys.executable, sync, "--apply"], cwd=root,
-                  capture_output=True, text=True)
+                  capture_output=True, text=True,
+                  encoding="utf-8", errors="replace")
     (root / "codigo.py").write_text("x = 1\n", encoding="utf-8")
     _git(root, "add", "codigo.py")
     _git(root, "commit", "-qm", "feat: entrega S-2")
@@ -474,7 +478,8 @@ def test_baseline_message_ausente_por_padrao_e_presente_apos_apply(tmp_path):
 
     sync = os.path.join(TOOLS_DIR, "todo_sync.py")
     subprocess.run([sys.executable, sync, "--apply"], cwd=root,
-                  capture_output=True, text=True)
+                  capture_output=True, text=True,
+                  encoding="utf-8", errors="replace")
     existe, msg = F._baseline_message(str(root))
     assert existe is True
     assert "presente" in msg.lower()
@@ -488,7 +493,8 @@ def test_chk10_mostra_proposta_de_flip_quando_ha_id_citado_e_entregue(tmp_path):
     # sem isso, o commit que cita F-1 logo abaixo cairia na semantica de
     # '1a execucao' do proprio todo_sync e nao proporia nada.
     subprocess.run([sys.executable, sync, "--apply"], cwd=root,
-                  capture_output=True, text=True)
+                  capture_output=True, text=True,
+                  encoding="utf-8", errors="replace")
 
     (root / "codigo.py").write_text("x = 1\n", encoding="utf-8")
     _git(root, "add", "codigo.py")
@@ -548,7 +554,8 @@ def test_relatorio_mostra_chk09_e_chk10(tmp_path, tmp_path_factory):
     # baseline ANTES do commit que entrega RPT-1 (senao o proprio todo_sync
     # cai na semantica de '1a execucao' e nao propoe nada).
     subprocess.run([sys.executable, sync, "--apply"], cwd=root,
-                  capture_output=True, text=True)
+                  capture_output=True, text=True,
+                  encoding="utf-8", errors="replace")
     (root / "codigo.py").write_text("x = 1\n", encoding="utf-8")
     _git(root, "add", "codigo.py")
     _git(root, "commit", "-qm", "feat: entrega RPT-1")
