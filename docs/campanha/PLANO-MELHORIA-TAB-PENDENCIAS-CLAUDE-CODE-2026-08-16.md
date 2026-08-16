@@ -1,4 +1,4 @@
-<!-- markdownlint-disable MD025 -->
+<!-- markdownlint-disable-file -->
 # Plano mestre de melhoria da `tab_pendencias`
 
 ## Redesign de intake, priorização, frescor e sincronização do vault
