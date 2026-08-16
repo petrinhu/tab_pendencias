@@ -96,7 +96,6 @@
 
 <!-- 1 linha por descoberta: `- <ID tentativo ou —>: descrição curta`. Drenada por --create/--reorder. -->
 
-
 ---
 
 ## Notas de montagem (o que foi fundido, cortado e por quê)
