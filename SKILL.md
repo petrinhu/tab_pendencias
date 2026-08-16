@@ -213,6 +213,48 @@ recomendando `/tab_pendencias --add_tests_audit`.
 - **`--show`**: localizar `TODO.md` na raiz (depois `PLANNING.md`, depois perguntar). Exibir tabela **completa**, incluindo `✅`.
 - **`--main`**: mesma localização, **filtrar fora** `✅`. Mostrar só ⏳ 🔄 🟡 💡 🎨 🔍, preservando a ordem (Onda) das pendentes.
 
+### `--add`
+
+Entrada de descoberta / item novo no pipeline de intake (ADR-0002). O núcleo
+mecânico é `tools/todo_intake.py` (offline, stdlib, sem LLM): recebe um
+`WorkCandidate` **já julgado** (flags booleanas de predicado preenchidas por
+quem chama -- a skill/agente --, o núcleo **não** infere de prosa) e aplica a
+cascata fixa de rota.
+
+**Cascata** (primeiro que casa vence):
+
+1. ID já na tabela ou na INBOX → `DUPLICATE` (não cria linha)
+2. campos incompletos / dep inexistente / source inválido → `NEEDS_TRIAGE` (INBOX residual)
+3. sem autoridade → `NEEDS_LEADER_DECISION` (INBOX residual)
+4. fundação → `FULL_REORDER` (nesta fatia: dry-run ok; `--apply` ainda `not_implemented`)
+5. local (L0) → `LOCAL_INTEGRATION` (append puro de 1 linha no fim da tabela)
+6. escopado → `SCOPED_REORDER` (idem: apply ainda `not_implemented`)
+7. default → `FULL_REORDER`
+
+**Contrato de L0:** zero células de linhas existentes mudam; marcador
+recuperável `<!-- intake:CANDIDATE_ID -->` na descrição (para o journal
+`recover_orphans`). Journal write-ahead antes de mutar; `mark_done` após
+escrita validada. Working tree do `TODO.md` limpa é pré-condição de
+`--apply`. Se a INBOX residual tiver item **classificável** (sem `[triage ...]`
+válido), o apply aborta com `classifiable_inbox_present` -- drain-first.
+
+**Uso mecânico (CLI):**
+
+```text
+python3 tools/todo_intake.py --todo TODO.md \
+  --candidate-id cand-1 --item-id F-12 \
+  --description "..." --source agent \
+  --fields-complete --local
+# dry-run (exit 2 se a rota exigiria escrita)
+
+python3 tools/todo_intake.py --todo TODO.md ... --apply
+```
+
+Gatilhos em linguagem natural ("adicione isto às pendências", "registra esta
+feature", "isso precisa entrar no TODO") usam o mesmo pipeline. A skill
+preenche o julgamento (local/escopado/fundação/autoridade/campos) e chama o
+núcleo; não joga L0 na INBOX por conveniência.
+
 ## `--audit`
 
 Motor de auditoria estrutural do próprio `TODO.md` (`tools/todo_audit.py`, camada
