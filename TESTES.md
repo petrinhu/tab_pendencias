@@ -66,6 +66,18 @@ nova -- o que conta como "consistência" entre os dois arquivos -- fora do escop
 "espelhar o CI existente"); se o líder quiser esse check, vira item próprio no
 `TODO.md`.
 
+**Contagem de `skipped` com cache frio (AUD-FUP-3):** a 1ª execução local após
+apagar `.pytest_cache` (ou em clone fresco) pode reportar **mais** `skipped` que
+as rodadas seguintes com cache quente. Isto é comportamento esperado do pytest
+(fixtures/coleta dependentes de estado de cache), não flakiness do produto: a
+suíte estabiliza na 2ª rodada. Não tratar a diferença 1ª×2ª como regressão sem
+reexecutar com cache quente.
+
+**`ruff`:** permanece **informativo** em `scripts/preci.sh` (não é job do
+`ci.yml`). Não há gate de ruff; por isso não há `ruff.toml`/`pyproject.toml`
+que torne achado de lint bloqueante. Tornar ruff gate é decisão de design à
+parte (item próprio se o líder quiser).
+
 ---
 
 ## Fora de escopo (podados do catálogo, com motivo)

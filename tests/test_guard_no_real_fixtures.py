@@ -1,12 +1,13 @@
 """Suite do guard anti-vazamento de fixture real (tools/ci/guard_no_real_fixtures.py).
 
-Cobre a CAMADA 3 (conteudo, item LEAK-2): a Camada 2 pre-existente checa
-apenas o CAMINHO do arquivo versionado -- um nome de projeto-fonte real
-dentro do TEXTO de um arquivo (comentario, docstring) passava batido. Esta
-suite prova, nas duas direcoes, que a nova camada acusa quando o termo esta
-presente e silencia quando nao esta -- e que a saida do proprio guard nunca
-reproduz o termo proibido em claro (o guard nao pode se auto-acusar
-vazando o que deveria proteger).
+Cobre as tres camadas principais:
+- CAMADA 1 (tamanho de tabela GFM) -- unica sempre ativa no CI publico
+  sem configuracao (AUD-FUP-2).
+- CAMADA 2 (termo proibido no CAMINHO) -- opt-in (AUD-FUP-2).
+- CAMADA 3 (termo proibido no CONTEUDO, LEAK-2) -- opt-in.
+
+Prova nas duas direcoes (acusa / silencia) e que a saida do guard nunca
+reproduz o termo proibido em claro (auto-vazamento).
 """
 import importlib.util
 import os
@@ -64,6 +65,100 @@ def _run_guard(root, env_extra=None):
     return subprocess.run([sys.executable, GUARD_PATH], cwd=root, env=env,
                           capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
+
+
+# ------------------------------ unidade: CAMADA 1 (tamanho de tabela) -------
+
+def _tabela_gfm(n_dados: int) -> str:
+    """Tabela GFM com cabecalho + separador + n_dados linhas de dados."""
+    linhas = ["| ID | Status |", "| :- | :- |"]
+    for i in range(n_dados):
+        linhas.append(f"| X-{i} | pendente |")
+    return "\n".join(linhas) + "\n"
+
+
+def test_check_table_sizes_acusa_acima_do_limite(tmp_path):
+    """AUD-FUP-2 / CAMADA 1: bloco com LIMITE+1 linhas de dados e achado."""
+    root = _repo(tmp_path)
+    n = G.LIMITE_LINHAS_DADOS + 1
+    _commit(root, "big.md", _tabela_gfm(n))
+    violations = G.check_table_sizes(root, ["big.md"])
+    assert len(violations) == 1
+    assert "big.md" in violations[0]
+    assert str(G.LIMITE_LINHAS_DADOS) in violations[0]
+    assert str(n) in violations[0]
+
+
+def test_check_table_sizes_silencia_no_limite(tmp_path):
+    """AUD-FUP-2 / CAMADA 1: exatamente LIMITE linhas de dados nao acusa."""
+    root = _repo(tmp_path)
+    _commit(root, "ok.md", _tabela_gfm(G.LIMITE_LINHAS_DADOS))
+    violations = G.check_table_sizes(root, ["ok.md"])
+    assert violations == []
+
+
+def test_guard_main_acusa_tabela_grande_sem_termos(tmp_path):
+    """AUD-FUP-2: CAMADA 1 via main() sem termos (CI publico)."""
+    root = _repo(tmp_path)
+    _commit(root, "huge.md", _tabela_gfm(G.LIMITE_LINHAS_DADOS + 5))
+    res = _run_guard(root)
+    assert res.returncode == 1, res.stdout + res.stderr
+    assert "huge.md" in res.stdout
+    assert "CAMADA 1" in res.stdout or str(G.LIMITE_LINHAS_DADOS) in res.stdout
+
+
+# ------------------------------ unidade: CAMADA 2 (caminho) -----------------
+
+def test_check_forbidden_path_names_acusa_termo_no_caminho():
+    """AUD-FUP-2 / CAMADA 2: termo no path e achado; rotulo mascarado.
+
+    O path em si e o achado e por isso aparece no relato (nao da para
+    apontar o arquivo sem citar o path). O que a camada mascara e o
+    trecho '(mascarado) ...' -- o mesmo contrato da CAMADA 3.
+    """
+    rel = f"docs/{TERMO_SINTETICO}/notas.md"
+    violations = G.check_forbidden_path_names([rel], [TERMO_SINTETICO])
+    assert len(violations) == 1
+    assert rel in violations[0]
+    masked = G._mask_term(TERMO_SINTETICO)
+    assert masked in violations[0]
+    assert "mascarado" in violations[0]
+    # O termo so pode aparecer como componente do path, nao no rotulo
+    # mascarado: o rotulo e p*...*Z, nao o termo inteiro apos "mascarado".
+    assert f"'{TERMO_SINTETICO}'" not in violations[0]
+    assert f"'{masked}'" in violations[0]
+
+
+def test_check_forbidden_path_names_e_case_insensitive():
+    rel = f"docs/{TERMO_SINTETICO.upper()}/x.md"
+    violations = G.check_forbidden_path_names([rel], [TERMO_SINTETICO])
+    assert len(violations) == 1
+    assert G._mask_term(TERMO_SINTETICO) in violations[0]
+
+
+def test_check_forbidden_path_names_silencia_sem_termo():
+    violations = G.check_forbidden_path_names(
+        ["docs/consumidor/notas.md", "TODO.md"], [TERMO_SINTETICO]
+    )
+    assert violations == []
+
+
+def test_guard_main_acusa_termo_no_caminho(tmp_path):
+    """AUD-FUP-2: CAMADA 2 via main() com termo so no path (conteudo limpo)."""
+    root = _repo(tmp_path)
+    _commit(root, "TODO.md", "| ID |\n| :- |\n")
+    rel = f"docs/{TERMO_SINTETICO}/notas.md"
+    _commit(root, rel, "texto limpo, sem o termo no corpo\n")
+    res = _run_guard(root, env_extra={ENV_VAR: TERMO_SINTETICO})
+    assert res.returncode == 1, res.stdout + res.stderr
+    assert "docs/" in res.stdout
+    assert "caminho" in res.stdout
+    masked = G._mask_term(TERMO_SINTETICO)
+    assert masked in res.stdout
+    # Rotulo mascarado nao cita o termo literal entre aspas.
+    assert f"'{TERMO_SINTETICO}'" not in res.stdout
+    # Conteudo limpo: so 1 achado (path), nao linha de conteudo.
+    assert res.stdout.count("achado") >= 1
 
 
 # ------------------------------ unidade: mascaramento -----------------------
