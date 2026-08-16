@@ -33,6 +33,38 @@ Dois scripts locais e **determinísticos** (Python stdlib; nem precisam de sess�
 
 Podem ser rodados à mão, por um alias, pelo git hook, ou por um agendador local (systemd/launchd/Task Scheduler). Robustez verificada por `qa-engineer` + `code-reviewer` (CRLF, BOM, múltiplas tabelas, célula deslocada).
 
+## Drift do pin de submódulo (`submodule_pin_drift.py`)
+
+Detector **read-only, offline-first e warn-only** (TAB-SOT-007): quando este
+toolkit é distribuído como submódulo git dentro de outro repositório, o
+gitlink gravado na árvore do superprojeto pode ficar preso num commit antigo
+sem que ninguém perceba -- foi exatamente o que aconteceu num consumidor real
+(gitlink 67 commits atrás da tag publicada mais recente; `git clone
+--recursive` numa máquina nova restaurava a skill sem o toolkit inteiro).
+
+```sh
+python3 tools/submodule_pin_drift.py --path caminho/do/submodulo [--url <remoto>] [--branch <nome>]
+```
+
+- **Agnóstico a projeto** (AGN-1): `--path` e `--url` são sempre parâmetros
+  -- nenhum nome de projeto/submódulo vem embutido no código. Sem `--url`, o
+  único fallback é o `.gitmodules` do próprio superprojeto (mecanismo padrão
+  do git, não convenção deste projeto).
+- **Nunca muta nada**: sem `git submodule update --remote`, sem
+  commit/push, sem `git fetch` (mesma política de `checks/chk_frescor.py`
+  para CHK-09 -- `git ls-remote` consulta o remoto sem gravar nada local).
+  Exit code é sinal, não bloqueio: quem decide se isso falha um pipeline é o
+  job de CI que consome a ferramenta.
+- **Sem rede nunca vira "OK"**: se `git ls-remote` falhar/expirar, ou se o
+  remoto não tiver nenhuma tag `vX.Y.Z`, o relatório sai com
+  `status: nao_verificavel` -- nunca `atualizado`. `commits_behind` só é
+  calculável quando os objetos do submódulo já estão localmente disponíveis
+  (checkout prévio); do contrário fica `nao calculavel offline`, com o
+  motivo explícito.
+- Contrato de exit code (D-6/CLI-1): `0` = pin confirmado em dia; `1` = erro
+  de execução (path inválido, `.gitmodules` sem URL resolvível, flag
+  desconhecida); `2` = `status` em `desatualizado` ou `nao_verificavel`.
+
 ## Como ativar
 
 Os arquivos são `hooks/post-commit` (shim POSIX) + `todo_freshness.py`
