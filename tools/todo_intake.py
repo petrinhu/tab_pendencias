@@ -60,6 +60,7 @@ from datetime import datetime, timezone
 
 import intake_journal as J
 import todo_lib as L
+import wsjf as W
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -143,6 +144,15 @@ class WorkCandidate:
     reason: str = ""  # override opcional do reason de triagem
     # override da fracao SCOPED; None = env / ini / DEFAULT_SCOPED_MAX_FRACTION
     scoped_max_fraction: float | None = None
+    # WSJF (TAB-WSJF): scores opcionais -- nao entram na cascata de rota;
+    # so FULL_REORDER consome; nao persistem em celulas novas do TODO.md.
+    bv: int | None = None
+    time_criticality: int | None = None
+    risk_reduction: int | None = None
+    job_size: int | None = None
+    peer_scores: dict | None = None
+    wsjf_profile: str | None = None
+    comparable_epsilon: float | None = None
 
 
 @dataclass
@@ -868,20 +878,180 @@ def _wave_label(level: int) -> str:
     return f"W{level + 1}"
 
 
+def _status_kind_andamento(status: str) -> bool:
+    """True se Status e 🔄 Em andamento (emoji-prefixo D-1)."""
+    return L._status_kind(status) == "andamento"
+
+
+def _collect_wsjf_inputs(
+    candidate: WorkCandidate,
+    nodes: list[str],
+    cand_id: str,
+) -> list[W.WsjfInputs]:
+    """Monta WsjfInputs do candidato + peers.
+
+    Peers so entram com ints explicitos em candidate.peer_scores --
+    NUNCA scrapa Prioridade/Dificuldade da tabela (D-F3-4).
+    """
+    peers = candidate.peer_scores or {}
+    out: list[W.WsjfInputs] = []
+    for iid in nodes:
+        if iid == cand_id:
+            out.append(
+                W.WsjfInputs(
+                    item_id=cand_id,
+                    business_value=candidate.bv,
+                    time_criticality=candidate.time_criticality,
+                    risk_reduction=candidate.risk_reduction,
+                    job_size=candidate.job_size,
+                    priority_label=candidate.prioridade or None,
+                    difficulty_label=candidate.dificuldade or None,
+                    source=candidate.source or "user",
+                )
+            )
+            continue
+        raw = peers.get(iid) if isinstance(peers, dict) else None
+        if not isinstance(raw, dict):
+            out.append(W.WsjfInputs(item_id=iid, source="user"))
+            continue
+        bv = raw.get("bv", raw.get("business_value"))
+        tc = raw.get("time_criticality", raw.get("tc"))
+        rr = raw.get("risk_reduction", raw.get("rr"))
+        js = raw.get("job_size", raw.get("js"))
+        out.append(
+            W.WsjfInputs(
+                item_id=iid,
+                business_value=bv,
+                time_criticality=tc,
+                risk_reduction=rr,
+                job_size=js,
+                source="user",
+            )
+        )
+    return out
+
+
+def _wsjf_explain_existing_moves(
+    *,
+    old_order: list[str],
+    new_order: list[str],
+    old_waves: dict[str, str],
+    new_waves: dict[str, str],
+    levels: dict[str, int],
+    scores: dict[str, dict],
+    graph: dict[str, list[str]],
+    candidate: WorkCandidate,
+) -> list[str]:
+    """Blocos explain_move so para posicao ou onda realmente mudada."""
+    old_pos = {i: n for n, i in enumerate(old_order)}
+    new_pos = {i: n for n, i in enumerate(new_order)}
+    blocks: list[str] = []
+    peer_ids = sorted((candidate.peer_scores or {}).keys())
+    cand_id = (candidate.item_id or "").strip()
+    material_bits = []
+    if any(
+        x is not None
+        for x in (
+            candidate.bv,
+            candidate.time_criticality,
+            candidate.risk_reduction,
+            candidate.job_size,
+        )
+    ):
+        material_bits.append(
+            f"candidate {cand_id} scores bv={candidate.bv} "
+            f"tc={candidate.time_criticality} rr={candidate.risk_reduction} "
+            f"js={candidate.job_size}"
+        )
+    if peer_ids:
+        material_bits.append(
+            "peer_scores fornecidos para " + ",".join(peer_ids)
+        )
+    default_material = (
+        "; ".join(material_bits) if material_bits else "topologia recalculada"
+    )
+
+    for iid in old_order:
+        if iid not in new_pos:
+            continue
+        pos_changed = old_pos.get(iid) != new_pos.get(iid)
+        ow = (old_waves.get(iid) or "").strip() or PLACEHOLDER
+        nw = (new_waves.get(iid) or "").strip() or PLACEHOLDER
+        wave_changed = ow != nw
+        if not pos_changed and not wave_changed:
+            continue
+
+        prereqs = graph.get(iid, [])
+        # causa: topologia se nivel/onda mudou por prereq; senao WSJF
+        cause = ""
+        if wave_changed and prereqs:
+            p = prereqs[0]
+            cause = (
+                f"prerequisito {p} no grafo; nivel "
+                f"{ow}->{nw}"
+            )
+            material = f"topologia: dep {p}"
+        elif pos_changed:
+            row = scores.get(iid) or {}
+            w_self = row.get("wsjf")
+            # achar peer no mesmo nivel com score
+            lvl = levels.get(iid, 0)
+            peers_same = [
+                j for j in new_order
+                if j != iid and levels.get(j, 0) == lvl
+            ]
+            peer_txt = ""
+            peer_w: float | None = None
+            for j in peers_same:
+                jr = scores.get(j) or {}
+                if jr.get("scored") and jr.get("wsjf") is not None and w_self is not None:
+                    peer_w = float(jr["wsjf"])
+                    peer_txt = f"peer {j} {peer_w:.1f}"
+                    break
+            if w_self is not None and peer_txt and peer_w is not None:
+                ws = float(w_self)
+                diff = abs(ws - peer_w)
+                eps = candidate.comparable_epsilon
+                if eps is not None and diff <= float(eps):
+                    op = "~"
+                elif ws == peer_w:
+                    op = "~"
+                elif ws > peer_w:
+                    op = ">"
+                else:
+                    op = "<"
+                cause = f"WSJF {ws:.1f} {op} {peer_txt}"
+            elif w_self is not None:
+                cause = f"WSJF {float(w_self):.1f} reordena pos no nivel"
+            else:
+                cause = f"pos {old_pos.get(iid)}->{new_pos.get(iid)} no nivel"
+            material = default_material
+        else:
+            cause = f"onda recalculada {ow}->{nw}"
+            material = default_material
+
+        blocks.append(
+            W.explain_move(iid, ow, nw, cause, material)
+        )
+    return blocks
+
+
 def _build_reorder_rows(
     table: dict,
     candidate: WorkCandidate,
     meta: dict[str, dict],
     S: set[str] | None = None,
-) -> tuple[list[str], list[str], dict[str, int]]:
+    todo_path: str | None = None,
+) -> tuple[list[str], list[str], dict[str, int], dict[str, dict]]:
     """Constroi linhas de dados reordenadas (FULL ou SCOPED).
 
-    Retorna (ordered_ids, data_row_strings, levels).
+    Retorna (ordered_ids, data_row_strings, levels, scores_by_id).
 
-    S is None (FULL): recalcula onda de todos os existentes.
-    S is not None (SCOPED nao promovido): fora de S preserva raw byte-a-byte
-    (meta[iid]["raw"]); em S reformata e pode atualizar so onda; status
-    de existentes sempre intocado. Candidato = linha nova com marker.
+    S is None (FULL): nivel-primeiro + WSJF intra-nivel (se todos scored);
+    recalcula onda de todos os existentes.
+    S is not None (SCOPED nao promovido): Kahn+orig; fora de S preserva raw
+    byte-a-byte; em S reformata e pode atualizar so onda; status de
+    existentes sempre intocado. Candidato = linha nova com marker.
 
     Prereq de existentes intocado. Candidato usa prereq/deps do candidate.
     Headings no meio: nao preservados no bloco de data (ver docstring modulo).
@@ -899,8 +1069,30 @@ def _build_reorder_rows(
     if cyc:
         raise IntakeError(f"dependency_cycle: {' -> '.join(cyc)}")
 
-    ordered = _stable_topo_sort(graph, nodes, orig_index)
     levels = _topo_levels(graph, nodes)
+    scores: dict[str, dict] = {}
+
+    if S is None:
+        # FULL: topologia por nivel + WSJF so dentro do nivel (D-F3-6/7)
+        prev = sorted(nodes, key=lambda i: orig_index.get(i, 10**9))
+        cfg_profile, eps, _orig = W.resolve_wsjf_config(
+            profile=candidate.wsjf_profile,
+            comparable_epsilon=candidate.comparable_epsilon,
+            todo_path=todo_path,
+        )
+        inputs = _collect_wsjf_inputs(candidate, nodes, cand_id)
+        table_scores = W.compute_wsjf_table(inputs, profile=cfg_profile)
+        scores = {row["id"]: row for row in table_scores}
+        pinned = {
+            iid for iid, m in meta.items()
+            if _status_kind_andamento(m["status"])
+        }
+        # candidato novo nunca e pinado
+        ordered = W.order_levels_then_wsjf(
+            levels, prev, scores, eps, pinned=pinned,
+        )
+    else:
+        ordered = _stable_topo_sort(graph, nodes, orig_index)
 
     # terminador a partir de uma linha de dados existente
     sample_ln = next(iter(meta.values()))["line_no"] if meta else 0
@@ -943,7 +1135,7 @@ def _build_reorder_rows(
         # W1: status permanece cells[status_idx] original
         rows_out.append(_format_cells_row(cells, terminator=term))
 
-    return ordered, rows_out, levels
+    return ordered, rows_out, levels, scores
 
 
 def _data_line_span(meta: dict[str, dict]) -> tuple[int, int]:
@@ -993,15 +1185,16 @@ def build_full_reorder_text(
     table: dict,
     candidate: WorkCandidate,
     meta: dict[str, dict] | None = None,
-) -> tuple[str, list[str], set[str]]:
+    todo_path: str | None = None,
+) -> tuple[str, list[str], set[str], list[str]]:
     """FULL_REORDER em memoria.
 
-    Retorna (novo_texto, ordered_ids, moved_existing_ids).
+    Retorna (novo_texto, ordered_ids, moved_existing_ids, explain_blocks).
     """
     if meta is None:
         meta = _item_meta_map(table)
-    ordered, rows, _levels = _build_reorder_rows(
-        table, candidate, meta, S=None,
+    ordered, rows, levels, scores = _build_reorder_rows(
+        table, candidate, meta, S=None, todo_path=todo_path,
     )
     novo = _rewrite_table_data_block(text, table, meta, rows)
     cand_id = (candidate.item_id or "").strip()
@@ -1021,7 +1214,26 @@ def build_full_reorder_text(
     colmap = _col_index_map(header)
     if "onda" in colmap:
         moved |= set(old_order)
-    return novo, ordered, moved
+
+    old_waves = {
+        iid: (meta[iid].get("onda") or "").strip()
+        for iid in old_order if iid in meta
+    }
+    new_waves = {
+        iid: _wave_label(levels.get(iid, 0)) for iid in new_existing_order
+    }
+    graph, nodes, _oi = _build_full_graph(meta, candidate, cand_id)
+    explain_blocks = _wsjf_explain_existing_moves(
+        old_order=old_order,
+        new_order=new_existing_order,
+        old_waves=old_waves,
+        new_waves=new_waves,
+        levels=levels,
+        scores=scores,
+        graph=graph,
+        candidate=candidate,
+    )
+    return novo, ordered, moved, explain_blocks
 
 
 def build_scoped_reorder_text(
@@ -1036,10 +1248,11 @@ def build_scoped_reorder_text(
     Path com S (nao FULL): ids ∉ S reusam meta[iid]['raw'] byte-a-byte.
     Se algum id ∉ S ainda diverger (cinto e suspensorio), aborta com
     scoped_equivalence_failed (nao escreve -- caller trata).
+    WSJF nao se aplica a SCOPED nesta fase (D-F3-7).
     """
     if meta is None:
         meta = _item_meta_map(table)
-    ordered, rows, _levels = _build_reorder_rows(
+    ordered, rows, _levels, _scores = _build_reorder_rows(
         table, candidate, meta, S=S,
     )
     novo = _rewrite_table_data_block(text, table, meta, rows)
@@ -1409,6 +1622,7 @@ def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
                     f"|S|={len(S)} ids={sorted(S)[:12]}"
                 )
 
+        explain_blocks: list[str] = []
         if effective_route == ROUTE_SCOPED_REORDER:
             novo, ordered, moved = build_scoped_reorder_text(
                 text, table, candidate, S, meta=meta,
@@ -1416,8 +1630,8 @@ def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
             preserve_except = set(S)
             use_preserve_raw = False
         else:
-            novo, ordered, moved = build_full_reorder_text(
-                text, table, candidate, meta=meta,
+            novo, ordered, moved, explain_blocks = build_full_reorder_text(
+                text, table, candidate, meta=meta, todo_path=todo_path,
             )
             preserve_except = None
             use_preserve_raw = False
@@ -1456,6 +1670,9 @@ def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
         )
         if s_fraction is not None:
             report_lines.append(f"s_fraction={s_fraction:.3f}")
+        # TAB-WSJF-006: so movimentos materiais (pos/onda); sem linha solta
+        for block in explain_blocks:
+            report_lines.append(block)
         report = "\n".join(report_lines) + "\n"
         return IntakeResult(
             rc=0, route=effective_route, applied=True,
@@ -1552,6 +1769,25 @@ def _candidate_from_args(args, json_obj=None) -> WorkCandidate:
         desc = data.get("description", "")
     source = pick("source", args.source) or data.get("source") or "user"
 
+    def _opt_int(key_cli, key_json, alt_json=None):
+        """Lê int opcional de CLI ou JSON; None se ausente/vazio."""
+        raw = getattr(args, key_cli, None)
+        if raw is None or raw == "":
+            if key_json in data and data[key_json] is not None:
+                raw = data[key_json]
+            elif alt_json and alt_json in data and data[alt_json] is not None:
+                raw = data[alt_json]
+            else:
+                return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    peer_scores = data.get("peer_scores")
+    if peer_scores is not None and not isinstance(peer_scores, dict):
+        peer_scores = None
+
     return WorkCandidate(
         candidate_id=str(cid),
         description=str(desc or ""),
@@ -1579,6 +1815,21 @@ def _candidate_from_args(args, json_obj=None) -> WorkCandidate:
         scoped_max_fraction=(
             float(data["scoped_max_fraction"])
             if data.get("scoped_max_fraction") is not None
+            else None
+        ),
+        bv=_opt_int("bv", "bv", "business_value"),
+        time_criticality=_opt_int("time_criticality", "time_criticality", "tc"),
+        risk_reduction=_opt_int("risk_reduction", "risk_reduction", "rr"),
+        job_size=_opt_int("job_size", "job_size", "js"),
+        peer_scores=peer_scores,
+        wsjf_profile=(
+            str(data["wsjf_profile"])
+            if data.get("wsjf_profile") is not None
+            else None
+        ),
+        comparable_epsilon=(
+            float(data["comparable_epsilon"])
+            if data.get("comparable_epsilon") is not None
             else None
         ),
     )
@@ -1617,6 +1868,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Julgamento: P-escopado (L1)")
     p.add_argument("--reason", default=None,
                    help="Override do reason de triagem (vocabulario fechado)")
+    p.add_argument("--bv", default=None, type=int,
+                   help="WSJF business value (fib int)")
+    p.add_argument("--time-criticality", default=None, type=int,
+                   dest="time_criticality",
+                   help="WSJF time criticality (fib int)")
+    p.add_argument("--risk-reduction", default=None, type=int,
+                   dest="risk_reduction",
+                   help="WSJF risk reduction (fib int)")
+    p.add_argument("--job-size", default=None, type=int, dest="job_size",
+                   help="WSJF job size (fib int)")
     p.add_argument("--json", action="store_true",
                    help="Ler WorkCandidate JSON de stdin")
     return p

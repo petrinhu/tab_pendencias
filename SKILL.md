@@ -27,7 +27,7 @@ A ordem das linhas (de cima para baixo) É a ordem de execução recomendada. A 
 - **Onda**: `W1`, `W2`, `W3`, ... (leva de execução). Itens da mesma Onda não dependem entre si e têm valor comparável: **podem rodar em paralelo (igual valor)**. `—` para itens concluídos ou fora do fluxo.
 - **Prioridade**: Alta / Média / Baixa.
 - **Pré-requisito**: `—` (nenhum) ou ID(s) que precisam estar concluídos antes (ex: `F1.4`, `F2.1, F2.2`).
-- **Dificuldade**: Alta / Média / Baixa (usada como Job Size no WSJF).
+- **Dificuldade**: Alta / Média / Baixa (atalho qualitativo de Job Size no WSJF early; o motor usa a régua fib `1,2,3,5,8,13,20`).
 - **Status**: símbolo + texto.
 
 | Status | Significado |
@@ -86,10 +86,10 @@ Aplicado no `--create` e `--reorder`:
 Em contexto SAFe (porte scale-up/bigtech, definido por Cósimo), NÃO apresentar a priorização sem a tabela de scoring que justifica cada WSJF (AGILE §17.2 é taxativo). Emitir junto:
 
 ```markdown
-| ID | Item | Valor (1-20) | Criticidade (1-20) | Redução de Risco (1-20) | CoD | Job Size (1-20) | WSJF | Rank |
+| ID | Item | Valor (1,2,3,5,8,13,20) | Criticidade (1,2,3,5,8,13,20) | Redução de Risco (1,2,3,5,8,13,20) | CoD | Job Size (1,2,3,5,8,13,20) | WSJF | Rank |
 ```
 
-`CoD = Valor + Criticidade + Redução de Risco`; `WSJF = CoD / Job Size`. Rank = ordem decrescente de WSJF. Em projeto pequeno (early), o WSJF pode ser qualitativo (sem a tabela completa), respeitando o anti-OE.
+`CoD = Valor + Criticidade + Redução de Risco`; `WSJF = CoD / Job Size`. Rank = ordem decrescente de WSJF **dentro do nível topológico** (dependência sempre vence). A régua do motor é a Fibonacci modificada `(1,2,3,5,8,13,20)` -- o intervalo "1-20" antigo era só o min/max, não escala linear. Em early o motor aceita rótulos Alta/Média/Baixa só como atalho para fib 8/5/2 no candidato; peers só entram com ints explícitos. Remetente `bus` nunca pontua por rótulo. Em projeto pequeno (early), o WSJF pode ser qualitativo (sem a tabela completa de cerimônia SAFe), respeitando o anti-OE.
 
 ### Testes e auditoria: ordem inviolavel (TDD + shift-left)
 

@@ -942,3 +942,412 @@ def test_scoped_journal_done_em_disco(tmp_path):
         for it in L.parse_table(todo.read_text(encoding="utf-8"))["items"]
     )
     _assert_journal_done(repo, cid)
+
+
+# ---------------------------------------------------------------------------
+# WSJF / FULL (TAB-WSJF-001..007 -- §4.2 do blueprint Fase 3)
+# ---------------------------------------------------------------------------
+
+TODO_TWO_ROOTS = (
+    "# Two roots fixture\n\n"
+    + HEADER_9
+    + "| #A | W1 | Core | Root job low score | High | - | High | "
+    "⏳ Pendente | - |\n"
+    + "| #B | W1 | Core | Root job high score | High | - | Low | "
+    "⏳ Pendente | - |\n"
+)
+
+TODO_TOPO_BEATS = (
+    "# Topology beats WSJF fixture\n\n"
+    + HEADER_9
+    + "| #A | W1 | Core | Root job low score | High | - | High | "
+    "⏳ Pendente | - |\n"
+    + "| #B | W2 | Core | Blocked gold rush | High | #A | Low | "
+    "⏳ Pendente | - |\n"
+)
+
+TODO_WIP_PIN = (
+    "# WIP pin fixture\n\n"
+    + HEADER_9
+    + "| #01 | W1 | Core | Finished foundation | High | - | Medium | "
+    "✅ Concluído | yes |\n"
+    + "| #02 | W1 | Core | Active WIP peer | High | - | Medium | "
+    "🔄 Em andamento | - |\n"
+    + "| #04 | W1 | Core | Idle peer same level | High | - | Low | "
+    "⏳ Pendente | - |\n"
+)
+
+
+def test_full_without_scores_keeps_orig_order(tmp_path):
+    """Candidato com bv sozinho: peers sem score => ordem original da cadeia."""
+    repo, todo = _repo_com_todo(tmp_path)
+    c = _cand(
+        is_local=False, is_scoped=False, is_foundation=True,
+        item_id="#04",
+        candidate_id="cand-wsjf-alone",
+        description="Calibrate the end-of-line camera",
+        dependencies=["#03"],
+        prereq="#03",
+        grupo="Safety",
+        bv=20,
+        time_criticality=20,
+        risk_reduction=20,
+        job_size=1,
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    ids = [
+        it["id"]
+        for it in L.parse_table(todo.read_text(encoding="utf-8"))["items"]
+    ]
+    assert ids == ["#01", "#02", "#03", "#04"]
+
+
+def test_full_wsjf_reorders_only_within_level(tmp_path):
+    """Duas raizes: #B (WSJF alto) sobe dentro do nivel 0; sem furar topologia."""
+    repo, todo = _repo_com_todo(tmp_path, texto=TODO_TWO_ROOTS)
+    c = _cand(
+        is_local=False, is_scoped=False, is_foundation=True,
+        item_id="#C",
+        candidate_id="cand-wsjf-level",
+        description="Third root at level zero",
+        dependencies=[],
+        prereq="-",
+        grupo="Core",
+        bv=5,
+        time_criticality=5,
+        risk_reduction=5,
+        job_size=8,
+        peer_scores={
+            "#A": {
+                "bv": 1, "time_criticality": 1,
+                "risk_reduction": 1, "job_size": 13,
+            },
+            "#B": {
+                "bv": 20, "time_criticality": 13,
+                "risk_reduction": 13, "job_size": 1,
+            },
+        },
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    ids = [
+        it["id"]
+        for it in L.parse_table(todo.read_text(encoding="utf-8"))["items"]
+    ]
+    # #B (WSJF max) antes de #A no nivel 0; #C tambem nivel 0
+    assert ids.index("#B") < ids.index("#A")
+    assert set(ids) == {"#A", "#B", "#C"}
+
+
+def test_full_topology_beats_wsjf_plan_example(tmp_path):
+    """TAB-WSJF-003: #A nivel 0 antes de #B nivel 1 mesmo com WSJF 60."""
+    repo, todo = _repo_com_todo(tmp_path, texto=TODO_TOPO_BEATS)
+    c = _cand(
+        is_local=False, is_scoped=False, is_foundation=True,
+        item_id="#C",
+        candidate_id="cand-topo",
+        description="Peer of blocked gold rush",
+        dependencies=["#A"],
+        prereq="#A",
+        grupo="Core",
+        bv=8,
+        time_criticality=5,
+        risk_reduction=3,
+        job_size=5,
+        peer_scores={
+            "#A": {
+                "bv": 1, "time_criticality": 1,
+                "risk_reduction": 1, "job_size": 8,
+            },
+            "#B": {
+                "bv": 20, "time_criticality": 20,
+                "risk_reduction": 20, "job_size": 1,
+            },
+        },
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    ids = [
+        it["id"]
+        for it in L.parse_table(todo.read_text(encoding="utf-8"))["items"]
+    ]
+    assert ids.index("#A") < ids.index("#B")
+
+
+def test_full_wip_pin_not_preempted_by_higher_wsjf(tmp_path):
+    """#02 em 🔄 pinado: peer com WSJF maior no mesmo nivel nao o recua."""
+    repo, todo = _repo_com_todo(tmp_path, texto=TODO_WIP_PIN)
+    c = _cand(
+        is_local=False, is_scoped=False, is_foundation=True,
+        item_id="#05",
+        candidate_id="cand-wip",
+        description="New peer same level",
+        dependencies=[],
+        prereq="-",
+        grupo="Core",
+        bv=3,
+        time_criticality=3,
+        risk_reduction=3,
+        job_size=8,
+        peer_scores={
+            "#01": {
+                "bv": 1, "time_criticality": 1,
+                "risk_reduction": 1, "job_size": 8,
+            },
+            "#02": {
+                "bv": 2, "time_criticality": 2,
+                "risk_reduction": 2, "job_size": 13,
+            },
+            "#04": {
+                "bv": 20, "time_criticality": 20,
+                "risk_reduction": 20, "job_size": 1,
+            },
+        },
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    ids = [
+        it["id"]
+        for it in L.parse_table(todo.read_text(encoding="utf-8"))["items"]
+    ]
+    # #02 (WIP) permanece a frente de #04 mesmo com WSJF menor
+    assert ids.index("#02") < ids.index("#04")
+
+
+def test_full_explain_move_in_report_when_position_changes(tmp_path):
+    """Report material contem as 3 linhas de explain_move."""
+    repo, todo = _repo_com_todo(tmp_path, texto=TODO_TWO_ROOTS)
+    c = _cand(
+        is_local=False, is_scoped=False, is_foundation=True,
+        item_id="#C",
+        candidate_id="cand-explain",
+        description="Third root",
+        dependencies=[],
+        prereq="-",
+        grupo="Core",
+        bv=5,
+        time_criticality=5,
+        risk_reduction=5,
+        job_size=8,
+        peer_scores={
+            "#A": {
+                "bv": 1, "time_criticality": 1,
+                "risk_reduction": 1, "job_size": 13,
+            },
+            "#B": {
+                "bv": 20, "time_criticality": 13,
+                "risk_reduction": 13, "job_size": 1,
+            },
+        },
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    rt = result.report_text
+    assert "ITEM #B:" in rt or "ITEM #A:" in rt
+    assert "causa:" in rt
+    assert "input_material_que_mudou:" in rt
+
+
+def test_full_explain_move_operator_reflects_wsjf_swap(tmp_path):
+    """Swap A(baixo) B(alto): causa de A usa '<' e a de B usa '>'."""
+    repo, todo = _repo_com_todo(tmp_path, texto=TODO_TWO_ROOTS)
+    c = _cand(
+        is_local=False, is_scoped=False, is_foundation=True,
+        item_id="#C",
+        candidate_id="cand-explain-op",
+        description="Third root",
+        dependencies=[],
+        prereq="-",
+        grupo="Core",
+        bv=5,
+        time_criticality=5,
+        risk_reduction=5,
+        job_size=8,
+        peer_scores={
+            "#A": {
+                "bv": 1, "time_criticality": 1,
+                "risk_reduction": 1, "job_size": 13,
+            },
+            "#B": {
+                "bv": 20, "time_criticality": 13,
+                "risk_reduction": 13, "job_size": 1,
+            },
+        },
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    rt = result.report_text
+
+    def _causa_for(item_id: str) -> str:
+        lines = rt.splitlines()
+        for i, line in enumerate(lines):
+            if line.startswith(f"ITEM {item_id}:"):
+                for j in range(i + 1, min(i + 4, len(lines))):
+                    if lines[j].startswith("causa:"):
+                        return lines[j]
+        return ""
+
+    causa_a = _causa_for("#A")
+    causa_b = _causa_for("#B")
+    assert causa_a, f"missing causa for #A in:\n{rt}"
+    assert causa_b, f"missing causa for #B in:\n{rt}"
+    assert "<" in causa_a, causa_a
+    assert ">" in causa_b, causa_b
+    assert "WSJF" in causa_a and "peer" in causa_a
+    assert "WSJF" in causa_b and "peer" in causa_b
+
+
+def test_full_no_spurious_wsjf_report_when_order_unchanged(tmp_path):
+    """Sem peer_scores: report nao usa 'WSJF' como causa."""
+    repo, todo = _repo_com_todo(tmp_path)
+    c = _cand(
+        is_local=False, is_scoped=False, is_foundation=True,
+        item_id="#04",
+        candidate_id="cand-nospur",
+        description="No peer scores path",
+        dependencies=["#03"],
+        prereq="#03",
+        grupo="Safety",
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    # causas de topologia/onda ok; proibido "WSJF" como causa
+    for line in result.report_text.splitlines():
+        if line.startswith("causa:"):
+            assert "WSJF" not in line
+
+
+def test_l0_ignores_wsjf_fields_and_preserves_bytes(tmp_path):
+    """L0 + scores altos: raws existentes identicos; append no fim."""
+    repo, todo = _repo_com_todo(tmp_path)
+    antes = todo.read_text(encoding="utf-8")
+    table_antes = L.parse_table(antes)
+    raw_antes = {
+        it["id"]: table_antes["lines"][it["line_no"]]
+        for it in table_antes["items"]
+    }
+    c = _cand(
+        is_local=True, is_scoped=False, is_foundation=False,
+        item_id="#04",
+        candidate_id="cand-l0-wsjf",
+        description="Local only despite high scores",
+        bv=20,
+        time_criticality=20,
+        risk_reduction=20,
+        job_size=1,
+        peer_scores={
+            "#01": {
+                "bv": 1, "time_criticality": 1,
+                "risk_reduction": 1, "job_size": 8,
+            },
+        },
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    assert result.route == I.ROUTE_LOCAL_INTEGRATION
+    table = L.parse_table(todo.read_text(encoding="utf-8"))
+    raw_depois = {
+        it["id"]: table["lines"][it["line_no"]]
+        for it in table["items"] if it["id"] in raw_antes
+    }
+    for iid, raw in raw_antes.items():
+        assert raw_depois[iid] == raw
+    ids = [it["id"] for it in table["items"]]
+    assert ids[-1] == "#04"
+
+
+def test_scoped_ignores_wsjf_this_phase(tmp_path):
+    """SCOPED + peer_scores invertidos: Kahn/orig; sem reordenar por WSJF."""
+    repo, todo = _repo_com_todo(tmp_path, texto=TODO_SCOPED_CHAIN)
+    c = _cand(
+        is_local=False, is_scoped=True, is_foundation=False,
+        item_id="#N3",
+        candidate_id="cand-scoped-wsjf",
+        description="Scoped should ignore peer_scores",
+        dependencies=["#C2"],
+        prereq="#C2",
+        grupo="Core",
+        onda="W3",
+        scoped_max_fraction=1.0,
+        bv=20,
+        time_criticality=20,
+        risk_reduction=20,
+        job_size=1,
+        peer_scores={
+            "#C1": {
+                "bv": 1, "time_criticality": 1,
+                "risk_reduction": 1, "job_size": 13,
+            },
+            "#C2": {
+                "bv": 20, "time_criticality": 20,
+                "risk_reduction": 20, "job_size": 1,
+            },
+            "#D1": {
+                "bv": 13, "time_criticality": 13,
+                "risk_reduction": 13, "job_size": 1,
+            },
+        },
+    )
+    result = I.run_intake(todo_path=str(todo), candidate=c, apply=True)
+    assert result.rc == 0, result.error
+    assert result.route == I.ROUTE_SCOPED_REORDER, result.report_text
+    ids = [
+        it["id"]
+        for it in L.parse_table(todo.read_text(encoding="utf-8"))["items"]
+    ]
+    # cadeia original D1,C1,C2 se mantém (Kahn+orig); candidato no fim da S
+    assert ids.index("#D1") < ids.index("#C1") < ids.index("#C2")
+    assert ids.index("#C2") < ids.index("#N3")
+
+
+def test_json_cli_reads_explicit_scores(tmp_path):
+    """--json com bv/tc/rr/job_size preenche o dataclass (dry-run)."""
+    repo, todo = _repo_com_todo(tmp_path)
+    payload = {
+        "candidate_id": "cand-json-wsjf",
+        "item_id": "#04",
+        "description": "JSON score path",
+        "source": "test",
+        "fields_complete": True,
+        "is_foundation": True,
+        "bv": 8,
+        "time_criticality": 5,
+        "risk_reduction": 3,
+        "job_size": 5,
+        "peer_scores": {
+            "#01": {
+                "bv": 2, "time_criticality": 2,
+                "risk_reduction": 2, "job_size": 8,
+            },
+        },
+    }
+    # dry-run via API do parser (mesmo caminho do CLI)
+    class _Args:
+        candidate_id = None
+        item_id = None
+        description = None
+        source = None
+        evidence = None
+        source_item = None
+        dep = None
+        fields_complete = False
+        no_authority = False
+        foundation = False
+        local = False
+        scoped = False
+        reason = None
+        bv = None
+        time_criticality = None
+        risk_reduction = None
+        job_size = None
+
+    cand = I._candidate_from_args(_Args(), payload)
+    assert cand.bv == 8
+    assert cand.time_criticality == 5
+    assert cand.risk_reduction == 3
+    assert cand.job_size == 5
+    assert cand.peer_scores["#01"]["bv"] == 2
+    result = I.run_intake(todo_path=str(todo), candidate=cand, apply=False)
+    assert result.rc == 2
+    assert result.route == I.ROUTE_FULL_REORDER
