@@ -3,9 +3,9 @@
 ## Redesign de intake, priorização, frescor e sincronização do vault
 
 **Data-base:** 2026-08-16  
-**Destinatário:** Claude Code operando o ecossistema `petrinhu/tab_pendencias` + `petrinhu/claude-memory`  
+**Destinatário:** Claude Code operando o ecossistema `org/tab_pendencias` + `org/claude-memory`  
 **Objetivo primário:** eliminar a INBOX como fila normal de trabalho e transformá-la em fila excepcional de triagem, com integração imediata de trabalho classificável no `TODO.md`, preservando dependências, WSJF/SAFe, WIP, concorrência e autoridade do líder.  
-**Objetivo adicional obrigatório:** reconciliar e atualizar o repositório GitHub `petrinhu/tab_pendencias`, que o líder suspeita estar desatualizado em relação à instalação viva. Essa suspeita é **alegada, ainda não verificada contra a máquina local** e deve ser medida antes de qualquer migração.
+**Objetivo adicional obrigatório:** reconciliar e atualizar o repositório GitHub `org/tab_pendencias`, que o líder suspeita estar desatualizado em relação à instalação viva. Essa suspeita é **alegada, ainda não verificada contra a máquina local** e deve ser medida antes de qualquer migração.
 
 ---
 
@@ -85,9 +85,9 @@ A especificação deve provar que cada descoberta termina em exatamente um estad
 
 Mapear e decidir a fronteira entre:
 
-- `petrinhu/tab_pendencias`;
+- `org/tab_pendencias`;
 - instalação viva em `~/.claude/skills/tab_pendencias`;
-- `petrinhu/claude-memory`;
+- `org/claude-memory`;
 - hooks Claude Code;
 - scripts git-hook/toolkit;
 - documentação global do vault;
@@ -145,9 +145,9 @@ Push continua sujeito à política global do vault: exige autorização explíci
 
 Ordem de publicação obrigatória:
 
-1. `petrinhu/tab_pendencias` canônico;
+1. `org/tab_pendencias` canônico;
 2. confirmar SHA remoto e CI;
-3. atualizar o gitlink/submódulo em `petrinhu/claude-memory`;
+3. atualizar o gitlink/submódulo em `org/claude-memory`;
 4. atualizar bindings/docs/hooks do vault;
 5. validar recuperação em clone limpo;
 6. só então publicar `claude-memory`.
@@ -222,8 +222,8 @@ Este mecanismo deve ser eliminado, não apenas consertado outra vez.
 
 Estado remoto medido em 2026-08-16:
 
-- `petrinhu/tab_pendencias/main`: `896ff56a071a2a4e07812edb34073e93156fbe3a`;
-- `petrinhu/claude-memory` aponta `skills/tab_pendencias` para `196f03d8b5d356dca77fc2037a77d4230b93524c`.
+- `org/tab_pendencias/main`: `896ff56a071a2a4e07812edb34073e93156fbe3a`;
+- `org/claude-memory` aponta `skills/tab_pendencias` para `196f03d8b5d356dca77fc2037a77d4230b93524c`.
 
 Logo, independentemente de qualquer estado local ainda não observado, o backup `claude-memory` não restaura a revisão mais recente publicada da skill.
 
@@ -231,7 +231,7 @@ Isso é uma falha objetiva de distribuição.
 
 ## I.8. A alegação de que o próprio repo GitHub está desatualizado precisa de medição local
 
-O líder informou em 2026-08-16 que acredita que `petrinhu/tab_pendencias` também está desatualizado em relação ao ambiente vivo.
+O líder informou em 2026-08-16 que acredita que `org/tab_pendencias` também está desatualizado em relação ao ambiente vivo.
 
 Classificação:
 
@@ -250,7 +250,7 @@ Isso cria duas réguas para a mesma decisão. O redesign deve manter o núcleo g
 
 ## I.10. O bus já possui uma regra de ownership de prioridade que deve ser preservada
 
-No `gusworld_ia_autocomm`, pedidos comuns via bus não carregam classificação de importância. Quem recebe decide a posição na própria fila porque conhece roadmap, custo e dependências.
+No `consumidor-bus-protocol`, pedidos comuns via bus não carregam classificação de importância. Quem recebe decide a posição na própria fila porque conhece roadmap, custo e dependências.
 
 A `tab_pendencias` redesenhada não pode inferir prioridade a partir de frases do remetente como “urgente”, “quando der” ou “bloqueia X” em pedidos comuns. Ela deve usar fato de uso, dependências reais, criticidade temporal factual e contexto do projeto receptor.
 
@@ -260,7 +260,7 @@ Exceções explícitas do protocolo, como o fluxo de ideias do Gus com sua prior
 
 # II. Estado atual, medido agora
 
-## II.1. `petrinhu/tab_pendencias`
+## II.1. `org/tab_pendencias`
 
 Snapshot remoto verificado em 2026-08-16:
 
@@ -271,7 +271,7 @@ Snapshot remoto verificado em 2026-08-16:
 - `TODO.md` atual do próprio produto contém **2 itens na INBOX residual** no snapshot consultado;
 - o próprio `TODO.md` registra WIP = 1 onda.
 
-## II.2. `petrinhu/claude-memory`
+## II.2. `org/claude-memory`
 
 Estado remoto verificado:
 
@@ -388,7 +388,7 @@ git -C ~/.claude/skills/tab_pendencias rev-parse HEAD
 git -C ~/.claude/skills/tab_pendencias remote -v
 ```
 
-Em um clone fresco separado de `petrinhu/tab_pendencias`, medir `origin/main`.
+Em um clone fresco separado de `org/tab_pendencias`, medir `origin/main`.
 
 Também localizar cópias candidatas:
 
@@ -436,7 +436,7 @@ Se existir qualquer alteração viva não publicada:
 
 Decisão-alvo:
 
-### `petrinhu/tab_pendencias`
+### `org/tab_pendencias`
 
 Deve possuir:
 
@@ -449,7 +449,7 @@ Deve possuir:
 - CI;
 - hook Claude reutilizável, se for implementado como produto genérico.
 
-### `petrinhu/claude-memory`
+### `org/claude-memory`
 
 Deve possuir apenas:
 
@@ -1244,7 +1244,7 @@ A regra do ecossistema é que pedido do consumidor vira item rastreável no proj
 
 São conceitos diferentes:
 
-- `gusworld_ia_autocomm/inbox/<slug>` = transporte de mensagens;
+- `consumidor-bus-protocol/inbox/<slug>` = transporte de mensagens;
 - `TODO.md ## INBOX` = exception queue de planejamento.
 
 Nome igual não significa semântica igual. Documentar explicitamente.
@@ -1399,7 +1399,7 @@ Testar:
 
 ## TAB-SEC-001 - Fronteira pública x privada
 
-O redesign cruza informação do vault e do bus, mas `petrinhu/tab_pendencias` é produto distribuível. Portanto:
+O redesign cruza informação do vault e do bus, mas `org/tab_pendencias` é produto distribuível. Portanto:
 
 - nenhum corpo real de mensagem do bus privado entra em fixture versionada;
 - nenhum nome de projeto privado, path absoluto da máquina, segredo/token ou dado pessoal desnecessário entra no repo público;
@@ -1614,7 +1614,7 @@ A melhoria completa só pode ser declarada concluída quando todos estes critér
 
 ## Fonte de verdade
 
-- [ ] repo `petrinhu/tab_pendencias` medido contra instalação viva;
+- [ ] repo `org/tab_pendencias` medido contra instalação viva;
 - [ ] toda diferença útil absorvida ou explicitamente rejeitada;
 - [ ] produto genérico existe em um único lugar;
 - [ ] `claude-memory` contém integração, não fork invisível;
@@ -1768,7 +1768,7 @@ A taxa de full reorder não deve ser minimizada artificialmente. O objetivo é e
 
 Antes da implementação, reler no estado real da época de execução:
 
-## `petrinhu/tab_pendencias`
+## `org/tab_pendencias`
 
 - `SKILL.md`
 - `references/frescor-da-tabela.md`
@@ -1785,7 +1785,7 @@ Antes da implementação, reler no estado real da época de execução:
 - `.github/workflows/ci.yml`
 - testes relacionados a INBOX, status, parser, hook e instalação
 
-## `petrinhu/claude-memory`
+## `org/claude-memory`
 
 - `.gitmodules`
 - `CLAUDE.md`
@@ -1799,7 +1799,7 @@ Antes da implementação, reler no estado real da época de execução:
 
 ## Bus/ecossistema
 
-- `petrinhu/gusworld_ia_autocomm/PROTOCOL.md`
+- `org/consumidor-bus-protocol/PROTOCOL.md`
 - TODOs dos projetos canary escolhidos
 - relatório de ecossistema de 2026-08-16 apenas como contexto histórico, nunca como substituto de medição atual.
 

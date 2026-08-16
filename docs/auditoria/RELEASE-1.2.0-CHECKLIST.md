@@ -8,7 +8,7 @@ Medido na sessão de fechamento da campanha (remeça antes de autorizar).
 ## TAB-REL-001 — medir (pode repetir)
 
 ```bash
-cd /home/petrus/IDrive/Documentos/projetos_claudebrain/Projects/tab_pendencias
+cd /path/to/workspace/...
 git fetch --all --prune
 git status --short
 git log --oneline --decorate -n 20
@@ -62,7 +62,7 @@ Depois: recovery drill / SessionStart apontando para
 
 ```bash
 rm -rf /var/tmp/claude-memory-fresh-test
-git clone --recursive git@github.com:petrinhu/claude-memory.git /var/tmp/claude-memory-fresh-test
+git clone --recursive git@github.com:org/claude-memory.git /var/tmp/claude-memory-fresh-test
 # provar: skill + toolkit + hook + dry-run intake
 ```
 
