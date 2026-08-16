@@ -126,6 +126,29 @@ class IntakeError(Exception):
     """Erro de execucao (exit 1)."""
 
 
+def is_derived_hub(todo_path: str) -> bool:
+    """True se `.tab_pendencias.ini` ao lado do TODO marca ``[hub] derived=true``.
+
+    Hub agregador e view read-only (TAB-HUB-001). Ausencia de ini/secao/chave
+    = False (projeto normal). Fail-open em erro de leitura.
+    """
+    if not todo_path:
+        return False
+    root = os.path.dirname(os.path.abspath(todo_path))
+    ini_path = os.path.join(root, ".tab_pendencias.ini")
+    if not os.path.isfile(ini_path):
+        return False
+    try:
+        cp = configparser.ConfigParser()
+        cp.read(ini_path, encoding="utf-8")
+        if not cp.has_section("hub"):
+            return False
+        raw = cp.get("hub", "derived", fallback="").strip().lower()
+        return raw in ("1", "true", "yes", "on")
+    except (configparser.Error, OSError):
+        return False
+
+
 @dataclass
 class WorkCandidate:
     """Candidato a item -- campos minimos do ADR-0002 + inputs de julgamento.
@@ -1676,6 +1699,18 @@ def _run_intake_inner(*, todo_path: str, candidate: WorkCandidate,
     if not candidate.candidate_id:
         raise IntakeError("candidate_id obrigatorio")
 
+    if apply and is_derived_hub(todo_path):
+        return IntakeResult(
+            rc=1,
+            error="hub_is_derived_readonly",
+            candidate_id=candidate.candidate_id,
+            report_text=(
+                "erro: hub_is_derived_readonly -- TODO marcado "
+                "[hub] derived=true; intake apply recusado "
+                "(view agregadora, nao fila editavel)\n"
+            ),
+        )
+
     text = _read_todo(todo_path)
     table = L.parse_table(text)
     if table is None:
@@ -2109,6 +2144,18 @@ def run_drain(*, todo_path: str, apply: bool = False,
 
 def _run_drain_inner(*, todo_path: str, apply: bool,
                      judgments: dict) -> DrainResult:
+    if apply and is_derived_hub(todo_path):
+        return DrainResult(
+            rc=1,
+            applied=False,
+            error="hub_is_derived_readonly",
+            report_text=(
+                "erro: hub_is_derived_readonly -- TODO marcado "
+                "[hub] derived=true; drain apply recusado "
+                "(view agregadora, nao fila editavel)\n"
+            ),
+        )
+
     text = _read_todo(todo_path)
     table = L.parse_table(text)
     if table is None:

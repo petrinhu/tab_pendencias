@@ -1,0 +1,12 @@
+{
+  "message_id": "ca-2026-08-03-002",
+  "sender": "consumer-a",
+  "body": "something feels slow sometimes",
+  "need": "",
+  "evidence": "",
+  "claimed_priority": "ASAP",
+  "time_criticality": "urgente",
+  "dependencies": [],
+  "item_id_suggestion": "",
+  "candidate_id": "bus-ca-002"
+}

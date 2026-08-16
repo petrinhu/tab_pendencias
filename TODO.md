@@ -95,6 +95,16 @@
 | FIX-RISCO-A | W17 | Consertos | Investigar e mitigar corrida de dois --fix --apply simultaneos no mesmo repo (ambos veem arvore limpa; segundo os.replace vence). <!-- intake:drain-fix-risco-a --> | Alta | FIX-ENG | Media | ⏳ Pendente | — |
 | FIX-RISCO-B | W17 | Consertos | Investigar TOCTOU do fluxo ler-modificar-escrever do --fix sem lock de SO; pre-condicao de arvore limpa mitiga mas nao elimina. <!-- intake:drain-fix-risco-b --> | Alta | FIX-ENG | Media | ⏳ Pendente | — |
 | FIX-RISCO-C | W17 | Consertos | Provar empiricamente os.replace sobre destino somente-leitura no Windows (CI ainda nao exercita); alinhar tratamento OSError. <!-- intake:drain-fix-risco-c --> | Media | FIX-ENG | Media | ⏳ Pendente | — |
+| TAB-VAULT-001 | W22 | Vault | Fragmento `templates/vault/CLAUDE.md.fragment.md` com os 6 passos (descoberta->intake->L0/reorder/residual; TRIAGE acao da thread). SKILL.md corpo: INBOX e exception queue. | Alta | TAB-ADD-001 | Baixa | 🔍 Pendente verificação | — |
+| TAB-VAULT-002 | W22 | Vault | Overlay `templates/vault/tabela-pendencias-frescor.overlay.md` aponta norma generica para a skill; nao duplica parser/CLI. | Media | TAB-VAULT-001 | Baixa | 🔍 Pendente verificação | — |
+| TAB-VAULT-003 | W22 | Vault | Contrato `templates/agents/implementer-discovery-contract.md` (DISCOVERED_WORK); agents nao editam TODO/INBOX. | Alta | TAB-CONC-001 | Baixa | 🔍 Pendente verificação | — |
+| TAB-VAULT-004 | W22 | Vault | Snippet `templates/vault/settings.sanitized.hook-snippet.json` com path relativo `skills/tab_pendencias/tools/hooks/tab_pendencias_reminder.py`; sem /home nem secrets. | Media | TAB-HOOK-004 | Baixa | 🔍 Pendente verificação | — |
+| TAB-VAULT-005 | W22 | Vault | `scripts/recovery_drill.py` monta mock vault em dest, smoke do hook, assert path dentro do dest. Testes em `tests/test_recovery_drill.py`. | Alta | TAB-VAULT-004 | Media | 🔍 Pendente verificação | — |
+| TAB-BUS-001 | W22 | Bus | `tools/bus_contract.py`: BusMessage, extract_facts, candidate_from_bus (source=bus); claimed_priority/"urgente" nunca pontuam; time_criticality so int fib. | Alta | TAB-WSJF-007 | Media | 🔍 Pendente verificação | — |
+| TAB-BUS-002 | W22 | Bus | `archive_allowed`: mensagem so arquiva com rastro (item/dup/residual/leader). | Alta | TAB-BUS-001 | Baixa | 🔍 Pendente verificação | — |
+| TAB-BUS-003 | W22 | Bus | Reference `references/bus-versus-inbox.md` (inbox do bus != INBOX do TODO). Corpus sintetico `tests/corpus/bus/`. | Media | TAB-BUS-001 | Baixa | 🔍 Pendente verificação | — |
+| TAB-HUB-001 | W22 | Hub | Guarda `is_derived_hub` + `hub_is_derived_readonly` em run_intake/run_drain apply quando `[hub] derived=true`. Reference `references/hub-agregador.md`. | Alta | TAB-ADD-001 | Baixa | 🔍 Pendente verificação | — |
+| TAB-HUB-GEN | W22 | Hub | Gerador deterministico do hub agregador (ainda nao existe no produto; anti-OE: nao inventar nesta fatia). | Baixa | TAB-HUB-001 | Media | ⏳ Pendente | — |
 
 ## INBOX (descobertas não priorizadas)
 

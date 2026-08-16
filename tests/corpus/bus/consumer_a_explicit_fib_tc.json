@@ -1,0 +1,16 @@
+{
+  "message_id": "ca-2026-08-02-014",
+  "sender": "consumer-a",
+  "body": "Need rate-limit headers on export API; factual TC=8 from capacity review.",
+  "need": "rate-limit headers on export API",
+  "evidence": "docs/capacity-review.md:88",
+  "claimed_priority": "high",
+  "deadline_fact": "capacity review closed 2026-08-01",
+  "time_criticality": 8,
+  "business_value": 5,
+  "risk_reduction": 3,
+  "job_size": 2,
+  "dependencies": ["API-40"],
+  "item_id_suggestion": "API-55",
+  "candidate_id": "bus-ca-014"
+}

@@ -1,0 +1,13 @@
+{
+  "message_id": "ca-2026-08-01-001",
+  "sender": "consumer-a",
+  "body": "URGENT: please add pagination to the list endpoint before next release",
+  "need": "add pagination to the list endpoint",
+  "evidence": "tests/corpus/bus/consumer_a_urgent_rhetoric.json:1",
+  "claimed_priority": "urgente",
+  "deadline_fact": "release window 2026-09-01",
+  "time_criticality": null,
+  "dependencies": [],
+  "item_id_suggestion": "API-42",
+  "candidate_id": "bus-ca-001"
+}

@@ -80,26 +80,34 @@ código/conteúdo substantivo do item, não apenas por citar o ID na mensagem.
 > Citar o ID não substitui tocar a célula de `Status` manualmente quando não há mecanismo
 > automatizado disponível (§6). Citação e toque manual se reforçam; não são alternativas.
 
-## 5. INBOX -- captura agora, prioriza depois
+## 5. INBOX -- exception queue (nao e a fila normal de descoberta)
 
-Trabalho novo descoberto no meio do ciclo **não espera** uma reordenação: entra na INBOX
-imediatamente, em 1 linha, sem `Onda` nem prioridade calculada.
+> **Historico:** a formulacao antiga ("trabalho novo vai para a INBOX na hora")
+> descrevia a epoca pre-intake. Mantida so como aviso: a norma vigente e a
+> cascata abaixo. Detalhe operacional na skill e em `tools/todo_intake.py`.
 
-- **Local padrão:** seção `## INBOX (descobertas não priorizadas)` no fim do `TODO.md` de
-  projeto, uma linha por descoberta:
+Trabalho novo descoberto no meio do ciclo **nao espera** uma reordenacao completa
+por default. O caminho normal e o **pipeline de intake** (descoberta -> main ->
+`--add` / `todo_intake`):
+
+1. item local com julgamento completo -> entra no `TODO.md` (L0);
+2. impacto estrutural -> reorder proporcional (SCOPED/FULL);
+3. so o **ambiguo** (campos incompletos, sem autoridade, needs-leader) vira
+   **INBOX residual** -- exception queue, 1 linha, sem `Onda` nem WSJF.
+
+- **Local padrao da residual:** secao `## INBOX (descobertas não priorizadas)` no
+  fim do `TODO.md` de projeto:
   ```markdown
-  - <ID tentativo ou —>: descrição curta do que apareceu
+  - <ID tentativo ou —>: [triage ...] descricao curta
   ```
-- **Concorrência** (múltiplas pessoas/branches escrevendo ao mesmo tempo): trocar a seção
-  por um arquivo por descoberta em `inbox/` (ex.: `inbox/2026-07-28-nome-curto.md`), para
-  não gerar conflito de merge disputando a mesma linha do `TODO.md`.
-- **Regra de conflito:** ao resolver merge da INBOX (seção ou diretório `inbox/`), sempre
-  **unir** as descobertas concorrentes. **Nunca descartar uma linha.** É o único propósito
-  da INBOX: nenhuma descoberta se perde antes de ser avaliada.
-- **Drenagem:** `/tab_pendencias --create` e `--reorder` **esvaziam** a INBOX (e o
-  diretório `inbox/`, se em uso) -- cada item entra na ordenação (dependência +
-  prioridade + ondas) e sai da INBOX. **INBOX não-vazia é, por si só, um gatilho válido
-  para rodar `--reorder`.**
+- **Concorrencia** (sessoes/branches sem orquestrador comum): fallback
+  arquivo-por-descoberta em `inbox/` (nao e backlog normal).
+- **Regra de conflito:** ao resolver merge da INBOX (secao ou `inbox/`), sempre
+  **unir** as descobertas. **Nunca descartar uma linha.**
+- **Drenagem:** preferir `--drain`; `--create` e `--reorder` tambem esvaziam a
+  INBOX (e o `inbox/`). Residual envelhecido ou classifiable emite
+  `TAB_TRIAGE_REQUIRED` -- **acao da thread principal**, nao lembrete passivo.
+- **Hub agregador:** nao usa INBOX; ver `references/hub-agregador.md`.
 
 ## 6. Automação mecânica (opcional)
 

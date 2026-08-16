@@ -106,6 +106,7 @@ publicados. Exit 0 = limpo; Exit 1 = pelo menos um achado.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -116,6 +117,15 @@ LIMITE_LINHAS_DADOS = 100
 
 ENV_TERMOS_PROIBIDOS = "TAB_PENDENCIAS_GUARD_FORBIDDEN_TERMS"
 ARQUIVO_TERMOS_LOCAL = ".guard_forbidden_terms"
+
+# CAMADA 4 (Fase 7/8): higiene de path/email em templates e corpus de bus.
+# Prefixos POSIX no git ls-files (git normaliza para /).
+_HYGIENE_PREFIXES = (
+    "templates/",
+    "tests/corpus/bus/",
+)
+_EMAIL_RE = re.compile(r"(?i)\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b")
+_HOME_PATH_RE = re.compile(r"(?i)(?:/home/|\\\\home\\\\|[A-Za-z]:\\\\Users\\\\)")
 
 
 def _is_table_row(line: str) -> bool:
@@ -255,6 +265,40 @@ def check_forbidden_path_names(tracked: list[str], termos_proibidos: list[str]) 
     return violations
 
 
+def check_templates_and_bus_hygiene(
+    root: Path, tracked: list[str]
+) -> list[str]:
+    """CAMADA 4: proibe /home/ e emails em templates/ e tests/corpus/bus/.
+
+    Templates de vault e corpus sintetico do bus nao podem carregar path de
+    maquina nem endereco de e-mail (vazamento de maquina do autor / PII).
+    Barato: so varre prefixos curtos ja versionados.
+    """
+    violations: list[str] = []
+    for rel_path in tracked:
+        norm = rel_path.replace("\\", "/")
+        if not any(norm.startswith(p) for p in _HYGIENE_PREFIXES):
+            continue
+        path = root / rel_path
+        try:
+            text = path.read_text(encoding="utf-8", errors="strict")
+        except (UnicodeDecodeError, OSError):
+            continue
+        for i, line in enumerate(text.split("\n"), start=1):
+            if _HOME_PATH_RE.search(line):
+                violations.append(
+                    f"{rel_path}:{i}: path de maquina (/home/ ou Users) em "
+                    f"template/corpus de bus -- use path relativo ao produto "
+                    f"(ex.: skills/tab_pendencias/...)."
+                )
+            if _EMAIL_RE.search(line):
+                violations.append(
+                    f"{rel_path}:{i}: endereco de e-mail em template/corpus "
+                    f"de bus -- remova PII; use designacao neutra."
+                )
+    return violations
+
+
 def check_forbidden_content(
     root: Path, tracked: list[str], termos_proibidos: list[str]
 ) -> list[str]:
@@ -318,6 +362,12 @@ def main(argv: list[str]) -> int:
         )
     camada2_status = status_23
     camada3_status = status_23
+    hygiene = check_templates_and_bus_hygiene(root, tracked)
+    violations += hygiene
+    camada4_status = (
+        f"ativa (templates/ + tests/corpus/bus/; "
+        f"{len(hygiene)} achado(s) nesta execucao)"
+    )
 
     if violations:
         print(f"guard_no_real_fixtures: {len(violations)} achado(s):\n")
@@ -332,6 +382,7 @@ def main(argv: list[str]) -> int:
         )
         print(f"\nCAMADA 2 (caminho): {camada2_status}")
         print(f"CAMADA 3 (conteudo): {camada3_status}")
+        print(f"CAMADA 4 (templates/bus hygiene): {camada4_status}")
         return 1
 
     print(
@@ -341,14 +392,15 @@ def main(argv: list[str]) -> int:
     print("CAMADA 1 (tamanho de tabela): ativa (sempre, independe de configuracao).")
     print(f"CAMADA 2 (caminho): {camada2_status}")
     print(f"CAMADA 3 (conteudo): {camada3_status}")
+    print(f"CAMADA 4 (templates/bus hygiene): {camada4_status}")
     if not termos_proibidos:
         print(
             "AVISO: CAMADAS 2 e 3 estao DESLIGADAS nesta execucao -- o 'OK' "
-            "acima cobre SOMENTE a protecao estrutural (CAMADA 1). Isto e "
-            "esperado em CI publico/clone fresco (os termos nunca existem "
-            "la, de proposito). Na maquina do autor, configure "
-            f"{ENV_TERMOS_PROIBIDOS} ou {ARQUIVO_TERMOS_LOCAL} ANTES de "
-            "commitar para ativar a protecao completa contra vazamento de "
+            "acima cobre SOMENTE a protecao estrutural (CAMADA 1) e a CAMADA 4 "
+            "(templates/bus). Isto e esperado em CI publico/clone fresco "
+            "(os termos nunca existem la, de proposito). Na maquina do autor, "
+            f"configure {ENV_TERMOS_PROIBIDOS} ou {ARQUIVO_TERMOS_LOCAL} ANTES "
+            "de commitar para ativar a protecao completa contra vazamento de "
             "nome de projeto-fonte real, em caminho e em conteudo."
         )
     return 0

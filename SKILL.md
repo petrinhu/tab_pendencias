@@ -55,19 +55,44 @@ Para a tabela não apodrecer durante o sprint, separe SEMPRE duas operações de
 
 A parte mecânica (sincronizar status) tem executores LOCAIS e determinísticos, **offline, sem agents/LLM** (rodam fora desta skill, no próprio repo do projeto que usa a skill): `python3 tools/todo_sync.py [--apply]` avança itens entregues `⏳`/`🔄` → `🔍` a partir dos IDs citados nos commits (nunca `✅`, nunca reordena); `python3 tools/todo_health.py` reporta presos em `🔍`, INBOX e adesão. Esta skill cobre o **planejamento** (`--reorder`, julgamento); a sincronização mecânica vive nesses scripts. Ver `tools/README.md`.
 
-### INBOX (captura agora, prioriza depois)
+### INBOX (exception queue -- nao e fila normal)
 
-Trabalho novo descoberto no meio do sprint NÃO espera reordenar: vai para a INBOX na hora (1 linha), sem Onda nem WSJF.
+> **Historico (pre-intake):** versoes antigas da skill mandavam *toda* descoberta
+> para a INBOX "na hora" e esperavam dreno humano/`--reorder`. Isso ficou
+> obsoleto com o pipeline de intake (ADR-0002). A INBOX residual **nao** e a
+> fila normal de descoberta.
 
-- **Local:** seção no FIM do `TODO.md` de projeto:
+Trabalho novo descoberto no meio do sprint **nao espera reordenar**: a thread
+principal chama o **intake** (`--add` / `tools/todo_intake.py`). A cascata decide:
+
+1. **Local (L0)** -- entra no `TODO.md` na hora (append).
+2. **Escopado / fundacao** -- `SCOPED_REORDER` ou `FULL_REORDER` proporcional.
+3. **Duplicata** -- nao cria linha; limpa residual relacionado se houver.
+4. **Ambiguo / sem autoridade** -- so entao vira **INBOX residual** (exception
+   queue) com metadado `[triage ...]`, sem Onda nem WSJF.
+
+Workers/subagentes **nao** escrevem na INBOX: devolvem `DISCOVERED_WORK` e o
+main chama o intake (ver secao **Fluxo agentivo de `--add`**).
+
+- **Local da residual:** secao no FIM do `TODO.md` de projeto:
   ```markdown
   ## INBOX (descobertas não priorizadas)
-  - <ID tentativo ou —>: descrição curta do que apareceu
+  - <ID tentativo ou —>: [triage ...] descricao curta
   ```
-- **Concorrência (worktrees/PRs paralelos):** se vários agents/branches anexam ao mesmo tempo, troque a seção por um arquivo-por-descoberta em `inbox/` (ex: `inbox/YYYYMMDD-HHMMSS-<session>-<slug>.md` via `tools/concurrent_inbox.py`) para não gerar conflito de merge. Isso é **fallback entre sessões**, não backlog normal. Resolução de conflito da INBOX: **sempre união, NUNCA descartar uma linha** (perder item é o que a INBOX existe para evitar).
-- **Dreno:** preferir `--drain` (exception queue: classifiable com julgamento agentivo + residual envelhece por `cycles` **ou** idade em dias). `--create` e `--reorder` também ESVAZIAM a INBOX (e o `inbox/`), integrando na ordenação. Sinais de frescor: ver secao **Sinais de frescor (`TAB_*`)** abaixo e `references/sinais-de-frescor.md`.
+- **Concorrência (worktrees/PRs paralelos, sem orquestrador comum):** fallback
+  `inbox/` via `tools/concurrent_inbox.py` (arquivo por descoberta). Nao e
+  backlog normal. Resolucao de conflito: **sempre uniao, NUNCA descartar linha**.
+- **Dreno:** preferir `--drain` (classifiable com julgamento agentivo + residual
+  envelhece por `cycles` **ou** idade em dias). `--create` e `--reorder` tambem
+  esvaziam a INBOX (e o `inbox/`). `TAB_TRIAGE_REQUIRED` e **acao obrigatoria**
+  da thread principal (SessionStart/health), nao lembrete passivo. Sinais:
+  secao **Sinais de frescor (`TAB_*`)** e `references/sinais-de-frescor.md`.
 
-> **Dois tipos de `TODO.md`:** o de **projeto** (itens editáveis; item↔commit faz sentido; esta seção se aplica) e o **hub agregador** (contagens derivadas de vários projetos; NÃO marcar à mão nem usar INBOX — regenerar por script). A convenção de frescor vale no de projeto.
+> **Dois tipos de `TODO.md`:** o de **projeto** (itens editaveis; item↔commit
+> faz sentido; esta secao se aplica) e o **hub agregador** (contagens derivadas;
+> NÃO marcar a mao nem usar INBOX -- regenerar por script; ver
+> `references/hub-agregador.md` e guarda `hub_is_derived_readonly`). A
+> convencao de frescor vale no de projeto.
 
 ### Sinais de frescor (`TAB_*`)
 

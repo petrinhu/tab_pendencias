@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 skills/tab_pendencias/tools/hooks/tab_pendencias_reminder.py"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 skills/tab_pendencias/tools/hooks/tab_pendencias_reminder.py"
+          }
+        ]
+      }
+    ]
+  },
+  "_comment": "Snippet sanitizado (TAB-VAULT-004). Paths relativos ao root do vault/memoria; sem path absoluto de maquina, sem tokens. O adapter real mora no submodulo do produto. Cole sob a chave hooks do settings.sanitized.json do vault e confira que o arquivo do command existe apos clone --recursive."
+}
