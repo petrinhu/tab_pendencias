@@ -138,6 +138,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
+      - name: "git safe.directory (checkout do runner-host + container root = dubious ownership)"
+        # ACHADO (CI-2b, prova local 2026-08-16): job container roda como
+        # root, mas o checkout que popula o workspace e feito com o UID do
+        # runner-host (nao o root do container) -- dono do arquivo != euid
+        # de quem le. Isso e EXATAMENTE o cenario que o git recusa desde a
+        # correcao do CVE-2022-24765 ("dubious ownership"): qualquer
+        # comando git no workspace falha com RC=128 e a mensagem "detected
+        # dubious ownership in repository at '<path>'" ate o dono ser
+        # marcado como seguro. `todo_lib.git()` (tools/todo_lib.py) engole
+        # stderr e devolve "" em QUALQUER falha do subprocesso -- entao
+        # `repo_root()` volta None e o sintoma observado no teste
+        # (`test_dogfood_proprio_repo`) e o texto generico "Nao e um
+        # repositorio git." (RC=1), nao o erro real do git.
+        #
+        # Reproduzido localmente (podman/docker): `archlinux:latest`,
+        # bind-mount de um diretorio de dono uid=1000 (simulando o
+        # runner-host) montado em container rodando como root (uid=0) --
+        # sem este passo, `git rev-parse --show-toplevel` no diretorio
+        # monta RC=128 ("dubious ownership"); com `git config --global
+        # --add safe.directory` apontando so para o workspace do job,
+        # RC=0. Suite completa confirmada verde nas duas condicoes depois
+        # do passo (ver relatorio da fatia).
+        #
+        # So o workspace deste job (nao `safe.directory=*`, que marcaria
+        # TODO diretorio do container como seguro -- amplo demais para o
+        # que este job precisa).
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: "Versao do Python neste ambiente (piso/teto de compatibilidade, D-9)"
         run: python3 --version
 

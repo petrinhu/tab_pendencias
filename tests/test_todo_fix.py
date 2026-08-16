@@ -28,6 +28,21 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS_DIR = os.path.join(REPO_ROOT, "tools")
 FIX = os.path.join(TOOLS_DIR, "todo_fix.py")
 
+# ACHADO (CI-2, prova local 2026-08-16): jobs de container do GitHub Actions
+# rodam como root por padrao, e root ignora bits de permissao POSIX -- um
+# `chmod 0o555` (sem escrita) no diretorio nao bloqueia a escrita do PROPRIO
+# root nele. Reproduzido com podman/docker (archlinux:latest): a mesma
+# suite, mesmo cenario, da rc=2/applied=True como root em vez do
+# rc=1/applied=False esperado como usuario comum -- nao e regressao do
+# codigo, e o ambiente tornando a precondicao do teste inalcancavel. A
+# condicao do skip abaixo e ROOT (EUID==0), nunca "container" nem "Linux":
+# em usuario comum, dentro OU fora de container, o teste roda normal (e
+# roda -- ver `tools/ci/` archlinux/debian/fedora quando o passo de
+# privilege-drop existir). `os.geteuid` nao existe no Windows; a guarda
+# `hasattr` evita AttributeError la sem nunca produzir skip falso (no
+# Windows a condicao e sempre False, o teste roda).
+_RODANDO_COMO_ROOT = hasattr(os, "geteuid") and os.geteuid() == 0
+
 _ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
         "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
 
@@ -314,6 +329,17 @@ def test_apply_arquivo_somente_leitura_e_substituido_via_rename_atomico(tmp_path
     assert "\\|" in todo.read_text(encoding="utf-8")
 
 
+@pytest.mark.skipif(
+    _RODANDO_COMO_ROOT,
+    reason=(
+        "root ignora bits de permissao POSIX -- chmod 0o555 no diretorio "
+        "nao bloqueia escrita do proprio root nele, entao a precondicao "
+        "do teste (escrita deve falhar) nunca se estabelece. Condicao e "
+        "EUID==0 (nao container, nao plataforma): roda normal como "
+        "usuario comum em qualquer SO/ambiente, inclusive dentro de "
+        "container."
+    ),
+)
 def test_apply_diretorio_sem_permissao_de_escrita_falha_limpo(tmp_path):
     root, todo = _repo(tmp_path, TODO_PIPE_CRU)
     antes = todo.read_bytes()
