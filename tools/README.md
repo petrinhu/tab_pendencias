@@ -84,6 +84,72 @@ python3 tools/submodule_pin_drift.py --path caminho/do/submodulo [--url <remoto>
   (path inválido, `.gitmodules` sem URL resolvível, flag desconhecida);
   `2` = `status` em `desatualizado`, `divergente` ou `nao_verificavel`.
 
+## Write-ahead journal de intake (`intake_journal.py`, TAB-ADD-000)
+
+Captura **durável e barata** de um candidato a item de `TODO.md`, gravada
+ATOMICAMENTE em disco **antes** de qualquer classificação agentiva que
+possa terminar em mutação persistente da tabela. Fecha a janela entre "a
+descoberta foi entendida" e "a descoberta foi persistida" -- se a sessão
+morrer nessa janela, a descoberta some em silêncio sem este journal.
+Implementa a metade mecânica descrita no ADR-0002, seção (c)/T2.
+
+```python
+import intake_journal as J
+
+path = J.write_candidate(
+    J.new_candidate_id(), source="agent",
+    description="testes cobrem X mas não Y", source_item="V-12")
+# ... depois de integrar e VALIDAR a integração no TODO.md ...
+J.mark_done(J.journal_dir_for(), candidate_id)
+```
+
+- **Onde mora**: `<git-common-dir>/tab-pendencias/intake-journal/`, obtido
+  via `git rev-parse --git-common-dir` (nunca `.git` como diretório físico
+  -- em `git worktree`, `.git` é um ARQUIVO que aponta pro repo principal).
+  Fica fora do `TODO.md`, fora do versionamento, e é **compartilhado**
+  entre todos os worktrees do mesmo repositório.
+- **Registro mínimo** (JSON, um arquivo por candidato): `candidate_id`,
+  `created_at`/`updated_at`, `source` (`user|bus|agent|audit|test`),
+  `description` (sanitizada, ver abaixo), `source_item`, `state`
+  (`NEW`/`DONE`).
+- **Nome de arquivo**: `candidate_id` nunca vira nome de arquivo sem
+  `sanitize_filename_component` -- remove os caracteres proibidos no
+  Windows (`< > : " / \ | ? *` e controle), corta espaço/ponto nas pontas,
+  evita nome de dispositivo reservado (`CON`, `COM1`..`9`, `LPT1`..`9`) e
+  soma um sufixo hash do `candidate_id` original pra dois IDs diferentes
+  que sanitizam igual nunca colidirem em disco.
+- **Ciclo de vida**: `write_candidate` grava `state=NEW`; depois da
+  integração persistida e validada, `mark_done` (mantém em disco,
+  `state=DONE`) ou `remove_candidate` (apaga) -- as duas idempotentes
+  (chamar de novo não é erro, só devolve `False`).
+- **Recuperação de órfão**: `list_orphans` lista todo registro
+  `state != DONE`; `recover_orphans(journal_dir, todo_text=...)` resolve
+  cada órfão contra o texto atual do `TODO.md` por dedup mecânica de ID
+  exato -- se o `candidate_id` já aparece lá (contrato: quem integra grava
+  o `candidate_id` num marcador recuperável na linha), marca `DONE` sem
+  criar nada; senão continua pendente sem nenhum efeito colateral. Rodar
+  duas vezes seguidas nunca duplica (a única escrita possível é
+  `mark_done`, que já é idempotente).
+- **Journal corrompido/parcial nunca quebra a leitura**: `list_corrupted`
+  reporta arquivo `*.json` ilegível separado de `list_orphans` (que nunca
+  faz `mark_done` às cegas sobre algo que não deu pra interpretar);
+  arquivo temporário de uma gravação atômica interrompida (`*.tmp`) é
+  ignorado por não ter a extensão `.json`.
+- **Segredo nunca entra no journal**: `redact_secrets` filtra
+  `description` (chave AWS, bloco de chave privada PEM, atribuição
+  `senha=`/`token=`/`api_key=`, bearer token, JWT) antes de gravar --
+  best-effort, defesa em profundidade, não substitui revisão humana nem
+  scanner dedicado.
+- **Fora de escopo aqui** (fica pra `TAB-ADD-001`+): `--add`,
+  classificação de impacto (L0..L3), reorder. Este módulo só oferece
+  captura e recuperação; quem classifica e integra é outra camada.
+
+CLI mínima de diagnóstico (leitura, nunca muta o `TODO.md`):
+
+```sh
+python3 tools/intake_journal.py --list-orphans [--journal-dir <caminho>]
+```
+
 ## Como ativar
 
 Os arquivos são `hooks/post-commit` (shim POSIX) + `todo_freshness.py`
