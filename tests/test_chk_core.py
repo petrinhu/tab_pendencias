@@ -333,6 +333,23 @@ def test_chk08_mais_grave_para_emoji_desconhecido_ou_texto_solto():
     assert achados[0].severity == "IMPORTANTE"
 
 
+def test_chk08_so_verbo_legado_e_importante_nao_classificado():
+    # VERB-STATUS-2: "Verificar disponibilidade" sozinho nao e fallback
+    # cosmetico -- e unknown IMPORTANTE (audit aponta, predicados nao
+    # classificados).
+    texto = (
+        "| ID | Wave | Group | Description | Priority | Blocked By | "
+        "Effort | Status | Reviewed |\n"
+        "| :- | :- | :- | :- | :- | :- | :- | :- | :- |\n"
+        "| Z-10 | W1 | Core | A | High | - | Low | "
+        "Verificar disponibilidade | - |\n"
+    )
+    achados = C._chk08_status_fora_do_vocabulario(_ctx(texto))
+    assert len(achados) == 1
+    assert achados[0].severity == "IMPORTANTE"
+    assert achados[0].check_id == "CHK-08"
+
+
 @pytest.mark.parametrize("env_path", [FIXTURE_A, FIXTURE_B])
 def test_chk08_roda_em_fixture_real(env_path):
     achados, _text = _run_on_fixture(env_path, C._chk08_status_fora_do_vocabulario)

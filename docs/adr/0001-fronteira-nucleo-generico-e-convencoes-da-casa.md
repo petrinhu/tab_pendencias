@@ -78,12 +78,15 @@ override pontual. Sem variavel de ambiente. (D-9, D-10, decisoes_lider.md)**
   e sempre o mais restrito/generico, coerente com "OPT-IN" (SS4.0.3 do prompt: convencoes da
   casa "sao OPT-IN configuravel").
 - **D-9 -- formato do arquivo, FECHADO:** INI, lido com `configparser` da stdlib (nao TOML).
-  Motivo registrado pelo lider: `tomllib` so existe na stdlib a partir do Python 3.11, o que
-  excluiria Ubuntu 22.04 LTS (3.10) e RHEL 9 (3.9) -- o produto e distribuido e nao pode impor
-  Python 3.11+ como pre-requisito do nucleo. `configparser` funciona em qualquer Python 3.x,
-  aceita comentario, e para as poucas chaves que este projeto precisa (`[profile] name`,
-  `[audit.chk09] patterns`) o TOML seria peso morto. **Nao havera parser proprio de fallback**:
-  `configparser` e a unica implementacao, sem mini-parser alternativo para manter.
+  Motivo **historico** registrado na epoca: `tomllib` so existia na stdlib a partir do Python
+  3.11, o que excluiria Ubuntu 22.04 LTS (3.10) e RHEL 9 (3.9). **Atualizacao PYFLOOR-2
+  (16/08/2026):** o piso oficial do nucleo passou a ser **Python >= 3.11** (declarado em
+  `pyproject.toml` e coberto pela matriz de CI). O formato **permanece INI** por decisao
+  explicita -- trocar para TOML quebraria configs ja publicadas de consumidores sem ganho
+  proporcional; a justificativa do formato e agora de compatibilidade/estabilidade de
+  contrato, nao de piso de Python. `configparser` aceita comentario, e para as poucas chaves
+  que este projeto precisa (`[profile] name`, `[audit.chk09] patterns`) o TOML seria peso
+  morto. **Nao havera parser proprio de fallback**: `configparser` e a unica implementacao.
 - Flag de CLI `--profile core|casa` sobrepoe o arquivo para uma execucao pontual (util em CI ou
   para o proprio autor testar o perfil core isoladamente sem editar o arquivo).
 - **Sem variavel de ambiente.** Uma env var e estado implicito, global ao shell, que sobrevive
@@ -151,13 +154,17 @@ override pontual. Sem variavel de ambiente. (D-9, D-10, decisoes_lider.md)**
 - `--audit` e **sempre read-only**: nunca abre o TODO.md em modo de escrita, nunca chama git em
   modo que mute estado (sem commit/checkout/branch/reset). O modulo `--audit=repo` (CHK-15..18)
   fica fora do escopo da v1 (D-5); quando existir, mesma regra: so leitura.
-- `--fix` aplica **apenas** o listado em SS4.3 do prompt: escapar `|` cru (CHK-02), remover
-  fragmento duplicado/truncado apos mostrar o diff (CHK-01), consolidar tabelas fragmentadas so
-  com `ncols` identicos confirmados preservando ID/Status/Estado Auditado linha a linha sem
-  reordenar (CHK-03+04), corrigir claim obsoleta mostrando o texto novo antes (CHK-09). `--fix`
-  **nunca** muda Status (papel do sync ou do humano), nunca reordena (e `--reorder`), nunca toca
-  branch/commit (repo-level fica sempre como comando pronto para o lider rodar com `!`, nunca
-  executado pela skill).
+- `--fix` aplica **apenas** as **duas** classes mecanicas e byte-preserving que existem no
+  motor e nos checks (FIX-ESCOPO-2, confirmado pelo lider em 16/08/2026): escapar `|` cru
+  (`escapar_pipe_cru` / CHK-02) e remover fragmento duplicado/truncado apos mostrar o diff
+  (`remover_fragmento_duplicado` / CHK-01). **Nao ha terceira nem quarta classe no escopo
+  real:** consolidar tabelas fragmentadas (CHK-03/04) e reescrever claim na Descricao
+  (CHK-09) **movem linhas** em arquivo de terceiro -- operacao de maior risco -- e ficam
+  fora do auto-fix (julgamento humano / `--reorder` / edicao manual). Regra fixa: um check
+  **nunca** emite `fixable=True` / `fix_ref` sem o corretor correspondente existir em
+  `tools/todo_fix.py`. `--fix` **nunca** muda Status (papel do sync ou do humano), nunca
+  reordena (e `--reorder`), nunca toca branch/commit (repo-level fica sempre como comando
+  pronto para o lider rodar com `!`, nunca executado pela skill).
 - **Exit codes (D-6), fixos em 3 valores** -- nenhum exit code novo e inventado por nenhum check:
   `0` = execucao ok e zero achados; `1` = erro de execucao (excecao nao tratada, TODO.md
   ilegivel, nao e repo git quando exigido); `2` = execucao ok e ha pelo menos um achado, **de

@@ -1,0 +1,11 @@
+# Metadado minimo do toolkit (PYFLOOR-2). Runtime e stdlib pura em tools/;
+# este arquivo so declara o piso de Python e o nome -- nao e um wheel instalavel.
+[project]
+name = "tab_pendencias"
+requires-python = ">=3.11"
+description = "Skill + toolkit de frescor para TODO.md (agnostico a projeto, cross-platform)"
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

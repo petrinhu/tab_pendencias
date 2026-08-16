@@ -217,9 +217,9 @@ abaixo, como texto.
 ### 4.2 Conferindo se você tem git e python3
 
 O `tab_pendencias` precisa de dois programas instalados: **git** (a
-ferramenta de controle de versão da seção 3) e **Python 3** (a linguagem em
-que os scripts do projeto são escritos). Para conferir se já estão
-instalados, digite no terminal:
+ferramenta de controle de versão da seção 3) e **Python 3.11 ou mais novo**
+(piso oficial do projeto; a linguagem em que os scripts são escritos). Para
+conferir se já estão instalados, digite no terminal:
 
 ```bash
 git --version
@@ -227,11 +227,12 @@ python3 --version
 ```
 
 Se aparecer um número de versão (por exemplo `git version 2.43.0` e `Python
-3.13.9`), está tudo certo. Se aparecer uma mensagem de "comando não
-encontrado", você precisa instalar: procure "instalar git" e "instalar
-python3" para o seu sistema operacional -- ambos são gratuitos e têm
-instaladores oficiais para Windows, macOS e Linux. No Windows, o instalador
-do "Git for Windows" já traz o Git Bash mencionado no passo anterior.
+3.11.2` ou superior), está tudo certo. Se o Python for **menor que 3.11**,
+atualize-o antes de rodar o toolkit. Se aparecer "comando não encontrado",
+instale git e python3 para o seu sistema operacional -- ambos são gratuitos e
+têm instaladores oficiais para Windows, macOS e Linux. No Windows, o
+instalador do "Git for Windows" já traz o Git Bash mencionado no passo
+anterior.
 
 ### 4.3 Baixando o projeto (clone)
 

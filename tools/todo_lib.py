@@ -300,30 +300,16 @@ def _status_kind(status):
     return None
 
 
-def _has_word(text, word):
-    """Substring com fronteira de palavra (\\b) na frente, nunca substring
-    crua -- e o que faz 'pendente' NAO casar dentro de 'dependente' e
-    'conclu' NAO casar dentro de 'inconclusivo'. So fronteira de palavra na
-    FRENTE (nao atras): o vocabulario e um radical pt-br que aceita flexao
-    (Concluído/concluida, verificação/verificar), so a palavra anterior
-    grudada e que e o falso-positivo. Opera sobre o vocabulario fechado de
-    status (ADR-0001 (d): esta celula NAO e conteudo livre do usuario)."""
-    return re.search(r"\b" + word, text.lower()) is not None
-
-
 def status_classification_via(status):
-    """Como a celula foi classificada -- gancho informativo para o futuro
-    `--audit`/CHK-08 (AUDIT-ENG, ainda nao implementado) reportar tabela
-    legada sem emoji, sem duplicar a deteccao aqui: "emoji" (contrato D-1, o
-    caminho correto), "fallback" (sem nenhum dos 7 emojis, mas o vocabulario
-    de texto puro foi reconhecido por word-boundary) ou "unknown" (nem
-    emoji nem fallback reconheceram -- candidato a achado de CHK-08, "status
-    fora do vocabulario"). Nenhum predicado abaixo (is_pending/is_done/...)
-    consulta esta funcao para decidir; ela existe so para relato."""
+    """Como a celula foi classificada -- gancho informativo para CHK-08:
+    "emoji" (contrato D-1), "fallback" (legado sem emoji, mas
+    `_classify_legacy` reconheceu vocabulario canonico) ou "unknown"
+    (nem emoji nem fallback -- achado IMPORTANTE de CHK-08). Fonte unica:
+    mesmos predicados que is_pending/is_done/...; VERB-STATUS-2 proibe
+    classificar so-verbo ("Verificar disponibilidade") como fallback."""
     if _status_kind(status) is not None:
         return "emoji"
-    if any(_has_word(status, w) for w in
-           ("pendente", "andamento", "conclu", "verifica", "design")):
+    if _classify_legacy(status) is not None:
         return "fallback"
     return "unknown"
 
@@ -361,12 +347,16 @@ _LEGACY_QUALIFIER = (
 # Vocabulario simples do fallback e o kind que cada radical decide quando
 # vence por posicao (mesmos 7 kinds de _EMOJI_KIND, exceto parcial/decisao,
 # que nao tem forma textual pura reconhecida historicamente pelo fallback).
-_LEGACY_WORD_KIND = (
-    ("pendente", "pendente"),
-    ("andamento", "andamento"),
-    ("conclu", "done"),
-    ("verifica", "verificacao"),
-    ("design", "design"),
+# Padroes compilados: "verifica" NUNCA casa o infinitivo "verificar"
+# (VERB-STATUS-2 -- so-verbo sem vocabulo canonico nao classifica; o
+# audit/CHK-08 aponta "unknown"). "verificacao"/"verificado"/"verifica "
+# continuam casando.
+_LEGACY_WORD_PATTERNS = (
+    (re.compile(r"\bpendente"), "pendente"),
+    (re.compile(r"\bandamento"), "andamento"),
+    (re.compile(r"\bconclu"), "done"),
+    (re.compile(r"\bverifica(?!r\b)"), "verificacao"),
+    (re.compile(r"\bdesign\b"), "design"),
 )
 
 
@@ -389,15 +379,20 @@ def _classify_legacy(status):
     (so 'conclu'), entao nunca entra aqui, e 'conclu'@0 continua vencendo
     por posicao abaixo, como o teste W15 exige. Devolve a mesma categoria
     de _status_kind, ou None quando nenhum vocabulo do fallback foi
-    reconhecido."""
+    reconhecido.
+
+    VERB-STATUS-2: celula so com o infinitivo ("Verificar disponibilidade",
+    "A verificar", "verificar") devolve None -- nao e vocabulario canonico
+    de status; CHK-08 aponta, e nenhum predicado (is_awaiting_verification
+    etc.) classifica em silencio."""
     s = status.lower()
     if _LEGACY_RADICAL.search(s):
         for pattern, kind in _LEGACY_QUALIFIER:
             if pattern.search(s):
                 return kind
     best_pos, best_kind = None, None
-    for word, kind in _LEGACY_WORD_KIND:
-        m = re.search(r"\b" + word, s)
+    for pattern, kind in _LEGACY_WORD_PATTERNS:
+        m = pattern.search(s)
         if m is not None and (best_pos is None or m.start() < best_pos):
             best_pos, best_kind = m.start(), kind
     return best_kind

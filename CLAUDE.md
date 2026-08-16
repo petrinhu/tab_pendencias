@@ -45,7 +45,9 @@ exercite é promessa, não requisito. Detalhe formal no ADR-0001, seções (a), 
   no mesmo commit: implementação entregue → `🔍 Pendente verificação`, nunca `✅` direto.
 - **Push ao fim de onda completa**; merge em `main` via PR e tag pedem confirmação do líder.
   A mensagem do push mente -- confirmar por `git ls-remote`.
-- Idioma: chat e docs em pt-br; identificadores de código em inglês. Evitar em-dash nos arquivos
-  (usar `--`).
+- Idioma: chat e docs em pt-br; identificadores de código em inglês. Em-dash
+  (U+2014) e celula vazia canonica do schema (MDASH-2); excecao deste repo via
+  `.tab_pendencias.allow_emdash`. Em prosa livre preferir `--`.
+- Piso Python: **>= 3.11** (`pyproject.toml`, PYFLOOR-2). Config continua INI.
 - As 12 armadilhas operacionais estão na seção 8 do `prompt_inicial.md` -- colar nos briefs dos
   agents implementadores.

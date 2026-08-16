@@ -66,12 +66,15 @@ cenário, para nunca ficar surpreso em silêncio:
 
 O núcleo (`tools/`) é Python puro sem dependências fora da stdlib, sem hardcode de
 separador de caminho POSIX e sem assumir encoding/newline padrão do sistema
-operacional. A suíte roda no CI em **cinco ambientes**: Ubuntu e Windows nativos, mais
-Debian, Fedora e Arch em container. Versões de Python medidas de fábrica nesses
+operacional. **Piso oficial: Python >= 3.11** (declarado em `pyproject.toml`,
+exercitado na matriz de CI em 3.11 e 3.12 nativos + distros em container). A
+suíte roda no CI em **cinco ambientes**: Ubuntu e Windows nativos, mais Debian,
+Fedora e Arch em container. Versões de Python medidas de fábrica nesses
 ambientes: Debian 12 = 3.11.2, Fedora 41 = 3.13.9, Arch = 3.14.6. A configuração
-opcional (`.tab_pendencias.ini`) usa o formato INI, lido com `configparser` da stdlib,
-escolhido deliberadamente em vez de TOML para não exigir Python 3.11+ (`tomllib`
-só existe a partir dessa versão) como pré-requisito do núcleo.
+opcional (`.tab_pendencias.ini`) usa o formato INI, lido com `configparser` da
+stdlib -- escolha **histórica** (D-9; na época o motivo era não exigir 3.11+ via
+`tomllib`); o formato **permanece INI** por compatibilidade com configs já
+publicadas, não porque o piso ainda seja inferior a 3.11.
 
 ### Estrutura padrão da tabela (9 colunas)
 
@@ -87,9 +90,12 @@ parser localiza o cabeçalho pelo nome das colunas, nunca por uma contagem fixa.
 
 ### Valores válidos
 
-O símbolo de célula vazia é o travessão tipográfico (Unicode U+2014); ele aparece
-literalmente nas células de `Onda`, `Pré-requisito` e `Estado Auditado` quando não
-há valor a preencher.
+O símbolo de célula vazia é o travessão tipográfico (Unicode U+2014, `—`); ele
+aparece literalmente nas células de `Onda`, `Pré-requisito` e `Estado Auditado`
+quando não há valor a preencher. **Exceção MDASH-2:** este repositório usa o
+caractere de propósito (é o contrato do schema). Marcador
+[`.tab_pendencias.allow_emdash`](.tab_pendencias.allow_emdash) + checklist para o
+hook anti-mdash do consumidor isentar o path `tab_pendencias`.
 
 | Coluna | Valores |
 |---|---|
@@ -149,9 +155,9 @@ python3 tools/todo_audit.py [--profile core|casa] [--todo <caminho>] \
   erro explicando a restrição.
 - **`--profile core|casa`** e o arquivo `.tab_pendencias.ini` na raiz do repo
   auditado (seção `[profile]`, chave `name = casa`; formato INI lido com
-  `configparser` da stdlib, escolhido para não exigir Python 3.11+). O perfil
-  `core` é o default. **A camada casa é aditiva, nunca substitutiva**: sob
-  `casa` rodam os 11 checks do núcleo **mais** os 3 da casa (14 no total);
+  `configparser` da stdlib -- escolha histórica D-9; piso atual Python >= 3.11).
+  O perfil `core` é o default. **A camada casa é aditiva, nunca substitutiva**:
+  sob `casa` rodam os 11 checks do núcleo **mais** os 3 da casa (14 no total);
   quem não ativa `casa` não perde nenhum check do núcleo, só não ganha os 3
   extras.
 - **`--max-per-check N`** (default 5; `N<=0` = sem limite): amostra no máximo N
@@ -197,18 +203,17 @@ python3 tools/todo_fix.py [--apply CLASSE [CLASSE ...]] [-v]
   diff de cada mudança proposta) e nunca escreve no arquivo.
 - **`--apply <classe...>`** aplica só as classes nomeadas, ou `--apply all`
   para todas as detectadas naquela execução.
-- **Duas classes de correção existem hoje**: `escapar_pipe_cru` (de `CHK-02`:
-  escapa um `|` cru localizado sem ambiguidade dentro de um code span) e
-  `remover_fragmento_duplicado` (de `CHK-01`: remove a ocorrência de um ID
-  duplicado que a heurística reconhece como fragmento/lixo óbvio). **O
-  `ADR-0001` previa quatro classes** (as outras duas seriam consolidar tabela
-  fragmentada e corrigir claim obsoleta na Descrição) -- elas **não existem**
-  porque nenhum check do catálogo hoje marca `CHK-03`/`CHK-04`/`CHK-09` como
-  `[auto-fixável]`. Isso é decisão registrada, não lacuna esquecida: o motor
-  só aplica o que o `--audit` já decidiu ser seguro, e mesmo dentro de
-  `escapar_pipe_cru` o motor é mais conservador que o check -- recusa aplicar
-  (marcando `[NÃO APLICÁVEL]` no relatório, com o motivo) sempre que a posição
-  do pipe cru não é inequívoca.
+- **Duas classes de correção (escopo real, FIX-ESCOPO-2)**: `escapar_pipe_cru`
+  (de `CHK-02`: escapa um `|` cru localizado sem ambiguidade dentro de um code
+  span) e `remover_fragmento_duplicado` (de `CHK-01`: remove a ocorrência de um
+  ID duplicado que a heurística reconhece como fragmento/lixo óbvio). Não há
+  terceira nem quarta classe: consolidar tabela fragmentada e reescrever claim
+  na Descrição **movem linhas** em arquivo de terceiro e ficaram **fora** do
+  auto-fix (julgamento humano / `--reorder` / edição manual). Regra fixa: a
+  auditoria **nunca** marca `fixable=True` sem o corretor correspondente
+  existir no motor. Mesmo dentro de `escapar_pipe_cru` o motor é mais
+  conservador que o check -- recusa aplicar (marcando `[NÃO APLICÁVEL]` no
+  relatório, com o motivo) sempre que a posição do pipe cru não é inequívoca.
 - **Proteções, na ordem em que agem**: (1) `--apply` aborta com erro **antes de
   qualquer escrita** se a working tree do `TODO.md` não estiver limpa
   (`git status --porcelain` não-vazio) -- nunca mistura com edição em voo de
@@ -377,12 +382,16 @@ scenario, so nothing degrades silently:
 
 The core (`tools/`) is pure Python with no dependency outside the stdlib, no
 hardcoded POSIX path separator, and no assumption about the operating system's
-default encoding/newline. The test suite runs in CI across **five environments**:
-native Ubuntu and Windows, plus Debian, Fedora, and Arch via container. Python
-versions measured out of the box in those environments: Debian 12 = 3.11.2, Fedora
-41 = 3.13.9, Arch = 3.14.6. The optional config file (`.tab_pendencias.ini`) uses the
-INI format, read with the stdlib `configparser`, deliberately chosen over TOML so
-the core doesn't require Python 3.11+ (`tomllib` only exists from that version on).
+default encoding/newline. **Official floor: Python >= 3.11** (declared in
+`pyproject.toml`, exercised in CI on 3.11 and 3.12 natively plus distro
+containers). The test suite runs in CI across **five environments**: native
+Ubuntu and Windows, plus Debian, Fedora, and Arch via container. Python versions
+measured out of the box in those environments: Debian 12 = 3.11.2, Fedora 41 =
+3.13.9, Arch = 3.14.6. The optional config file (`.tab_pendencias.ini`) uses the
+INI format, read with the stdlib `configparser` -- a **historical** choice (D-9;
+originally to avoid requiring 3.11+ via `tomllib`); the format **stays INI** for
+compatibility with already-published configs, not because the floor is still
+below 3.11.
 
 ### Standard table structure (9 columns)
 
@@ -398,9 +407,11 @@ the header by column name, never by a fixed count.
 
 ### Valid values
 
-The empty-cell symbol is the typographic em-dash (Unicode U+2014); it appears
-literally in the `Wave`, `Prerequisite`, and `Audit State` cells when there's no
-value to fill in.
+The empty-cell symbol is the typographic em-dash (Unicode U+2014, `—`); it appears
+literally in `Wave`, `Prerequisite` and `Audit State` cells when there is no value to
+fill. **MDASH-2 exception:** this repository uses the character on purpose (schema
+contract). Marker [`.tab_pendencias.allow_emdash`](.tab_pendencias.allow_emdash) + consumer hook
+checklist to exempt the `tab_pendencias` path.
 
 | Column | Values |
 |---|---|
@@ -460,7 +471,7 @@ python3 tools/todo_audit.py [--profile core|casa] [--todo <path>] \
   with an error explaining the restriction.
 - **`--profile core|casa`** and the `.tab_pendencias.ini` file at the root of
   the audited repo (`[profile]` section, `name = casa` key; INI format read
-  with the stdlib `configparser`, chosen so it doesn't require Python 3.11+).
+  with the stdlib `configparser` -- historical D-9 choice; floor is now Python >= 3.11).
   `core` is the default profile. **The house layer is additive, never
   substitutive**: under `casa`, the 11 core checks run **plus** the 3 house
   checks (14 total); not enabling `casa` never removes a core check, it just
@@ -508,19 +519,17 @@ python3 tools/todo_fix.py [--apply CLASS [CLASS ...]] [-v]
   a diff for each proposed change) and never writes to the file.
 - **`--apply <class...>`** applies only the named classes, or `--apply all`
   for every class detected in that run.
-- **Two correction classes exist today**: `escapar_pipe_cru` (from `CHK-02`:
-  escapes a raw `|` found unambiguously inside a code span) and
+- **Two correction classes (real scope, FIX-ESCOPO-2)**: `escapar_pipe_cru`
+  (from `CHK-02`: escapes a raw `|` found unambiguously inside a code span) and
   `remover_fragmento_duplicado` (from `CHK-01`: removes the occurrence of a
-  duplicate ID the heuristic recognizes as an obvious fragment/leftover).
-  **ADR-0001 anticipated four classes** (the other two would be consolidating
-  a fragmented table and fixing a stale claim in the Description) -- they
-  **don't exist** because no check in the catalog currently marks
-  `CHK-03`/`CHK-04`/`CHK-09` as `[auto-fixable]`. This is a recorded decision,
-  not a forgotten gap: the engine only applies what `--audit` already decided
-  is safe, and even within `escapar_pipe_cru` the engine is more conservative
-  than the check -- it refuses to apply (flagging `[NOT APPLICABLE]` in the
-  report, with the reason) whenever the raw pipe's position isn't
-  unambiguous.
+  duplicate ID the heuristic recognizes as an obvious fragment/leftover). There
+  is no third or fourth class: consolidating a fragmented table and rewriting a
+  claim in the Description **move rows** in a third-party file and stay **out**
+  of auto-fix (human judgment / `--reorder` / manual edit). Fixed rule: the
+  audit **never** sets `fixable=True` without a matching fixer in the engine.
+  Even within `escapar_pipe_cru` the engine is more conservative than the check
+  -- it refuses to apply (flagging `[NOT APPLICABLE]` in the report, with the
+  reason) whenever the raw pipe's position isn't unambiguous.
 - **Protections, in the order they act**: (1) `--apply` aborts with an error
   **before any write** if the `TODO.md` working tree isn't clean
   (`git status --porcelain` non-empty) -- it never mixes with an edit in

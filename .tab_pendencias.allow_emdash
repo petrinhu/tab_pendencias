@@ -1,0 +1,22 @@
+# MDASH-2 -- excecao explicita do hook anti-travessao (no_mdash) PARA ESTE
+# repositorio.
+#
+# Motivo: o travessao tipografico (Unicode U+2014, "—") e o valor CANONICO
+# de celula vazia no schema do produto (Onda / Pre-requisito / Estado
+# Auditado, e placeholder de ID tentativo na INBOX). Proibir o caractere
+# neste path impede o produto de mostrar literalmente o proprio contrato
+# (README, SKILL.md, corpus de testes, exemplos).
+#
+# Escopo da excecao: somente o repositorio tab_pendencias (este clone /
+# submodulo pinado). A protecao anti-mdash continua em todos os demais
+# projetos.
+#
+# Checklist para o consumidor do hook (vault / ~/.claude/hooks/no_mdash.py
+# ou espelho Grok): ao aplicar o hook global, isentar paths cujo basename
+# de repo seja `tab_pendencias`, OU que contenham este arquivo marcador
+# (`.tab_pendencias.allow_emdash`) na raiz. Nao alargar a excecao a outros
+# repos sem decisao do lider.
+#
+# Este arquivo e so marcador + documentacao; o hook global (fora deste
+# repo) e quem precisa le-lo. Ver tambem README.md (secao de valores
+# validos) e tools/README.md.

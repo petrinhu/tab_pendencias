@@ -109,8 +109,11 @@ def test_regressao_verificar_infinitivo_em_nota_livre_continua_flipavel():
     assert L.is_flip_eligible("Em andamento (verificar com o time)") is True
 
 
-def test_regressao_a_verificar_continua_aguardando():
-    assert L.is_awaiting_verification("A verificar") is True
+def test_regressao_so_verbo_nao_classifica():
+    # VERB-STATUS-2: infinitivo sozinho nao e vocabulario canonico.
+    assert L.is_awaiting_verification("A verificar") is False
+    assert L.is_awaiting_verification("Verificar disponibilidade") is False
+    assert L.status_classification_via("Verificar disponibilidade") == "unknown"
 
 
 def test_regressao_concluido_e_verificado_continua_coerente():

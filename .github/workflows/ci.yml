@@ -35,12 +35,14 @@ jobs:
   # imagens, ver relatorio de validacao local).
   # ---------------------------------------------------------------------
   test:
-    name: pytest (${{ matrix.os }})
+    # PYFLOOR-2: matriz declara o piso oficial (>=3.11) e um ponto acima.
+    name: pytest (${{ matrix.os }}, py${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12"]
     steps:
       - name: Checkout
         # actions/checkout v7.0.1
@@ -50,7 +52,7 @@ jobs:
         # actions/setup-python v7.0.0
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: "pip"
           cache-dependency-path: requirements-dev.txt
 
@@ -80,8 +82,10 @@ jobs:
   #   2. Cada distro entrega uma versao de Python diferente (piso vs teto):
   #      medido localmente (2026-07-28) -- Debian 12-slim = Python 3.11.2,
   #      Fedora 41 = Python 3.13.9, Arch (rolling) = Python 3.14.6. O
-  #      projeto escolheu config em INI/configparser (D-9) justamente para
-  #      nao exigir 3.11+ (tomllib) -- este job prova o piso na pratica.
+  #      piso oficial e Python >=3.11 (PYFLOOR-2, pyproject.toml); este
+  #      job exercita o piso (Debian 3.11) e o teto de fabrica. Config
+  #      permanece INI/configparser por decisao historica (D-9) -- nao
+  #      por evitar 3.11.
   #   3. Locale/encoding default variam entre distros, onde o invariante de
   #      round-trip byte-exato (D-6) e mais provavel de quebrar.
   #   4. Ordem explicita do lider ("quero debian, fedora, arch" +
@@ -296,7 +300,8 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
-          python-version: "3.12"
+          # PYFLOOR-2: guards tambem no piso declarado.
+          python-version: "3.11"
 
       - name: "Guard: nenhum import fora da stdlib em tools/"
         run: python3 tools/ci/guard_stdlib_imports.py tools

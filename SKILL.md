@@ -448,11 +448,12 @@ que usa a skill; `--audit` cobre a *integridade da própria tabela*).
 - **`--profile core|casa`** e o arquivo `.tab_pendencias.ini` na raiz do repo
   auditado (seção `[profile]`, chave `name = casa`): perfil `core` é o default
   (ausência de arquivo ou de chave); `--profile` na linha de comando sobrepõe o
-  arquivo para uma execução pontual. Config lido com `configparser` da stdlib (D-9/
-  D-10 -- INI, não TOML, para não exigir Python 3.11+). **A camada casa é
-  aditiva, nunca substitutiva**: sob `casa` rodam os 11 checks do núcleo **mais**
-  os 3 da casa (14 no total); quem não ativa `casa` não perde nenhum check do
-  núcleo, só não ganha os 3 extras. Medido ao vivo: sob `core` (default), os 11
+  arquivo para uma execução pontual. Config lido com `configparser` da stdlib
+  (D-9/D-10 -- INI, escolha histórica; piso oficial Python >= 3.11, PYFLOOR-2).
+  **A camada casa é aditiva, nunca substitutiva**: sob `casa` rodam os 11 checks
+  do núcleo **mais** os 3 da casa (14 no total); quem não ativa `casa` não perde
+  nenhum check do núcleo, só não ganha os 3 extras. Medido ao vivo: sob `core`
+  (default), os 11
   checks do núcleo executam e cada check `profile = casa` é **declarado como não
   executado** nos avisos do motor (`"CHK-12 (convencao da casa) nao executado --
   perfil ativo = core. Habilite com --profile casa ou .tab_pendencias.ini
@@ -511,14 +512,13 @@ que usa a skill; `--audit` cobre a *integridade da própria tabela*).
 
 ### `--fix` (`tools/todo_fix.py`)
 
-Motor do `--fix` (FIX-ENG, ADR-0001 seção c): aplica **só** correção mecânica e
-byte-preserving marcada `[auto-fixável]` pelos checks do `--audit`. Hoje o
-catálogo registrado só produz dois `fix_ref` de verdade -- `escapar_pipe_cru`
-(CHK-02) e `remover_fragmento_duplicado` (CHK-01); `CHK-03`/`CHK-04`
-(consolidar tabela fragmentada) e `CHK-09` (corrigir claim obsoleta) ainda
-nunca marcam `fixable=True` na implementação atual, então essas duas classes
-previstas no ADR não têm hoje achado real para o `--fix` consumir. **Nunca**
-muda `Status`, nunca reordena, nunca toca branch/commit do repositório.
+Motor do `--fix` (FIX-ENG, ADR-0001 seção c, FIX-ESCOPO-2): aplica **só** as
+**duas** classes mecânicas e byte-preserving do escopo real --
+`escapar_pipe_cru` (CHK-02) e `remover_fragmento_duplicado` (CHK-01) -- marcadas
+`[auto-fixável]` pelos checks. Consolidar tabela (CHK-03/04) e reescrever claim
+(CHK-09) ficam **fora** do auto-fix (movem linhas em arquivo de terceiro).
+Regra: audit nunca marca `fixable=True` sem corretor no motor. **Nunca** muda
+`Status`, nunca reordena, nunca toca branch/commit do repositório.
 
 - **Default é dry-run.** Sem `--apply`, só mostra o plano (o que faria, com
   diff das linhas envolvidas) e nunca escreve.

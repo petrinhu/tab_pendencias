@@ -19,6 +19,8 @@ canonicos compostos, nao 'pendente' com anotacao livre; sem isso, por
 posicao pura 'pendente' venceria e 'Pendente design' viraria flipavel --
 ressuscitando o caso grave do BUG-5 no proprio fallback que o corrigiu.
 """
+import pytest
+
 import todo_lib as L
 
 
@@ -30,9 +32,26 @@ def test_predfallback_pendente_com_verificar_no_texto_agora_e_flipavel():
     assert L.is_flip_eligible("Pendente (verificar disponibilidade)") is True
 
 
-def test_predfallback_a_verificar_e_reconhecido_como_aguardando():
-    # Divergente 2: unico vocabulo presente e 'verifica' -> verificacao.
-    assert L.is_awaiting_verification("A verificar") is True
+@pytest.mark.parametrize(
+    "status_so_verbo",
+    (
+        "Verificar disponibilidade",
+        "A verificar",
+        "verificar",
+        "Verificar",
+    ),
+)
+def test_predfallback_so_verbo_nao_classifica(status_so_verbo):
+    # VERB-STATUS-2: celula legada so com o infinitivo (sem vocabulo
+    # canonico de status) NAO classifica -- audit/CHK-08 aponta unknown.
+    # Antes: 'Verificar disponibilidade' / 'A verificar' viravam
+    # awaiting_verification e o sync podia avancar status sozinho.
+    assert L.is_awaiting_verification(status_so_verbo) is False
+    assert L.is_pending(status_so_verbo) is False
+    assert L.is_flip_eligible(status_so_verbo) is False
+    assert L.is_done(status_so_verbo) is False
+    assert L._classify_legacy(status_so_verbo) is None
+    assert L.status_classification_via(status_so_verbo) == "unknown"
 
 
 def test_predfallback_em_andamento_com_verificar_no_texto_e_flipavel():
