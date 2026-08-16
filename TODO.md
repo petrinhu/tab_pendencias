@@ -84,12 +84,14 @@
 | TAB-WSJF-005 | W19 | WSJF | Estabilidade: `stable_rank_within_level` com epsilon comparável, empate estável, pin de `🔄` WIP, determinismo. | Alta | TAB-WSJF-003 | Média | 🔍 Pendente verificação | — |
 | TAB-WSJF-006 | W19 | WSJF | Explicabilidade: `explain_move` (3 linhas ITEM/causa/input_material) no report do FULL só para movimento material de pos/onda. | Média | TAB-WSJF-003 | Baixa | 🔍 Pendente verificação | — |
 | TAB-WSJF-007 | W19 | WSJF | Criticidade factual: `source=bus` ignora rótulos retóricos; só ints explícitos pontuam. Integração FULL em `todo_intake.py`. | Alta | TAB-WSJF-001 | Média | 🔍 Pendente verificação | — |
+| FIX-RISCO-A | W17 | Consertos | Investigar e mitigar corrida de dois --fix --apply simultaneos no mesmo repo (ambos veem arvore limpa; segundo os.replace vence). <!-- intake:drain-fix-risco-a --> | Alta | FIX-ENG | Media | ⏳ Pendente | — |
+| FIX-RISCO-B | W17 | Consertos | Investigar TOCTOU do fluxo ler-modificar-escrever do --fix sem lock de SO; pre-condicao de arvore limpa mitiga mas nao elimina. <!-- intake:drain-fix-risco-b --> | Alta | FIX-ENG | Media | ⏳ Pendente | — |
+| FIX-RISCO-C | W17 | Consertos | Provar empiricamente os.replace sobre destino somente-leitura no Windows (CI ainda nao exercita); alinhar tratamento OSError. <!-- intake:drain-fix-risco-c --> | Media | FIX-ENG | Media | ⏳ Pendente | — |
 
 ## INBOX (descobertas não priorizadas)
 
 <!-- 1 linha por descoberta: `- <ID tentativo ou —>: descrição curta`. Drenada por --create/--reorder. -->
 
-- FIX-RISCO-1: riscos conhecidos do `--fix`, declarados pelo implementer e **não** resolvidos: (a) dois `--fix --apply` simultâneos no mesmo repo -- ambos veriam árvore limpa, o segundo `os.replace` venceria atomicamente e o primeiro não saberia que foi sobrescrito; (b) janela TOCTOU inerente a qualquer fluxo ler-modificar-escrever sem lock de sistema operacional (a pré-condição de árvore limpa mitiga, não elimina); (c) no Windows, `os.replace` sobre destino somente-leitura pode divergir do POSIX -- coberto por `except OSError` genérico, mas **sem prova empírica**, e a matriz de CI não exercita esse caminho.
 
 ---
 
