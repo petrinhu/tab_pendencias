@@ -82,9 +82,14 @@ main chama o intake (ver secao **Fluxo agentivo de `--add`**).
 - **Concorrência (worktrees/PRs paralelos, sem orquestrador comum):** fallback
   `inbox/` via `tools/concurrent_inbox.py` (arquivo por descoberta). Nao e
   backlog normal. Resolucao de conflito: **sempre uniao, NUNCA descartar linha**.
-- **Dreno:** preferir `--drain` (classifiable com julgamento agentivo + residual
-  envelhece por `cycles` **ou** idade em dias). `--create` e `--reorder` tambem
-  esvaziam a INBOX (e o `inbox/`). `TAB_TRIAGE_REQUIRED` e **acao obrigatoria**
+- **Dreno (secao residual `## INBOX` no `TODO.md`):** preferir `--drain`
+  (classifiable com julgamento agentivo + residual envelhece por `cycles`
+  **ou** idade em dias). `--create` e `--reorder` tambem drenam essa secao
+  residual no TODO. O motor **nao** le nem apaga `inbox/*.md`.
+- **Fallback `inbox/` (arquivos concurrent):** fluxo proprio entre sessoes --
+  `concurrent_inbox.list_pending` / `read_discovery`, depois a thread principal
+  processa cada `DISCOVERED_WORK` via bridge+intake. Nao confiar em `--drain`
+  para esvaziar o diretorio. `TAB_TRIAGE_REQUIRED` e **acao obrigatoria**
   da thread principal (SessionStart/health), nao lembrete passivo. Sinais:
   secao **Sinais de frescor (`TAB_*`)** e `references/sinais-de-frescor.md`.
 
@@ -107,8 +112,8 @@ Contrato completo: [`references/sinais-de-frescor.md`](references/sinais-de-fres
 |---|---|---|
 | `TAB_TODO_CREATE_REQUIRED` | git sem `TODO.md` | `--create` |
 | `TAB_STATUS_SYNC_RECOMMENDED` | ha ⏳/🔄 e tabela defasada (commits/dias) | `todo_sync.py` (barato) |
-| `TAB_TRIAGE_REQUIRED` | classifiable **ou** residual aged **ou** `inbox/` | `--drain` (nao full reorder por relogio) |
-| `TAB_CONCURRENT_INBOX_PRESENT` | `inbox/*.md` pendente | dreno do fallback |
+| `TAB_TRIAGE_REQUIRED` | classifiable **ou** residual aged **ou** `inbox/` | residual TODO: `--drain`; se so `inbox/`: fallback por arquivo (nao full reorder por relogio) |
+| `TAB_CONCURRENT_INBOX_PRESENT` | `inbox/*.md` pendente | `list_pending` + bridge+intake por arquivo (motor `--drain` nao apaga) |
 | `TAB_LEADER_DECISION_AGED` | residual `needs-leader-decision` envelhecido | 2-3 opcoes + re-intake |
 | `TAB_VERIFICATION_AGING` | muitos 🔍 ou 🔍 + dias sem tocar TODO | onda TST-*/AUD-* |
 | `TAB_INTAKE_RECOVERY_REQUIRED` | orfaos no journal de intake | recuperacao idempotente |
@@ -179,11 +184,11 @@ Subagent não dispara subagent: quem dispara cada agent é a thread principal (a
 2. Perguntar só o essencial: caminho (sugerir `TODO.md` na raiz) e título do projeto.
 3. Aplicar o gate anti-OE: **o Cosimo decide a abordagem** (thread direta vs time) pela complexidade.
 4. Montar a tabela: thread direta (simples) OU **time coordenado pelo Cosmo** (complexa), conforme a decisão do Cosimo.
-5. Escrever `TODO.md` com as 9 colunas, linhas em ordem de execução, Onda preenchida. Se houver INBOX / `inbox/`, drená-la (integrar os itens e esvaziar).
+5. Escrever `TODO.md` com as 9 colunas, linhas em ordem de execução, Onda preenchida. Se houver secao residual `## INBOX` no TODO, drená-la (integrar e limpar residual). Se houver `inbox/*.md` concurrent, processar em fluxo proprio (`list_pending` + bridge+intake por arquivo) -- o motor de `--drain`/`--create`/`--reorder` **nao** apaga esses arquivos.
 
 ### `--reorder`
 
-Reordena uma tabela existente (mesmo método e gate). Preserva IDs, Status e Estado Auditado; só recalcula ordem das linhas e a coluna Onda. **Drena a INBOX** (e `inbox/`): integra cada descoberta na ordenação e a remove da INBOX. Útil quando novas pendências entraram ou dependências mudaram.
+Reordena uma tabela existente (mesmo método e gate). Preserva IDs, Status e Estado Auditado; só recalcula ordem das linhas e a coluna Onda. **Drena a secao residual `## INBOX` do TODO**: integra cada descoberta na ordenação e remove as linhas residual. Arquivos em `inbox/` **nao** sao esvaziados pelo reorder/drain automatico; exigem fluxo de fallback (`list_pending` + main processa `DISCOVERED_WORK` via bridge+intake). Útil quando novas pendências entraram ou dependências mudaram.
 
 ### Gatilho de reordenação (proporcional ao tamanho e à repercussão)
 
@@ -375,14 +380,18 @@ Fronteira: o agente **julga** (prosa, impacto, autoridade); o motor
   → `inbox/YYYYMMDD-HHMMSS-<session>-<slug>.md`. Não é backlog normal.
 - **Próxima sessão principal:** se `todo_health` emitir
   `TAB_CONCURRENT_INBOX_PRESENT` / `TAB_TRIAGE_REQUIRED` por `inbox/`,
-  executar `--drain` (ou bridge+intake por arquivo) no próximo ponto seguro.
+  processar cada arquivo (`list_pending` → `read_discovery` → bridge+intake)
+  no próximo ponto seguro. `--drain` **nao** consome `inbox/*.md` -- so a
+  secao residual `## INBOX` do `TODO.md`.
 - **Escrita segura:** `run_intake`/`run_drain` em apply adquirem
   `tools/todo_lock.TodoWriteLock` (fcntl em POSIX; msvcrt em Windows;
   fallback exclusive-create com stale 120s). Lock reentrant no mesmo
   thread (drain aninha intake).
 ### `--drain` (TAB-INBOX-004)
 
-Opera a INBOX como **exception queue**. Motor: `tools/todo_intake.py --drain`.
+Opera a secao residual `## INBOX` do `TODO.md` como **exception queue**.
+Motor: `tools/todo_intake.py --drain`. **Nao** le nem apaga arquivos em
+`inbox/` (fallback concurrent -- ver secao TAB-CONC acima).
 
 ```text
 python3 tools/todo_intake.py --drain --todo PATH
@@ -418,13 +427,17 @@ Comportamento:
    apply por candidato (journal write-ahead por candidato).
 5. Pós-condição de apply bem-sucedido: `classifiable_inbox_count == 0`
    (senão rc=1). Working tree do TODO limpa no início do apply.
+   Contagem e strip referem-se só a bullets da secao residual no TODO --
+   `inbox/*.md` permanece intacto mesmo com drain verde.
 
 Health (`todo_health.py`) consome `session_signals.collect_signals` e imprime
 as linhas `TAB_*` (ver secao **Sinais de frescor** e
 `references/sinais-de-frescor.md`). `TAB_TRIAGE_REQUIRED` = classifiable **ou**
 residual aged (cycles/idade) **ou** `inbox/` concorrente -- **nao**
-`inbox_count>=3` so de leader frescos. Contagem de `needs-leader-decision`
-fresco e separada; so o aged emite `TAB_LEADER_DECISION_AGED` (+ TRIAGE).
+`inbox_count>=3` so de leader frescos. Quando o gatilho e so `inbox/`, a
+acao e o fluxo TAB-CONC (list_pending + bridge+intake), nao "apagar pasta
+apos `--drain`". Contagem de `needs-leader-decision` fresco e separada;
+so o aged emite `TAB_LEADER_DECISION_AGED` (+ TRIAGE).
 
 ## `--audit`
 
