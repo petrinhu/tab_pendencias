@@ -2,6 +2,7 @@
 
 ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 ![Type](https://img.shields.io/badge/type-Claude%20Code%20Skill-blue)
+![Grok](https://img.shields.io/badge/Grok-compatible-black)
 ![Status](https://img.shields.io/badge/status-stable-brightgreen)
 ![Language](https://img.shields.io/badge/lang-pt--br%20%2F%20en-lightgrey)
 ![File](https://img.shields.io/badge/canonical-TODO.md-yellow)
@@ -10,7 +11,8 @@
 
 ## Português (pt-br)
 
-Skill do Claude Code que gerencia a tabela de pendências/planejamento de projetos no
+Skill do Claude Code (e **compatível com Grok**: mesmo `SKILL.md`, toolkit em
+`tools/` e hooks) que gerencia a tabela de pendências/planejamento de projetos no
 padrão `TODO.md` tabular: cabeçalho fixo, ordem de execução (dependência + valor),
 símbolos de status visuais, auditoria, auto-fix mecânico e **pipeline de intake**
 (trabalho novo classificado na hora; INBOX só como fila de exceção residual).
@@ -387,10 +389,11 @@ Petrus Silva Costa.
 
 ## English (en-intl)
 
-Claude Code skill that manages the project pendencies/planning table in `TODO.md`
-tabular standard: fixed header, execution order (dependency + value), visual status
-symbols, structural audit, mechanical auto-fix, and an **intake pipeline**
-(new work classified immediately; INBOX only as a residual exception queue).
+Claude Code skill (**Grok-compatible**: same `SKILL.md`, `tools/` toolkit, and hooks)
+that manages the project pendencies/planning table in `TODO.md` tabular standard:
+fixed header, execution order (dependency + value), visual status symbols, structural
+audit, mechanical auto-fix, and an **intake pipeline** (new work classified immediately;
+INBOX only as a residual exception queue).
 
 > **About this section:** what's documented here is behavior already closed
 > and verified by running the code -- never described ahead of time. If a
