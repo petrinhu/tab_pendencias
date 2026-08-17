@@ -11,6 +11,15 @@ Todas as mudanças notáveis deste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [Unreleased]
+
+### Documentação
+
+- Alinha `README.md` (pt-br + en), `CLAUDE.md`, `tools/README.md`,
+  `docs/para-iniciantes.md`, `references/frescor-da-tabela.md` e manuais leves ao motor
+  **v1.2**: intake, INBOX como exception queue, `--add`/`--drain`/`--fix`, sinais `TAB_*`,
+  lock, HOOKSRC-1. Não altera comportamento de runtime.
+
 ## [1.2.0] - 2026-08-16
 
 Entrega o **motor de intake** (ADR-0002 deixou de ser só arquitetura: vira comportamento

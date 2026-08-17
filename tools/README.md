@@ -1,15 +1,45 @@
-# tools/ -- frescor da TODO.md (Camada 2 local)
+# tools/ -- núcleo genérico (frescor, intake, audit, fix)
 
-Git hook **local, cross-platform e warn-only** que ajuda a manter a tabela de
-pendências (`TODO.md`) sincronizada durante o sprint, **sem CI nem servidor**,
-o gêmeo local da Camada 2. Detalhe canônico da convenção em
-[`../references/`](../references/) (regras de frescor internalizadas, D-2).
+Scripts **locais, determinísticos e stdlib-only** do produto `tab_pendencias`.
+Cobrem frescor da tabela no sprint (Camada 2 local), pipeline de intake
+(ADR-0002), auditoria/auto-fix e auxiliares (lock, WSJF, bus, sinais).
 
-Layout monorepo (D-4): os scripts Python ficam aqui em `tools/`; os shims
-POSIX + `_chain.sh` ficam em [`hooks/`](hooks/); a suíte pytest fica em
-[`../tests/`](../tests/).
+Detalhe normativo em [`../references/`](../references/). Contrato da skill em
+[`../SKILL.md`](../SKILL.md).
 
-## O que faz
+Layout monorepo (D-4): scripts Python aqui; shims POSIX + `_chain.sh` em
+[`hooks/`](hooks/); suíte pytest em [`../tests/`](../tests/).
+
+## Inventário (v1.2)
+
+| Módulo | Função |
+|---|---|
+| `todo_lib.py` | Parser da tabela, predicados, config INI, INBOX residual |
+| `todo_intake.py` | Motor `--add` / `--drain` (cascata L0/SCOPED/FULL/residual) |
+| `intake_agent_bridge.py` | `DISCOVERED_WORK` -> flags de julgamento (sem LLM) |
+| `intake_journal.py` | Journal write-ahead + órfãos |
+| `todo_lock.py` | `TodoWriteLock` no apply de intake/drain/fix |
+| `todo_audit.py` | Auditoria estrutural (CHK-01..14, perfis core/casa) |
+| `todo_fix.py` | Auto-fix: 2 classes (`escapar_pipe_cru`, `remover_fragmento_duplicado`) |
+| `todo_sync.py` | Avança `⏳`/`🔄` → `🔍` a partir de IDs em commits |
+| `todo_health.py` | Relatório de saúde + linhas `TAB_*` |
+| `todo_freshness.py` | Lógica do aviso pós-commit (warn-only) |
+| `session_signals.py` | Predicados de frescor (`TAB_*`); read-only |
+| `wsjf.py` | WSJF Fibonacci `(1,2,3,5,8,13,20)`; topologia **antes** de score |
+| `bus_contract.py` | Contrato de mensagem de bus (remetente não pontua) |
+| `concurrent_inbox.py` | Fallback `inbox/*.md` entre sessões sem orquestrador |
+| `submodule_pin_drift.py` | Drift do pin de submódulo (read-only, warn-only) |
+| `hooks/` | Shims git + `tab_pendencias_reminder.py` (adapter SessionStart) |
+| `checks/` | Checks do núcleo (core) usados por `todo_audit` |
+| `casa/` | Checks opt-in do perfil `casa` |
+| `ci/` | Guards (`stdlib_imports`, `no_real_fixtures`) + smoke de shims |
+
+**INBOX residual** é **exception queue**, não fila normal de descoberta. O caminho
+normal de trabalho novo é `todo_intake.py` (via skill `--add` ou CLI). Ver
+[`../docs/adr/0002-maquina-de-estados-de-intake-e-inbox-como-fila-de-excecao.md`](../docs/adr/0002-maquina-de-estados-de-intake-e-inbox-como-fila-de-excecao.md)
+e [`../references/frescor-da-tabela.md`](../references/frescor-da-tabela.md).
+
+## Aviso pós-commit (frescor)
 
 No `post-commit` (já depois do commit, então **nunca bloqueia**), avisa em dois
 casos, e só quando há lacuna acionável (silencioso caso contrário):
@@ -24,14 +54,55 @@ Nunca edita o `TODO.md`, nunca aborta o commit. Registra uma linha em
 `.git/todo-freshness.log` (local, não versionado) para **medir adesão** antes de
 qualquer automação, a Camada 2 só escala com evidência, nunca de prontidão.
 
-## Sincronização e saúde (scripts offline, sem LLM)
+## Sincronização, saúde e sinais (scripts offline, sem LLM)
 
-Dois scripts locais e **determinísticos** (Python stdlib; nem precisam de sessão Claude) complementam o hook. São a "metade mecânica" do frescor; o `--reorder` (julgamento) continua na skill:
+Scripts locais e **determinísticos** (Python stdlib). A "metade mecânica" do
+frescor; `--reorder` (julgamento de ordem) e o julgamento de `--add` ficam na
+skill / agente:
 
-- **`python3 tools/todo_sync.py`**: lê os commits desde o último sync (`.git/todo-sync-ref`), acha os IDs citados e propõe avançar itens `⏳ Pendente`/`🔄 Em andamento` para `🔍 Pendente verificação` (NUNCA `✅`; nunca reordena). Por padrão **só propõe**; `--apply` escreve. Preserva o resto da linha e o EOL (CRLF/LF), e ignora linha malformada. `--since <ref>` força uma janela.
-- **`python3 tools/todo_health.py`**: relatório de itens presos em `🔍` (falso-done residual), tamanho da INBOX, e a % de adesão a citar ID (do `todo-freshness.log`). Dá o dado para "medir antes de escalar".
+- **`python3 tools/todo_sync.py`**: lê os commits desde o último sync
+  (`.git/todo-sync-ref`), acha os IDs citados e propõe avançar itens
+  `⏳ Pendente`/`🔄 Em andamento` para `🔍 Pendente verificação` (NUNCA `✅`;
+  nunca reordena). Por padrão **só propõe**; `--apply` escreve. Preserva o resto
+  da linha e o EOL (CRLF/LF), e ignora linha malformada. `--since <ref>` força
+  uma janela.
+- **`python3 tools/todo_health.py`**: relatório de itens presos em `🔍`,
+  contagem de INBOX residual/classifiable, adesão a citar ID, e as linhas
+  `TAB_*` (via `session_signals.collect_signals`).
+- **`python3 tools/session_signals.py`**: motor read-only dos sinais
+  (`TAB_TODO_CREATE_REQUIRED`, `TAB_STATUS_SYNC_RECOMMENDED`,
+  `TAB_TRIAGE_REQUIRED`, `TAB_CONCURRENT_INBOX_PRESENT`,
+  `TAB_LEADER_DECISION_AGED`, `TAB_VERIFICATION_AGING`,
+  `TAB_INTAKE_RECOVERY_REQUIRED`). Contrato:
+  [`../references/sinais-de-frescor.md`](../references/sinais-de-frescor.md).
+  Adapter de sessão: `hooks/tab_pendencias_reminder.py` (fail-open, exit 0).
 
-Podem ser rodados à mão, por um alias, pelo git hook, ou por um agendador local (systemd/launchd/Task Scheduler). Robustez verificada por `qa-engineer` + `code-reviewer` (CRLF, BOM, múltiplas tabelas, célula deslocada).
+Podem ser rodados à mão, por alias, por hook, ou por agendador local
+(systemd/launchd/Task Scheduler).
+
+## Intake e dreno (`todo_intake.py`)
+
+```sh
+# Candidato local (dry-run)
+python3 tools/todo_intake.py --todo TODO.md \
+  --candidate-id cand-1 --item-id F-12 \
+  --description "..." --source agent --fields-complete --local
+
+# Persistir
+python3 tools/todo_intake.py --todo TODO.md ... --apply
+
+# Drenar INBOX residual
+python3 tools/todo_intake.py --drain --todo TODO.md
+python3 tools/todo_intake.py --drain --todo TODO.md --apply --judgments-json path.json
+```
+
+Cascata (primeiro que casa vence): DUPLICATE → NEEDS_TRIAGE →
+NEEDS_LEADER_DECISION → FULL (fundação) → LOCAL (L0) → SCOPED → FULL (default).
+Flags de julgamento vêm de quem chama (skill/agente); o núcleo **não** infere
+prosa. Apply adquire `TodoWriteLock`. Hub `[hub] derived=true` recusa apply.
+Bridge agentivo: `intake_agent_bridge.py`. WSJF: `wsjf.py` (topo antes de score;
+L0/SCOPED sem WSJF de cerimônia quando o caminho não reordena). Bus:
+`bus_contract.py` + [`../references/bus-versus-inbox.md`](../references/bus-versus-inbox.md).
 
 ## Drift do pin de submódulo (`submodule_pin_drift.py`)
 
@@ -140,9 +211,8 @@ J.mark_done(J.journal_dir_for(), candidate_id)
   `senha=`/`token=`/`api_key=`, bearer token, JWT) antes de gravar --
   best-effort, defesa em profundidade, não substitui revisão humana nem
   scanner dedicado.
-- **Fora de escopo aqui** (fica pra `TAB-ADD-001`+): `--add`,
-  classificação de impacto (L0..L3), reorder. Este módulo só oferece
-  captura e recuperação; quem classifica e integra é outra camada.
+- **Fronteira:** este módulo só oferece captura e recuperação. Quem classifica
+  e integra é `todo_intake.py` (`--add` / `--drain`, ADR-0002).
 
 CLI mínima de diagnóstico (leitura, nunca muta o `TODO.md`):
 

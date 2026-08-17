@@ -111,7 +111,7 @@ por default. O caminho normal e o **pipeline de intake** (descoberta -> main ->
 
 ## 6. Automação mecânica (opcional)
 
-A parte mecânica das seções 2-4 pode ser acelerada por scripts complementares,
+A parte mecânica das seções 2-5 pode ser acelerada por scripts complementares,
 determinísticos e locais -- sem dependência de LLM/agente, sempre executados no seu
 próprio ambiente. Quando presentes no repositório, seguem este contrato:
 
@@ -119,13 +119,20 @@ próprio ambiente. Quando presentes no repositório, seguem este contrato:
   commits que tocaram trabalho substantivo (§4). Nunca atribui `✅`. Nunca reordena nem
   toca a coluna `Onda`. A alteração real do arquivo exige confirmação explícita (ex.: uma
   flag do tipo `--apply`); sem ela, o script só mostra a proposta.
-- **Relatório de frescor**: reporta contagens por status, itens presos em `🔍` por muito
-  tempo, e o tamanho da INBOX.
+- **Relatório de frescor + sinais `TAB_*`**: reporta contagens por status, itens presos em
+  `🔍`, tamanho da INBOX residual/classifiable, e emite identificadores estáveis
+  (`TAB_TRIAGE_REQUIRED`, `TAB_STATUS_SYNC_RECOMMENDED`, ...). Contrato dos IDs em
+  [`sinais-de-frescor.md`](sinais-de-frescor.md). `TAB_TRIAGE_REQUIRED` pede **dreno**
+  (`--drain`), não full reorder por passagem de tempo.
+- **Intake / dreno**: classifica e persiste trabalho novo (§5); journal write-ahead e lock
+  de escrita no apply.
 - **Aviso pós-commit**: quando ativado como hook local, opera sempre em modo *só aviso* --
-  nunca bloqueia o commit, nunca falha a operação do git.
+  nunca bloqueia o commit, nunca falha a operação do git. **HOOKSRC:** o path vivo do hook
+  deve ser a instalação **publicada** (pin de submódulo no consumidor), não um checkout
+  de desenvolvimento do produto.
 
 **Estes scripts são um acelerador, não um requisito.** Sem eles -- ou num ambiente sem a
 linguagem/runtime necessário --, a norma continua valendo integralmente: quem entrega
 trabalho toca a célula de `Status` manualmente no mesmo commit/PR (§2), cita o ID (§4), e
-usa a INBOX (§5) à mão. Consulte o `README` deste repositório para a disponibilidade e a
-invocação exata desses scripts na versão que você está usando.
+usa intake/INBOX residual (§5) à mão. Consulte o `README` deste repositório para a
+disponibilidade e a invocação exata desses scripts na versão que você está usando.

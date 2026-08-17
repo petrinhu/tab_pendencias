@@ -31,9 +31,11 @@ Roda junto de TST-T5.
 ## TST-T14 Integração (fim-a-fim)
 Exercitar o sistema integrado contra fontes de verdade, não só unidades isoladas.
 **Ferramentas:** pytest chamando as CLIs de verdade (`todo_sync.py`, `todo_health.py`,
-`todo_audit.py`, `todo_fix.py`) por subprocess em repositórios git temporários de fixture;
-e2e do `todo_freshness.main` com `diff-tree` real; execução dos shims `sh` via subprocess.
-Inclui os testes de contrato com o corpus real (LOCAIS, nunca commitados) e o corpus sintético.
+`todo_audit.py`, `todo_fix.py`, `todo_intake.py` com `--add`/`--drain`) por subprocess em
+repositórios git temporários de fixture; e2e do `todo_freshness.main` com `diff-tree` real;
+bridge `DISCOVERED_WORK`, journal, lock e sinais `TAB_*`; execução dos shims `sh` via
+subprocess. Inclui os testes de contrato com o corpus real (LOCAIS, nunca commitados) e o
+corpus sintético (inclusive `tests/corpus/bus/`).
 
 ## TST-T15 Pre-CI (espelhar o CI local)
 Rodar localmente, na mesma ordem dos jobs de `.github/workflows/ci.yml` (a fonte da

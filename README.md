@@ -12,11 +12,15 @@
 
 Skill do Claude Code que gerencia a tabela de pendências/planejamento de projetos no
 padrão `TODO.md` tabular: cabeçalho fixo, ordem de execução (dependência + valor),
-símbolos de status visuais, auditoria opcional.
+símbolos de status visuais, auditoria, auto-fix mecânico e **pipeline de intake**
+(trabalho novo classificado na hora; INBOX só como fila de exceção residual).
 
 > **Sobre esta seção:** o que está aqui é comportamento fechado e verificado
 > executando o código -- nunca descrito por antecipação. Se um comando ainda
 > não existir, isso é dito explicitamente, nunca omitido.
+>
+> **Versão documentada:** alinhada ao motor **v1.2** (tag `v1.2.0` + main).
+> ADR de intake: [`docs/adr/0002-...`](docs/adr/0002-maquina-de-estados-de-intake-e-inbox-como-fila-de-excecao.md).
 
 ### Duas camadas: núcleo genérico e convenções da casa
 
@@ -25,7 +29,7 @@ Este projeto tem duas camadas com fronteira explícita (ver
 
 | Camada | O que é | Dependências |
 |---|---|---|
-| **Núcleo genérico** | Parser da tabela, `--audit`, `--fix`, sincronização/saúde/frescor (`tools/`) | Só `git` + `python3`. Funciona para qualquer usuário, qualquer projeto. |
+| **Núcleo genérico** | Parser da tabela, `--audit`, `--fix`, `--add`/`--drain` (intake), WSJF Fibonacci, sinais `TAB_*`, sync/health/frescor, lock de escrita (`tools/`) | Só `git` + `python3` (>= 3.11). Funciona para qualquer usuário, qualquer projeto. |
 | **Convenções da casa** | Orquestração da montagem/reordenação por um time de agents (`cosmo-coo`, `software-architect`, `tech-lead`, `product-manager`, `engineering-manager`, `scrum-master`), item fixo de Wiki + doc para iniciante ao fim de projeto, wikilinks (`[[ORG]]`, `[[AGILE]]`, `[[CONTRACT]]`, `[[TOOLING]]`) que só resolvem no vault de quem escreveu essas convenções | **Opt-in**, ativado por `.tab_pendencias.ini` na raiz do repo onde a tabela vive (seção `[profile]`, chave `name = casa`). Ausência do arquivo (ou da chave) = perfil `core`, sempre o mais restrito por padrão. |
 
 Um terceiro que clona o repo com só `git` e `python3` usa o núcleo inteiro sem
@@ -48,7 +52,7 @@ Manual via tool `Skill`:
 Skill: tab_pendencias
 ```
 
-Ou comando slash: `/tab_pendencias [--create | --reorder | --show | --main | --add_tests_audit | --audit]`
+Ou comando slash: `/tab_pendencias [--create | --reorder | --show | --main | --add_tests_audit | --audit | --fix | --add | --drain]`
 
 ### Matriz de instalação e degradação
 
@@ -59,8 +63,8 @@ cenário, para nunca ficar surpreso em silêncio:
 |---|---|---|
 | Sem a constelação de agents (`cosmo-coo` e demais) | `--create`/`--reorder` rodam em thread direta, aplicando o mesmo método (topological + WSJF + ondas) sem orquestrar o time | Só a divisão de trabalho em lentes paralelas (arquitetura, valor, esforço, ondas) por agents distintos; o resultado (a tabela ordenada) é o mesmo objetivo, calculado por uma única thread |
 | Sem os manuais do vault (`[[ORG]]`, `[[AGILE]]`, `[[CONTRACT]]`, `[[TOOLING]]`) | Todo o núcleo | Os wikilinks viram texto morto (não resolvem a nenhum documento); são referência de convenção da casa, não do núcleo |
-| Sem `python3` | A parte agent-driven da skill (`--create`, `--reorder`, `--show`, `--main` via Claude Code) | Os scripts mecânicos de `tools/` (sync, health, freshness, e os hooks de git que os disparam) |
-| Windows sem Git for Windows | A parte agent-driven da skill (não depende de shell) | O sync mecânico via git hook (`tools/hooks/`, shims POSIX que dependem de um shell, no Windows o que vem com o Git for Windows). O `--audit`/`--fix`/`--create`/`--reorder` continuam disponíveis chamados diretamente, sem depender do hook. |
+| Sem `python3` | A parte agent-driven da skill (`--create`, `--reorder`, `--show`, `--main` via Claude Code) | Os scripts mecânicos de `tools/` (intake, audit, fix, sync, health, freshness, sinais, e os hooks de git que os disparam) |
+| Windows sem Git for Windows | A parte agent-driven da skill (não depende de shell) | O sync mecânico via git hook (`tools/hooks/`, shims POSIX que dependem de um shell, no Windows o que vem com o Git for Windows). `--audit`/`--fix`/`--add`/`--drain`/`--create`/`--reorder` continuam disponíveis chamados diretamente, sem depender do hook. |
 
 ### Multiplataforma (cross-platform)
 
@@ -127,10 +131,57 @@ hook anti-mdash do consumidor isentar o path `tab_pendencias`.
 | `--main` | Exibe só pendentes (filtra fora `✅`) |
 | `--add_tests_audit` | Acrescenta itens de teste/auditoria aplicáveis ao stack, sem perguntar |
 | `--audit` | Audita a integridade estrutural do próprio `TODO.md` (read-only); ver seção dedicada abaixo |
+| `--fix` | Aplica correções mecânicas marcadas `[auto-fixável]` pelo audit (2 classes); dry-run por padrão |
+| `--add` | Pipeline de intake: classifica descoberta/item novo e persiste L0, SCOPED, FULL ou residual |
+| `--drain` | Drena a INBOX residual (exception queue) com julgamentos; pós-apply `classifiable_inbox_count == 0` |
 
 Sem argumento, usa linguagem natural: "mostrar pendências" para `--main`, "tabela
 completa" para `--show`, "criar tabela" para `--create`, "reordenar"/"minimizar
-retrabalho" para `--reorder`, "auditar a tabela" para `--audit`.
+retrabalho" para `--reorder`, "auditar a tabela" para `--audit`, "corrigir a tabela"
+para `--fix`, "adicionar pendência"/"registra isto" para `--add`, "drenar INBOX"
+para `--drain`.
+
+### Intake e INBOX (exception queue -- não é fila normal)
+
+> **Histórico:** versões antigas mandavam *toda* descoberta para a seção INBOX
+> "na hora" e esperavam dreno humano ou `--reorder`. Isso ficou **obsoleto** com
+> o motor de intake (v1.2 / [ADR-0002](docs/adr/0002-maquina-de-estados-de-intake-e-inbox-como-fila-de-excecao.md)).
+> A INBOX residual **não** é a fila normal de descoberta.
+
+Trabalho novo descoberto no meio do sprint **não espera reordenar por default**.
+O caminho normal é o intake (`/tab_pendencias --add` ou `tools/todo_intake.py`):
+
+1. **Local (L0)** -- append de uma linha no `TODO.md` (marcador recuperável).
+2. **Escopado / fundação** -- `SCOPED_REORDER` ou `FULL_REORDER` proporcional.
+3. **Duplicata** -- não cria linha; limpa residual relacionado se houver.
+4. **Ambíguo / sem autoridade** -- só então vira **INBOX residual** (exception
+   queue) com metadado `[triage ...]`, sem Onda nem WSJF.
+
+Workers/subagentes **não** editam `TODO.md`: devolvem o bloco `DISCOVERED_WORK`;
+a thread principal converte via `tools/intake_agent_bridge.py` e chama o intake.
+Hub com `[hub] derived=true` é **read-only** para apply de intake/drain (ver
+[`references/hub-agregador.md`](references/hub-agregador.md)).
+
+**CLI mecânica** (offline, stdlib, sem LLM -- o agente preenche as flags de julgamento):
+
+```bash
+# dry-run de um candidato local
+python3 tools/todo_intake.py --todo TODO.md \
+  --candidate-id cand-1 --item-id F-12 \
+  --description "..." --source agent --fields-complete --local
+
+# persistir
+python3 tools/todo_intake.py --todo TODO.md ... --apply
+
+# dreno da INBOX residual
+python3 tools/todo_intake.py --drain --todo TODO.md
+python3 tools/todo_intake.py --drain --todo TODO.md --apply --judgments-json path.json
+```
+
+Sinais de sessão (`TAB_*`): motor `tools/session_signals.py`, impressos por
+`todo_health.py` e pelo adapter `tools/hooks/tab_pendencias_reminder.py`.
+`TAB_TRIAGE_REQUIRED` pede **`--drain`**, não full reorder por relógio. Contrato:
+[`references/sinais-de-frescor.md`](references/sinais-de-frescor.md).
 
 ### `--audit` (auditoria estrutural da tabela)
 
@@ -230,15 +281,13 @@ python3 tools/todo_fix.py [--apply CLASSE [CLASSE ...]] [-v]
   falha de escrita); `2` = execução ok, há 1+ correção disponível (mostrada em
   dry-run ou aplicada).
 
-**Riscos conhecidos (declarados, não escondidos):** dois processos de
-`--fix --apply` rodando ao mesmo tempo no mesmo repositório se sobrescreveriam
-sem aviso -- a checagem de working tree limpa protege contra editar em cima de
-uma mudança já commitada ou pendente no início da execução, mas não contra uma
-corrida entre dois processos que passam por essa checagem quase simultaneamente
-(não há trava de sistema operacional). Existe uma janela inerente entre ler e
-escrever o arquivo sem lock de SO. O comportamento em Windows contra um destino
-somente-leitura não tem prova empírica nesta fatia (não testado nessa
-plataforma).
+**Concorrência (v1.2):** o caminho `--apply` adquire `TodoWriteLock`
+(`tools/todo_lock.py`, o mesmo lock de intake/drain) **antes** de re-checar a
+working tree limpa e escrever -- serializa dois `--fix --apply` no mesmo TODO
+(timeout default 10s; falha de lock = exit 1). Dry-run **não** pede lock.
+Residual de plataforma: no Windows, `os.replace` contra destino somente-leitura
+não tem prova empírica na matrix (handling genérico de `OSError` coberto por
+mock). Detalhe em [`tools/README.md`](tools/README.md).
 
 ## Testes e auditorias automáticos
 
@@ -260,20 +309,29 @@ Comando dedicado: `/tab_pendencias --add_tests_audit` injeta direto, sem pergunt
 **`TODO.md` na raiz do projeto** é a única localização válida. Skill nunca cria
 `PENDENCIAS.md`, `TAREFAS.md` ou `BACKLOG.md` paralelos.
 
-### Sincronização mecânica (opcional, núcleo genérico)
+### Núcleo mecânico (`tools/`, opcional em uso diário, genérico)
 
 Além da skill (planejamento via agent), o repo traz scripts locais e determinísticos
-em [`tools/`](tools/README.md), sem LLM/agent, para manter o `TODO.md` sincronizado
-durante o sprint:
+em [`tools/`](tools/README.md), sem LLM/agent:
 
-- `python3 tools/todo_sync.py [--apply]`: avança itens `⏳`/`🔄` para `🔍` a partir
-  dos IDs citados em commits que tocaram trabalho substantivo. Nunca atribui `✅`,
-  nunca reordena.
-- `python3 tools/todo_health.py`: relatório de itens presos em `🔍`, tamanho da
-  INBOX e adesão à convenção de citar ID no commit.
-- Hook de git em `tools/hooks/` (opcional, cross-platform): aviso pós-commit, nunca
-  bloqueia. Detalhe de instalação e de degradação por sistema operacional em
-  [`tools/README.md`](tools/README.md).
+| Script | Papel |
+|---|---|
+| `todo_intake.py` | `--add` / `--drain` (cascata L0/SCOPED/FULL/residual) |
+| `intake_agent_bridge.py` | `DISCOVERED_WORK` -> flags de julgamento |
+| `intake_journal.py` | journal write-ahead + recuperação de órfãos |
+| `todo_audit.py` / `todo_fix.py` | auditoria estrutural e auto-fix (2 classes) |
+| `todo_sync.py` / `todo_health.py` | sync de status e relatório + linhas `TAB_*` |
+| `session_signals.py` | predicados de frescor (`TAB_*`) |
+| `todo_lock.py` | lock de escrita (intake/drain/fix apply) |
+| `wsjf.py` | WSJF Fibonacci (topo **antes** de score) |
+| `bus_contract.py` | contrato de mensagem de bus (remetente não pontua) |
+| `concurrent_inbox.py` | fallback `inbox/*.md` entre sessões |
+| `todo_freshness.py` + `hooks/` | aviso pós-commit (warn-only) |
+| `submodule_pin_drift.py` | drift do pin de submódulo (read-only) |
+
+**HOOKSRC-1:** `core.hooksPath` global deve apontar para a **instalação publicada**
+(submódulo pinado no consumidor), **nunca** para o checkout de desenvolvimento
+deste produto. Detalhe e degradação por SO em [`tools/README.md`](tools/README.md).
 
 Estes scripts são um acelerador; sem eles a convenção de frescor continua valendo à
 mão (ver [`references/frescor-da-tabela.md`](references/frescor-da-tabela.md)).
@@ -292,15 +350,17 @@ por execução, coluna Onda marca passos paralelizáveis).
 ### Layout do repositório
 
 ```
-SKILL.md                -- definicao da skill (fonte canonica do schema e do fluxo)
-TESTES.md                -- catalogo de testes deste proprio projeto
-AUDITORIAS.md             -- catalogo de auditorias deste proprio projeto
-docs/adr/                 -- Architecture Decision Records
-references/               -- documentos normativos (frescor da tabela, catalogo de testes/auditorias)
-tools/                    -- nucleo generico: parser, sync, health, freshness (so stdlib)
-tools/hooks/               -- shims de git hook (POSIX sh) + script de encadeamento
-tools/ci/                  -- guards usados pelo CI (mesmos scripts rodam localmente)
-tests/                    -- suite pytest (inclui corpus sintetico de defeitos)
+SKILL.md                 -- definicao da skill (schema, fluxo, intake, sinais)
+TESTES.md / AUDITORIAS.md -- catalogos deste proprio projeto
+docs/adr/                -- ADRs (0001 nucleo/casa; 0002 intake + INBOX exception)
+docs/para-iniciantes.md  -- guia didatico (parte do zero)
+docs/campanha/           -- plano historico da campanha v1.2 (nao e doc vivo)
+references/              -- normas: frescor, sinais TAB_*, hub, bus, cutover
+tools/                   -- nucleo generico (intake, audit, fix, sync, lock, wsjf, ...)
+tools/hooks/             -- shims de git hook + reminder de sessao
+tools/ci/                -- guards do CI
+tests/                   -- suite pytest + corpus sintetico
+templates/               -- fragmentos de vault e contrato de discovery
 ```
 
 ### Rodando a suíte de testes
@@ -329,11 +389,15 @@ Petrus Silva Costa.
 
 Claude Code skill that manages the project pendencies/planning table in `TODO.md`
 tabular standard: fixed header, execution order (dependency + value), visual status
-symbols, optional audit column.
+symbols, structural audit, mechanical auto-fix, and an **intake pipeline**
+(new work classified immediately; INBOX only as a residual exception queue).
 
 > **About this section:** what's documented here is behavior already closed
 > and verified by running the code -- never described ahead of time. If a
 > command doesn't exist yet, that's stated explicitly, never left out.
+>
+> **Documented version:** aligned with the **v1.2** motor (tag `v1.2.0` + main).
+> Intake ADR: [`docs/adr/0002-...`](docs/adr/0002-maquina-de-estados-de-intake-e-inbox-como-fila-de-excecao.md).
 
 ### Two layers: generic core and house conventions
 
@@ -342,7 +406,7 @@ This project has two layers with an explicit boundary (see
 
 | Layer | What it is | Dependencies |
 |---|---|---|
-| **Generic core** | Table parser, `--audit`, `--fix`, sync/health/freshness (`tools/`) | Just `git` + `python3`. Works for any user, any project. |
+| **Generic core** | Table parser, `--audit`, `--fix`, `--add`/`--drain` (intake), Fibonacci WSJF, `TAB_*` signals, sync/health/freshness, write lock (`tools/`) | Just `git` + `python3` (>= 3.11). Works for any user, any project. |
 | **House conventions** | Assembly/reorder orchestration by an agent team (`cosmo-coo`, `software-architect`, `tech-lead`, `product-manager`, `engineering-manager`, `scrum-master`), a fixed end-of-project Wiki + beginner-doc item, wikilinks (`[[ORG]]`, `[[AGILE]]`, `[[CONTRACT]]`, `[[TOOLING]]`) that only resolve in the vault of whoever wrote these conventions | **Opt-in**, enabled by `.tab_pendencias.ini` at the root of the repo where the table lives (`[profile]` section, `name = casa` key). Missing file (or key) means `core` profile, always the most restrictive default. |
 
 A third party who clones the repo with just `git` and `python3` gets the whole core
@@ -364,7 +428,7 @@ Manual via `Skill` tool:
 Skill: tab_pendencias
 ```
 
-Or slash command: `/tab_pendencias [--create | --reorder | --show | --main | --add_tests_audit | --audit]`
+Or slash command: `/tab_pendencias [--create | --reorder | --show | --main | --add_tests_audit | --audit | --fix | --add | --drain]`
 
 ### Installation and degradation matrix
 
@@ -375,8 +439,8 @@ scenario, so nothing degrades silently:
 |---|---|---|
 | Without the agent constellation (`cosmo-coo` and others) | `--create`/`--reorder` run in a direct thread, applying the same method (topological + WSJF + waves) without orchestrating the team | Only the split into parallel lenses (architecture, value, effort, waves) by distinct agents; the outcome (the ordered table) is the same goal, computed by a single thread |
 | Without the vault manuals (`[[ORG]]`, `[[AGILE]]`, `[[CONTRACT]]`, `[[TOOLING]]`) | The entire core | The wikilinks become dead text (don't resolve to any document); they're a house-convention reference, not the core's |
-| Without `python3` | The agent-driven part of the skill (`--create`, `--reorder`, `--show`, `--main` via Claude Code) | The mechanical scripts in `tools/` (sync, health, freshness, and the git hooks that trigger them) |
-| Windows without Git for Windows | The agent-driven part of the skill (doesn't depend on a shell) | Mechanical sync via git hook (`tools/hooks/`, POSIX shims that depend on a shell, on Windows the one bundled with Git for Windows). `--audit`/`--fix`/`--create`/`--reorder` remain available when called directly, without depending on the hook. |
+| Without `python3` | The agent-driven part of the skill (`--create`, `--reorder`, `--show`, `--main` via Claude Code) | The mechanical scripts in `tools/` (intake, audit, fix, sync, health, freshness, signals, and the git hooks that trigger them) |
+| Windows without Git for Windows | The agent-driven part of the skill (doesn't depend on a shell) | Mechanical sync via git hook (`tools/hooks/`, POSIX shims that depend on a shell, on Windows the one bundled with Git for Windows). `--audit`/`--fix`/`--add`/`--drain`/`--create`/`--reorder` remain available when called directly, without depending on the hook. |
 
 ### Cross-platform
 
@@ -443,10 +507,53 @@ checklist to exempt the `tab_pendencias` path.
 | `--main` | Displays only pending items (filters out `✅`) |
 | `--add_tests_audit` | Adds applicable test/audit items for the stack, without asking |
 | `--audit` | Audits the structural integrity of the `TODO.md` itself (read-only); see the dedicated section below |
+| `--fix` | Applies mechanical fixes marked `[auto-fixable]` by audit (2 classes); dry-run by default |
+| `--add` | Intake pipeline: classifies a new discovery/item and persists L0, SCOPED, FULL, or residual |
+| `--drain` | Drains residual INBOX (exception queue) with judgments; post-apply `classifiable_inbox_count == 0` |
 
 Without argument, uses natural language: "show pendencies" for `--main`, "full table"
 for `--show`, "create table" for `--create`, "reorder"/"minimize rework" for
-`--reorder`, "audit the table" for `--audit`.
+`--reorder`, "audit the table" for `--audit`, "fix the table" for `--fix`,
+"add this pendency" for `--add`, "drain INBOX" for `--drain`.
+
+### Intake and INBOX (exception queue -- not the normal queue)
+
+> **History:** older versions sent *every* discovery to the INBOX section
+> immediately and waited for human drain or `--reorder`. That is **obsolete**
+> with the intake motor (v1.2 / [ADR-0002](docs/adr/0002-maquina-de-estados-de-intake-e-inbox-como-fila-de-excecao.md)).
+> Residual INBOX is **not** the normal discovery queue.
+
+New work found mid-sprint does **not** wait for a full reorder by default.
+The normal path is intake (`/tab_pendencias --add` or `tools/todo_intake.py`):
+
+1. **Local (L0)** -- append one row to `TODO.md` (recoverable marker).
+2. **Scoped / foundation** -- proportional `SCOPED_REORDER` or `FULL_REORDER`.
+3. **Duplicate** -- no new row; related residual cleaned if present.
+4. **Ambiguous / no authority** -- only then becomes **residual INBOX**
+   (exception queue) with `[triage ...]` metadata, no Wave and no WSJF.
+
+Workers/subagents do **not** edit `TODO.md`: they return a `DISCOVERED_WORK`
+block; the main thread converts it via `tools/intake_agent_bridge.py` and calls
+intake. A hub with `[hub] derived=true` is **read-only** for intake/drain apply
+(see [`references/hub-agregador.md`](references/hub-agregador.md)).
+
+**Mechanical CLI** (offline, stdlib, no LLM -- the agent fills judgment flags):
+
+```bash
+python3 tools/todo_intake.py --todo TODO.md \
+  --candidate-id cand-1 --item-id F-12 \
+  --description "..." --source agent --fields-complete --local
+
+python3 tools/todo_intake.py --todo TODO.md ... --apply
+
+python3 tools/todo_intake.py --drain --todo TODO.md
+python3 tools/todo_intake.py --drain --todo TODO.md --apply --judgments-json path.json
+```
+
+Session signals (`TAB_*`): motor `tools/session_signals.py`, printed by
+`todo_health.py` and adapter `tools/hooks/tab_pendencias_reminder.py`.
+`TAB_TRIAGE_REQUIRED` means run **`--drain`**, not a clock-driven full reorder.
+Contract: [`references/sinais-de-frescor.md`](references/sinais-de-frescor.md).
 
 ### `--audit` (structural table audit)
 
@@ -547,15 +654,13 @@ python3 tools/todo_fix.py [--apply CLASS [CLASS ...]] [-v]
   write failure); `2` = ran ok, 1+ correction available (shown in dry-run or
   applied).
 
-**Known risks (disclosed, not hidden):** two `--fix --apply` processes
-running at the same time on the same repository would overwrite each other
-without warning -- the clean-working-tree check protects against writing over
-a change already committed or pending at the start of the run, but not
-against a race between two processes that both pass that check nearly
-simultaneously (there's no OS-level lock). There's an inherent window between
-reading and writing the file with no OS lock. Behavior on Windows against a
-read-only destination has no empirical proof in this slice (not tested on
-that platform).
+**Concurrency (v1.2):** the `--apply` path acquires `TodoWriteLock`
+(`tools/todo_lock.py`, same lock as intake/drain) **before** re-checking a clean
+working tree and writing -- serializes two `--fix --apply` on the same TODO
+(default timeout 10s; lock failure = exit 1). Dry-run does **not** take the lock.
+Platform residual: Windows `os.replace` against a read-only destination has no
+empirical proof in the matrix (generic `OSError` handling covered by mocks).
+Detail in [`tools/README.md`](tools/README.md).
 
 ## Automatic tests and audits
 
@@ -578,20 +683,29 @@ asking.
 **`TODO.md` in project root** is the only valid location. Skill never creates
 `PENDENCIAS.md`, `TAREFAS.md`, or `BACKLOG.md` parallels.
 
-### Mechanical synchronization (optional, generic core)
+### Mechanical core (`tools/`, optional day-to-day, generic)
 
 Besides the skill itself (agent-driven planning), the repo ships local,
-deterministic scripts in [`tools/`](tools/README.md), no LLM/agent involved, to keep
-`TODO.md` synced during the sprint:
+deterministic scripts in [`tools/`](tools/README.md), no LLM/agent involved:
 
-- `python3 tools/todo_sync.py [--apply]`: advances `⏳`/`🔄` items to `🔍` from IDs
-  cited in commits that touched substantive work. Never assigns `✅`, never
-  reorders.
-- `python3 tools/todo_health.py`: report of items stuck in `🔍`, INBOX size, and
-  adherence to citing the ID in commits.
-- Git hook in `tools/hooks/` (optional, cross-platform): post-commit warning, never
-  blocks. Installation detail and OS-specific degradation in
-  [`tools/README.md`](tools/README.md).
+| Script | Role |
+|---|---|
+| `todo_intake.py` | `--add` / `--drain` (L0/SCOPED/FULL/residual cascade) |
+| `intake_agent_bridge.py` | `DISCOVERED_WORK` -> judgment flags |
+| `intake_journal.py` | write-ahead journal + orphan recovery |
+| `todo_audit.py` / `todo_fix.py` | structural audit and auto-fix (2 classes) |
+| `todo_sync.py` / `todo_health.py` | status sync and report + `TAB_*` lines |
+| `session_signals.py` | freshness predicates (`TAB_*`) |
+| `todo_lock.py` | write lock (intake/drain/fix apply) |
+| `wsjf.py` | Fibonacci WSJF (topology **before** score) |
+| `bus_contract.py` | bus message contract (sender never scores) |
+| `concurrent_inbox.py` | `inbox/*.md` fallback across sessions |
+| `todo_freshness.py` + `hooks/` | post-commit warning (warn-only) |
+| `submodule_pin_drift.py` | submodule pin drift (read-only) |
+
+**HOOKSRC-1:** global `core.hooksPath` must point at a **published install**
+(pinned submodule in the consumer), **never** at this product's development
+checkout. Detail and OS degradation in [`tools/README.md`](tools/README.md).
 
 These scripts are an accelerator; without them the freshness convention still holds
 by hand (see [`references/frescor-da-tabela.md`](references/frescor-da-tabela.md)).
@@ -610,15 +724,17 @@ por execução, coluna Onda marca passos paralelizáveis).
 ### Repository layout
 
 ```
-SKILL.md                -- skill definition (canonical source for the schema and flow)
-TESTES.md                -- this project's own test catalog
-AUDITORIAS.md             -- this project's own audit catalog
-docs/adr/                 -- Architecture Decision Records
-references/               -- normative documents (table freshness, test/audit catalog)
-tools/                    -- generic core: parser, sync, health, freshness (stdlib only)
-tools/hooks/               -- git hook shims (POSIX sh) + chaining script
-tools/ci/                  -- guards used by CI (same scripts run locally)
-tests/                    -- pytest suite (includes a synthetic defect corpus)
+SKILL.md                 -- skill definition (schema, flow, intake, signals)
+TESTES.md / AUDITORIAS.md -- this project's own catalogs
+docs/adr/                -- ADRs (0001 core/house; 0002 intake + INBOX exception)
+docs/para-iniciantes.md  -- beginner guide (starts from zero)
+docs/campanha/           -- historical campaign plan (not living product doc)
+references/              -- norms: freshness, TAB_* signals, hub, bus, cutover
+tools/                   -- generic core (intake, audit, fix, sync, lock, wsjf, ...)
+tools/hooks/             -- git hook shims + session reminder
+tools/ci/                -- CI guards
+tests/                   -- pytest suite + synthetic corpus
+templates/               -- vault fragments and discovery contract
 ```
 
 ### Running the test suite

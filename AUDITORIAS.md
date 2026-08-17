@@ -20,9 +20,11 @@ Verificar separação de camadas, SOLID, DRY e ausência de violação de depend
 ## AUD-SEC Segurança
 Secrets, entrada não-confiável, e o que o código executa por conta própria.
 **Ferramentas:** `bandit`/`semgrep` (SAST), `gitleaks` (secrets), OSV (CVE). Focos deste repo:
-(a) nada de `shell=True` nem interpolação de path em subprocess git; (b) o `--fix` escreve no
-`TODO.md` do usuário -- pré-condição de working tree limpa e round-trip provado; (c) os shims
-`sh` rodam como hook.
+(a) nada de `shell=True` nem interpolação de path em subprocess git; (b) `--fix` / `--add` /
+`--drain` escrevem no `TODO.md` do usuário -- working tree limpa, lock, round-trip e journal
+com `redact_secrets` no intake; (c) os shims `sh` rodam como hook e devem apontar para a
+**instalação publicada** (HOOKSRC-1), não para checkout de dev; (d) corpus e bus sem payload
+privado versionado.
 
 ## AUD-QUALITY Qualidade de Código
 God functions, complexidade, dead code, duplicação.

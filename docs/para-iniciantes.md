@@ -9,7 +9,8 @@
 > são as fontes de verdade sobre o que o produto faz. Este guia explica os
 > mesmos comandos, mas parte do zero e explica cada termo técnico na primeira
 > vez que ele aparece.
-> **Versão do produto:** v1.0.0. **Última revisão:** 2026-07-28.
+> **Versão do produto:** v1.2.0. **Última revisão:** 2026-08-16.
+> **Owner:** technical-writer (produto tab_pendencias).
 
 Se alguma frase deste guia usar uma palavra técnica sem explicar, isso é uma
 falha do texto, não sua -- procure a palavra no [glossário](#8-glossário) no
@@ -25,6 +26,7 @@ final.
 6. [Como ler o relatório do `--audit`](#6-como-ler-o-relatório-do---audit)
 7. [Problemas comuns](#7-problemas-comuns)
 8. [Glossário](#8-glossário)
+9. [Trabalho novo: intake (não "jogar na INBOX")](#9-trabalho-novo-intake-não-jogar-na-inbox)
 
 ---
 
@@ -257,10 +259,12 @@ O projeto tem duas camadas, explicadas em detalhe no
   [Claude Code](https://claude.com/claude-code) (um assistente de
   programação em linha de comando), pode instalar este projeto como uma
   "skill" -- um pacote de instruções que o assistente carrega automaticamente.
-  Isso dá acesso aos comandos `--create`, `--reorder`, `--show`, `--main` e
-  `--add_tests_audit` (seção
-  [5.4](#54-os-comandos-que-rodam-dentro-do-claude-code)), que dependem de um
-  assistente de IA para funcionar. Instalação:
+  Isso dá acesso aos comandos `--create`, `--reorder`, `--show`, `--main`,
+  `--add_tests_audit`, `--audit`, `--fix`, `--add` e `--drain` (seções
+  [5.4](#54-os-comandos-que-rodam-dentro-do-claude-code) e
+  [9](#9-trabalho-novo-intake-não-jogar-na-inbox)). Parte deles depende de um
+  assistente de IA; audit/fix/add/drain também existem como scripts Python.
+  Instalação:
 
   ```bash
   mkdir -p ~/.claude/skills
@@ -269,11 +273,11 @@ O projeto tem duas camadas, explicadas em detalhe no
   ```
 
 - **Por conta própria, sem nenhum assistente de IA**: os scripts em `tools/`
-  (`todo_audit.py`, `todo_fix.py`, `todo_sync.py`, `todo_health.py`) são
-  Python puro -- rodam com só `git` e `python3` instalados, sem precisar do
-  Claude Code nem de internet. É o caminho deste guia a partir daqui, porque
-  cada comando pode ser executado e conferido por qualquer pessoa, sem
-  depender de mais nada.
+  (`todo_audit.py`, `todo_fix.py`, `todo_intake.py`, `todo_sync.py`,
+  `todo_health.py`, ...) são Python puro -- rodam com só `git` e `python3`
+  (>= 3.11) instalados, sem precisar do Claude Code nem de internet. É o
+  caminho deste guia a partir daqui, porque cada comando pode ser executado e
+  conferido por qualquer pessoa, sem depender de mais nada.
 
 Instalar o hook de aviso automático da seção 3 (opcional, mas recomendado
 para projeto próprio) exige um passo a mais; veja o alerta na seção
@@ -418,29 +422,18 @@ Estes dois scripts complementam o hook da seção 3, sem depender dele:
 - `python3 tools/todo_health.py` mostra um raio-x da tabela. Saída real,
   rodada na tabela deste próprio projeto:
 
-  ```text
-  Saude da TODO.md (46 itens):
-    ✅ concluidos: 1
-    ⏳/🔄 pendentes (nao entregues): 6
-    🔍 aguardando verificacao (entregue, falta teste/auditoria): 39
-         presos em 🔍 -> ADR-1
-         presos em 🔍 -> SCAF-1
-         (...)
-    INBOX (descobertas nao priorizadas): 6
-    adesao a citar ID: 49/50 commits de codigo citaram ID (98%)
-  ```
-
-  "Presos em 🔍" lista itens que já foram implementados, mas ainda esperam o
-  teste ou a auditoria que os leva a "Concluído" -- não é um erro, é o estado
-  esperado enquanto o trabalho de verificação não termina.
+  O relatório lista contagens por status, itens "presos" em 🔍 (implementados
+  mas ainda sem teste/auditoria -- estado esperado, não erro), o tamanho da
+  **INBOX residual** (só o que o intake não conseguiu classificar sozinho;
+  ver [seção 9](#9-trabalho-novo-intake-não-jogar-na-inbox)), e a adesão a citar
+  ID nos commits. Versões recentes também imprimem linhas `TAB_*` (sinais de
+  frescor: por exemplo `TAB_TRIAGE_REQUIRED` pede dreno da INBOX residual).
 
 ### 5.4 Os comandos que rodam dentro do Claude Code
 
-Os comandos `--create`, `--reorder`, `--show`, `--main` e `--add_tests_audit`
-não são scripts Python que você roda direto no terminal: eles são
-instruções que um assistente de IA (o Claude Code) interpreta e executa,
-descritas em detalhe no [`SKILL.md`](../SKILL.md). Resumo do que cada um
-faz (sem repetir o `README.md`, que já documenta o comportamento verificado):
+Os comandos de planejamento e alguns de intake são interpretados pela skill
+no Claude Code (ver [`SKILL.md`](../SKILL.md)). Resumo (o
+[`README.md`](../README.md) documenta o comportamento verificado):
 
 | Comando | O que faz |
 |---|---|
@@ -449,10 +442,14 @@ faz (sem repetir o `README.md`, que já documenta o comportamento verificado):
 | `--show` | Mostra a tabela inteira, inclusive o que já terminou |
 | `--main` | Mostra só o que ainda falta |
 | `--add_tests_audit` | Acrescenta itens de teste/auditoria faltantes |
+| `--audit` | Audita a estrutura da tabela (também via `tools/todo_audit.py`) |
+| `--fix` | Corrige só o que é mecânico e seguro (também via `tools/todo_fix.py`) |
+| `--add` | Classifica e registra trabalho novo (intake; ver seção 9) |
+| `--drain` | Drena a INBOX residual com julgamentos (ver seção 9) |
 
-Estes comandos não puderam ser demonstrados com entrada/saída real neste
-guia porque dependem de uma sessão ativa do Claude Code, não de um comando de
-terminal isolado.
+`--audit`, `--fix`, `--add` e `--drain` também rodam como scripts Python no
+terminal (sem assistente). `--create`/`--reorder`/`--show`/`--main` dependem
+da sessão da skill.
 
 ## 6. Como ler o relatório do `--audit`
 
@@ -557,6 +554,68 @@ pulou.
 | stdlib | Biblioteca padrão de uma linguagem de programação -- código que já vem pronto, sem precisar instalar nada a mais |
 | CI (integração contínua) | Um serviço que roda automaticamente os testes e verificações do projeto a cada mudança, sem depender do computador de ninguém |
 | Skill (do Claude Code) | Um pacote de instruções que um assistente de IA carrega para saber executar uma tarefa específica |
+| Intake | Pipeline que classifica trabalho novo e grava no `TODO.md` (ou manda só o residual para a INBOX) |
+| INBOX residual | Seção no fim do `TODO.md` só para o que o intake **não** conseguiu classificar (exception queue) |
+| `--drain` | Comando que esvazia a INBOX residual com julgamentos explícitos |
+| `TAB_*` | Sinais de frescor impressos pelo health/hook (ex.: `TAB_TRIAGE_REQUIRED` pede dreno) |
+| Exception queue | Fila de **exceção**, não o caminho normal: só o ambíguo fica lá |
+
+---
+
+## 9. Trabalho novo: intake (não "jogar na INBOX")
+
+> **Tipo:** how-to + explanation curta.
+> **Para quem:** quem já leu as seções 1–5 e precisa saber o que fazer quando
+> aparece uma tarefa nova no meio do trabalho.
+
+### O erro antigo (e o que o produto faz agora)
+
+Em versões antigas, a regra informal era: "trabalho novo vai para a INBOX".
+Isso virava uma **lixeira**: a lista crescia e só esvaziava quando alguém
+lembrava de reordenar a tabela inteira.
+
+A partir da **v1.2**, o caminho normal é o **intake** (do inglês *intake*,
+"entrada de material"):
+
+1. Alguém descobre trabalho novo (bug, tarefa, dependência).
+2. A pessoa (ou o assistente principal da sessão) chama **`--add`** /
+   `tools/todo_intake.py` com um julgamento simples: é local? mexe em
+   fundação? tem autoridade para decidir?
+3. O motor **classifica e grava**:
+   - **local** → acrescenta uma linha no fim da tabela (sem reordenar tudo);
+   - **impacto estrutural** → pede reorder proporcional (escopado ou completo);
+   - **já existe** → não duplica;
+   - **ambíguo / sem autoridade** → só **aí** cai na **INBOX residual**
+     (exception queue), com um carimbo `[triage ...]` para lembrar por que
+     ficou de fora.
+4. A INBOX residual se drena com **`--drain`** (e julgamentos em JSON quando
+   há linhas "classificáveis" sem carimbo de triagem). Depois de um dreno
+   bem-sucedido, **não deve sobrar linha classificável** na INBOX.
+
+Workers/subagentes (robôs auxiliares) **não** editam o `TODO.md` sozinhos:
+devolvem um bloco de texto `DISCOVERED_WORK` para a thread principal, que
+chama o intake. Isso evita duas mãos escrevendo a mesma tabela ao mesmo tempo.
+
+### Como chamar no terminal (sem assistente)
+
+```bash
+# Simular (não grava): item local bem formado
+python3 tools/todo_intake.py --todo TODO.md \
+  --candidate-id cand-exemplo --item-id T-99 \
+  --description "Documentar o fluxo de intake no guia" \
+  --source user --fields-complete --local
+
+# Gravar de verdade (working tree do TODO.md precisa estar limpa)
+python3 tools/todo_intake.py --todo TODO.md ... --apply
+
+# Ver o que a INBOX residual tem / drenar
+python3 tools/todo_intake.py --drain --todo TODO.md
+python3 tools/todo_intake.py --drain --todo TODO.md --apply --judgments-json julgamentos.json
+```
+
+Detalhe completo (cascata, lock, journal, sinais):
+[`README.md`](../README.md), [`SKILL.md`](../SKILL.md) e
+[`docs/adr/0002-maquina-de-estados-de-intake-e-inbox-como-fila-de-excecao.md`](adr/0002-maquina-de-estados-de-intake-e-inbox-como-fila-de-excecao.md).
 
 ---
 
