@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 from conftest import git_init_isolado
 
@@ -90,9 +91,47 @@ def test_compat_offline_imports_no_network_modules():
     assert not offenders, "imports de rede no core:\n" + "\n".join(offenders)
 
 
+# Hosts de documentacao de licenca FOSS permitidos em comentarios/strings
+# de runtime (ex.: cabecalho GPL). Checagem por hostname parseado, NUNCA
+# por substring da URL (CodeQL py/incomplete-url-substring-sanitization).
+_LICENSE_DOC_HOSTS = frozenset({
+    "www.gnu.org",
+    "gnu.org",
+    "opensource.org",
+    "www.opensource.org",
+})
+
+_HTTP_URL_RE = re.compile(r"https?://[^\s'\"\)\]>,;]+", re.IGNORECASE)
+
+
+def _http_url_host_is_license_doc(url: str) -> bool:
+    """True se o *hostname* da URL (apos urlparse) e doc de licenca FOSS.
+
+    Nao usa ``\"gnu.org\" in url``: isso aceitaria host malicioso com o
+    token em path/query (ex.: ``http://evil.example/gnu.org``).
+    """
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return False
+    return host in _LICENSE_DOC_HOSTS
+
+
+def test_compat_license_host_allowlist_is_hostname_exact():
+    """CodeQL py/incomplete-url-substring-sanitization: host, nao substring."""
+    assert _http_url_host_is_license_doc("https://www.gnu.org/licenses/")
+    assert _http_url_host_is_license_doc("http://gnu.org/licenses/gpl-3.0.html")
+    assert _http_url_host_is_license_doc("https://opensource.org/licenses/MIT")
+    # bypass classico: token no path / prefixo de host
+    assert not _http_url_host_is_license_doc("http://evil.example/gnu.org")
+    assert not _http_url_host_is_license_doc(
+        "http://benign-looking-prefix-gnu.org/x"
+    )
+    assert not _http_url_host_is_license_doc("https://api.example.com/v1")
+
+
 def test_compat_grep_no_http_urls_in_runtime_tools():
     """Grep defensivo: tools de runtime nao abrem URL de API."""
-    pat = re.compile(r"https?://(?!www\.gnu\.org|opensource\.org)")
     hits = []
     skip_dirs = {"ci", "__pycache__"}
     for path in sorted(TOOLS.rglob("*.py")):
@@ -105,11 +144,17 @@ def test_compat_grep_no_http_urls_in_runtime_tools():
         for i, line in enumerate(text.splitlines(), 1):
             if line.lstrip().startswith("#"):
                 continue
-            if "gnu.org" in line or "licenses" in line.lower():
+            if "licenses" in line.lower() and "http" not in line.lower():
+                # menção a licenses sem URL -- irrelevante
                 continue
-            if pat.search(line):
-                hits.append(f"{path.relative_to(REPO)}:{i}:{line.strip()[:80]}")
-    # Licenca GPL cita URL -- ja filtrado; falha se houver API endpoint
+            for m in _HTTP_URL_RE.finditer(line):
+                url = m.group(0).rstrip(".,);]")
+                if _http_url_host_is_license_doc(url):
+                    continue
+                hits.append(
+                    f"{path.relative_to(REPO)}:{i}:{line.strip()[:80]}"
+                )
+    # Licenca GPL cita URL -- filtrada por hostname; falha se houver API
     assert not hits, "URL de rede em runtime:\n" + "\n".join(hits[:20])
 
 
