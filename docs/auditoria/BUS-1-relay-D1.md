@@ -6,11 +6,11 @@
 
 | Campo | Valor |
 | :--- | :--- |
-| Destinatario | `gusworld` (inbox do bus) |
+| Destinatario | consumidor B (inbox do bus) |
 | Thread | `higiene-repo` |
-| Arquivo | `inbox/gusworld/20260816-2110-tab_pendencias-d1-emoji-prefixo.md` |
+| Arquivo | `inbox/<consumidor-B>/20260816-2110-tab_pendencias-d1-emoji-prefixo.md` |
 | Commit bus | `c284edeb5261273039647e1e00e1d3cc4cbbd943` |
-| Remoto | `github.com/petrinhu/gusworld_ia_autocomm` main |
+| Remoto | repositorio do bus do consumidor B (main); commit c284edeb5261273039647e1e00e1d3cc4cbbd943 |
 
 ## Conteudo (resumo)
 
