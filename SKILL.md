@@ -108,9 +108,12 @@ negocio propria). Health imprime as mesmas linhas `TAB_*`.
 
 O adapter e ligado a **SessionStart** e a **UserPromptSubmit** e **roteia
 por `hook_event_name`**: sinal de estado do repositorio (CREATE, SYNC,
-TRIAGE, LEADER_AGED, VERIF) sai no **SessionStart**; sinal reativo ao turno
-(CONCURRENT, RECOVERY) sai no **UserPromptSubmit**. Nenhum sinal sai nos
-dois. `hook_event_name` ausente assume SessionStart; evento desconhecido
+TRIAGE, LEADER_AGED, VERIF, RECOVERY) sai no **SessionStart**; sinal reativo
+ao turno (CONCURRENT) sai no **UserPromptSubmit**. Nenhum sinal sai nos
+dois. RECOVERY ficou no SessionStart por decisao do lider em 19/08/2026
+(zero repeticao; orfao nascido no meio da sessao so aparece na sessao
+seguinte -- na hora, `todo_health.py` imprime o mesmo sinal sob demanda).
+`hook_event_name` ausente assume SessionStart; evento desconhecido
 nao emite. O evento por-turno deduplica por `session_id` (mesmas reasons
 nao repetem; reasons novas voltam a emitir).
 

@@ -200,6 +200,32 @@ def test_particao_por_evento_e_exaustiva_e_disjunta():
     assert total == len(uniao), "sinal declarado em mais de um evento"
 
 
+def test_mapa_sinal_evento_e_o_decidido_pelo_lider():
+    """Enumera o mapa INTEIRO -- espaco pequeno se enumera, nao se busca.
+
+    A exaustividade/disjuncao acima aceita QUALQUER particao; este teste fixa
+    a particao que foi decidida. `TAB_INTAKE_RECOVERY_REQUIRED` fica no
+    `SessionStart` por decisao do lider em 19/08/2026 (alinhamento com a letra
+    do plano de campanha; criterio de desempate = zero repeticao ao usuario,
+    aceitando que um orfao nascido no meio da sessao so apareca na sessao
+    seguinte). Mover qualquer sinal de evento tem de passar por aqui.
+    """
+    esperado = {
+        SS.EVENT_SESSION_START: {
+            "TAB_TODO_CREATE_REQUIRED",
+            "TAB_STATUS_SYNC_RECOMMENDED",
+            "TAB_TRIAGE_REQUIRED",
+            "TAB_LEADER_DECISION_AGED",
+            "TAB_VERIFICATION_AGING",
+            "TAB_INTAKE_RECOVERY_REQUIRED",
+        },
+        SS.EVENT_USER_PROMPT_SUBMIT: {
+            "TAB_CONCURRENT_INBOX_PRESENT",
+        },
+    }
+    assert {k: set(v) for k, v in SS.SIGNALS_BY_EVENT.items()} == esperado
+
+
 def test_signals_for_event_filtra_por_evento():
     rep = SS.SignalReport(
         signals=[SS.Signal(id=sid, active=True) for sid in SS.SIGNAL_IDS]
@@ -301,6 +327,37 @@ def test_todo_create_required_so_no_session_start(tmp_path):
     assert ctx_up == ""
 
 
+def test_recovery_sai_no_session_start_e_nunca_no_turno(tmp_path):
+    """Decisao do lider (19/08/2026): orfao de intake e sinal de SessionStart.
+
+    Ponta a ponta, com o fato real (journal com registro `state != DONE`), e
+    nao so pelo mapa -- se o roteamento parar de honrar o mapa, o teste do
+    mapa sozinho nao pegaria.
+    """
+    root = _repo_todos_os_sinais(tmp_path)
+    ctx_ss = _emitir(root, "SessionStart", tmp_path / "a").get(
+        "additionalContext") or ""
+    ctx_up = _emitir(root, "UserPromptSubmit", tmp_path / "b").get(
+        "additionalContext") or ""
+    assert "TAB_INTAKE_RECOVERY_REQUIRED" in ctx_ss
+    assert "orphans=1" in ctx_ss
+    assert "TAB_INTAKE_RECOVERY_REQUIRED" not in ctx_up
+
+
+def test_turno_carrega_so_o_sinal_de_inbox_concorrente(tmp_path):
+    """Depois da mudanca, `UserPromptSubmit` tem UM sinal so.
+
+    Enumera os sete IDs contra a saida do turno em vez de conferir apenas o
+    que se espera encontrar: qualquer sinal que reapareca no evento por-turno
+    reprova.
+    """
+    root = _repo_todos_os_sinais(tmp_path)
+    ctx_up = _emitir(root, "UserPromptSubmit", tmp_path / "st").get(
+        "additionalContext") or ""
+    presentes = [sid for sid in SS.SIGNAL_IDS if sid in ctx_up]
+    assert presentes == ["TAB_CONCURRENT_INBOX_PRESENT"], presentes
+
+
 def test_hook_event_name_ausente_nao_duplica(tmp_path):
     """Campo ausente cai no lado que NAO repete (SessionStart)."""
     root = _repo_todos_os_sinais(tmp_path)
@@ -346,6 +403,9 @@ def test_cli_roteia_por_evento_e_sai_zero(tmp_path):
     assert "TAB_CONCURRENT_INBOX_PRESENT" not in saidas["SessionStart"]
     assert "TAB_STATUS_SYNC_RECOMMENDED" in saidas["SessionStart"]
     assert "TAB_STATUS_SYNC_RECOMMENDED" not in saidas["UserPromptSubmit"]
+    # decisao do lider 19/08/2026: recuperacao de intake e do SessionStart.
+    assert "TAB_INTAKE_RECOVERY_REQUIRED" in saidas["SessionStart"]
+    assert "TAB_INTAKE_RECOVERY_REQUIRED" not in saidas["UserPromptSubmit"]
 
 
 # --- dedup por sessao ------------------------------------------------------

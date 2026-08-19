@@ -24,10 +24,24 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   (`SIGNALS_BY_EVENT`, exaustiva e disjunta sobre `SIGNAL_IDS`, garantida por
   teste): sinal de **estado do repositório** (`TAB_TODO_CREATE_REQUIRED`,
   `TAB_STATUS_SYNC_RECOMMENDED`, `TAB_TRIAGE_REQUIRED`,
-  `TAB_LEADER_DECISION_AGED`, `TAB_VERIFICATION_AGING`) sai no `SessionStart`;
-  sinal **reativo ao turno** (`TAB_CONCURRENT_INBOX_PRESENT`,
-  `TAB_INTAKE_RECOVERY_REQUIRED`) sai no `UserPromptSubmit`. Nenhum sinal sai
-  nos dois.
+  `TAB_LEADER_DECISION_AGED`, `TAB_VERIFICATION_AGING`,
+  `TAB_INTAKE_RECOVERY_REQUIRED`) sai no `SessionStart`; sinal **reativo ao
+  turno** (`TAB_CONCURRENT_INBOX_PRESENT`) sai no `UserPromptSubmit`. Nenhum
+  sinal sai nos dois.
+- **Posição de `TAB_INTAKE_RECOVERY_REQUIRED`: `SessionStart`.** A primeira
+  implementação deste roteamento pôs o sinal no `UserPromptSubmit` -- argumento
+  registrado no código, no CHANGELOG e em `references/sinais-de-frescor.md`: um
+  órfão pode nascer no meio da sessão e a ação esperada acontece dentro do
+  turno. Isso contrariava a letra do plano de campanha
+  (`docs/campanha/PLANO-MELHORIA-TAB-PENDENCIAS-CLAUDE-CODE-2026-08-16.md`,
+  regra 4 do journal write-ahead e tick 3 da revisão final), que atribui a
+  detecção de órfãos ao `SessionStart`. **Decisão do líder em 19/08/2026:
+  alinhar ao plano.** Critério de desempate: zero repetição ao usuário.
+  Trade-off aceito e explícito: órfão criado no meio da sessão **só aparece na
+  sessão seguinte** (na hora, `todo_health.py` imprime o mesmo sinal sob
+  demanda). Consequência prática: o evento por-turno passa a carregar **um
+  único** sinal. Teste novo fixa o mapa inteiro sinal -> evento, para que uma
+  troca futura de posição não passe silenciosa.
 
 ### Adicionado
 
@@ -44,12 +58,16 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   atômica por `os.replace`, limpeza por TTL de 7 dias e teto de arquivos.
   `SessionStart` **não** é deduplicado de propósito (compact/resume seguem
   reset de contexto). Fail-open em qualquer falha de IO.
-- 24 testes novos em `tests/test_session_hook_adapter.py`: partição exaustiva e
-  disjunta, roteamento ponta a ponta pelos dois eventos (inclusive por processo
-  real), campo ausente não duplica, evento desconhecido silencia, payload
-  corrompido não quebra, dedup (suprime, re-emite ao mudar o fato, é por sessão,
-  não se aplica ao `SessionStart`), `session_id` hostil neutralizado, poda do
-  diretório de estado por TTL e por teto.
+- 27 testes novos em `tests/test_session_hook_adapter.py`: partição exaustiva e
+  disjunta, **mapa sinal -> evento enumerado por inteiro** (a exaustividade
+  sozinha aceita qualquer partição; este fixa a que foi decidida), roteamento
+  ponta a ponta pelos dois eventos (inclusive por processo real),
+  `TAB_INTAKE_RECOVERY_REQUIRED` sai no `SessionStart` e nunca no turno,
+  evento por-turno carrega só `TAB_CONCURRENT_INBOX_PRESENT`, campo ausente não
+  duplica, evento desconhecido silencia, payload corrompido não quebra, dedup
+  (suprime, re-emite ao mudar o fato, é por sessão, não se aplica ao
+  `SessionStart`), `session_id` hostil neutralizado, poda do diretório de
+  estado por TTL e por teto.
 
 ### Documentação
 

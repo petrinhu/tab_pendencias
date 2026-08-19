@@ -145,6 +145,13 @@ class SignalReport:
 #                          pode produzir enquanto esta sessao roda, e cuja
 #                          acao esperada acontece dentro do turno.
 #
+# Onde o criterio nao decide sozinho, decide o lider. `TAB_INTAKE_RECOVERY_
+# REQUIRED` cabe nas duas leituras (o orfao pode nascer no meio da sessao,
+# mas tambem e estado durado do repositorio) e o lider decidiu em 19/08/2026
+# pelo SessionStart, alinhando com a letra do plano de campanha. O criterio
+# de desempate foi ZERO repeticao ao usuario -- o custo aceito esta anotado
+# na propria entrada da tupla.
+#
 # A particao e EXAUSTIVA e DISJUNTA sobre SIGNAL_IDS: todo sinal pertence a
 # exatamente um evento (garantido por teste). Um sinal em dois eventos
 # reintroduziria a duplicacao.
@@ -163,14 +170,18 @@ _SESSION_START_SIGNALS = (
     "TAB_LEADER_DECISION_AGED",
     # contagem de 🔍 + dias sem tocar a tabela: planejamento de onda.
     "TAB_VERIFICATION_AGING",
+    # orfao de journal de intake. Decisao do lider em 19/08/2026: alinhar com
+    # a letra do plano de campanha, que atribui a deteccao de orfaos ao
+    # SessionStart (docs/campanha/PLANO-MELHORIA-...-2026-08-16.md, regra 4 do
+    # journal write-ahead e tick 3 da revisao). O lider escolheu ZERO
+    # repeticao; trade-off aceito e explicito: orfao que NASCE no meio da
+    # sessao so aparece na sessao seguinte.
+    "TAB_INTAKE_RECOVERY_REQUIRED",
 )
 
 _USER_PROMPT_SIGNALS = (
     # inbox/*.md e escrito por OUTRA sessao enquanto esta roda.
     "TAB_CONCURRENT_INBOX_PRESENT",
-    # orfao de journal bloqueia um intake NOVO -- acao de dentro do turno --
-    # e pode nascer de um intake que morreu no meio desta mesma sessao.
-    "TAB_INTAKE_RECOVERY_REQUIRED",
 )
 
 SIGNALS_BY_EVENT = {

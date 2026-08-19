@@ -82,8 +82,25 @@ cuja acao esperada acontece dentro do turno) vai para `UserPromptSubmit`.
 | `TAB_TRIAGE_REQUIRED` | `SessionStart` | "planejar um `--drain`" e decisao de uma vez por sessao; a parcela rapida (`inbox/`) tem sinal proprio por turno |
 | `TAB_LEADER_DECISION_AGED` | `SessionStart` | envelhece em dias/ciclos de drain |
 | `TAB_VERIFICATION_AGING` | `SessionStart` | contagem de 🔍 + dias sem tocar a tabela; planejamento de onda |
+| `TAB_INTAKE_RECOVERY_REQUIRED` | `SessionStart` | orfao no journal de intake; decisao do lider em 19/08/2026 (nota abaixo) |
 | `TAB_CONCURRENT_INBOX_PRESENT` | `UserPromptSubmit` | `inbox/*.md` e escrito por OUTRA sessao enquanto esta roda |
-| `TAB_INTAKE_RECOVERY_REQUIRED` | `UserPromptSubmit` | orfao bloqueia um intake NOVO (acao de dentro do turno) e pode nascer de um intake que morreu no meio desta sessao |
+
+### Nota: `TAB_INTAKE_RECOVERY_REQUIRED` (decidido em 19/08/2026)
+
+Este sinal cabe nas duas leituras do criterio. O orfao **e** estado durado do
+repositorio -- o journal sobrevive ao fim da sessao --, mas tambem pode
+**nascer no meio da sessao**, quando um intake morre entre o write-ahead e a
+integracao. A primeira implementacao pos o sinal no `UserPromptSubmit` pela
+segunda leitura, contrariando a letra do plano de campanha
+(`docs/campanha/PLANO-MELHORIA-TAB-PENDENCIAS-CLAUDE-CODE-2026-08-16.md`,
+regra 4 do journal write-ahead e tick 3 da revisao final, que atribuem a
+deteccao ao `SessionStart`).
+
+**O lider decidiu pelo `SessionStart`**, alinhando o codigo ao plano. Criterio
+de desempate: **zero repeticao** ao usuario. **Trade-off aceito e explicito:**
+um orfao criado no meio da sessao **so aparece na sessao seguinte**. A
+recuperacao continua disponivel na hora por `todo_health.py`, que imprime as
+mesmas linhas `TAB_*` sob demanda, sem depender do hook.
 
 ### `hook_event_name` ausente ou desconhecido
 
