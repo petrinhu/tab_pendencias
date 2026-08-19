@@ -18,6 +18,15 @@ antigo (sem bloco ``[triage ...]``):
   incrementa ``cycles`` no drain; ``needs-leader-decision`` nao auto-integra.
 
 Nao e necessario editar manualmente todos os ``TODO.md`` existentes.
+
+**Compat de LAYOUT (LAYOUT-1, 2026-08-19).** A ordem canonica mudou: a secao
+``## INBOX`` vem ANTES da tabela, e nada vem depois dela. Um ``TODO.md`` no
+layout LEGADO (INBOX depois) segue **valido para leitura** por tempo
+indeterminado -- nenhum parser o recusa e os itens/entradas lidos sao os
+mesmos --, so recebe aviso (``todo_lib.legacy_layout_warning``). Escrita e
+criacao usam sempre a ordem nova. A conversao e mecanica e nao exige edicao a
+mao: ``python3 tools/todo_migrate_inbox.py --apply`` (idempotente, preserva
+tabela e INBOX byte a byte).
 ``--drain`` com ``--judgments-json`` migra as linhas classifiable; apos
 apply ok, ``classifiable_inbox_count == 0``.
 

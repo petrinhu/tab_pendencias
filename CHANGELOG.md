@@ -13,6 +13,74 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Alterado
+
+- **BREAKING (contrato de forma) -- a seção `## INBOX` passa a vir ANTES da
+  tabela (`TAB-LAYOUT-001` / LAYOUT-1).** A ordem canônica de um `TODO.md` de
+  projeto é agora: título `#` -> preâmbulo livre -> `## INBOX (...)` -> prosa
+  opcional -> **tabela canônica** -> **EOF logo após a última linha da tabela**.
+  Nada vem depois da tabela.
+
+  **Motivo:** "fim da tabela = fim do arquivo" é a invariante que ferramentas e
+  guards de consumidor usam para acrescentar linha sem procurar onde a tabela
+  acaba. Com a INBOX depois da tabela, essa invariante era falsa **por
+  construção** -- e um guard de consumidor que a exigia (regra de estrutura de
+  `TODO.md`, sem válvula) passou a **bloquear toda edição** de qualquer
+  `TODO.md` que seguisse o contrato antigo: produto e guard se contradiziam.
+  Mover a INBOX para o cabeçalho resolve na raiz, e ainda a deixa mais visível
+  (descoberta não triada aparece antes do backlog, não enterrada no rodapé).
+
+  **Compatibilidade de LEITURA preservada:** arquivo no formato **legado**
+  (INBOX depois da tabela, ou qualquer texto após ela) continua **válido** --
+  nenhum parser o recusa, e os itens/entradas lidos são exatamente os mesmos.
+  O que ele passa a receber é um **aviso** de formato
+  (`todo_lib.legacy_layout_warning`). **Escrita e criação usam sempre a ordem
+  nova:** quando o intake precisa criar a seção `## INBOX` do zero, ela nasce
+  antes da tabela.
+
+  **Novidades de API em `todo_lib`** (todas aditivas): `table_span()`,
+  `inbox_region()`, `layout()`, `legacy_layout_warning()` e as constantes
+  `LAYOUT_INBOX_FIRST` / `LAYOUT_INBOX_AFTER_TABLE` / `LAYOUT_NO_INBOX` /
+  `LAYOUT_NO_TABLE`. `inbox_items()` e `todo_intake._find_inbox_region()`
+  passam a encerrar a região da INBOX também na primeira linha de tabela --
+  sem isso, com a INBOX imediatamente antes da tabela e sem heading entre as
+  duas, a região engoliria a tabela inteira e o bullet residual seria inserido
+  **dentro** dela.
+
+### Adicionado
+
+- **`tools/todo_migrate_inbox.py` -- conversão do layout legado.** Reordena os
+  blocos de um `TODO.md` legado para a ordem canônica, **preservando byte a
+  byte** o conteúdo da tabela e o da INBOX (só a ordem dos blocos muda; as
+  únicas linhas produzidas do zero são as brancas de costura). Prosa que estava
+  depois da tabela sobe para antes dela, na mesma ordem relativa. Preserva
+  CRLF, BOM e o terminador final. **Idempotente**: a segunda passada não muda
+  um byte. `--check` (exit 2 quando há migração pendente), dry-run por default,
+  `--apply` para gravar. Antes de escrever, prova os invariantes (multiset de
+  linhas não-brancas idêntico, itens da tabela idênticos e na mesma ordem,
+  entradas da INBOX idênticas, resultado canônico) e **aborta sem tocar o
+  arquivo** se qualquer um falhar; escrita atômica (tmp no mesmo diretório +
+  fsync + releitura byte-a-byte + `os.replace`). Só stdlib,
+  `encoding`/`newline` explícitos, cross-platform.
+
+  ```bash
+  python3 tools/todo_migrate_inbox.py --check
+  python3 tools/todo_migrate_inbox.py --apply
+  python3 tools/todo_migrate_inbox.py CAMINHO/TODO.md --apply
+  ```
+
+- **`tests/test_layout_inbox_first.py`** (29 testes): leitura do formato novo e
+  do legado devolvendo o MESMO resultado, aviso de legado, escrita sempre no
+  formato novo, INBOX vazia, INBOX com texto que parece tabela, arquivo sem
+  INBOX, `table_span` ignorando `|` perdido na prosa, migração idempotente e
+  byte-preserving, CRLF, BOM, round-trip de um corpus **gerado** de mais de
+  1000 linhas (980 itens), e o contrato de CLI (exit 0/1/2, flag desconhecida,
+  dry-run não escreve).
+
+- O `TODO.md` **deste repositório** foi migrado com o próprio utilitário
+  (`TAB-LAYOUT-001`): 62 linhas movidas, multiset de linhas não-brancas
+  idêntico (172 = 172), zero mudança na contagem de achados do `--audit`.
+
 ### Corrigido
 
 - **Duplicação de emissão do hook de sessão (`TAB-HOOK-005`).** O adapter

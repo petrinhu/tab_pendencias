@@ -8,6 +8,68 @@
 > **Dogfooding**: este arquivo usa a própria skill que o projeto constrói (schema de 9 colunas,
 > INBOX, ondas de teste/auditoria downstream, item de Wiki como última onda pós-tag).
 
+## Notas de montagem (o que foi fundido, cortado e por quê)
+
+Registrado aqui porque **truncar em silêncio faz a tabela parecer completa quando não é**.
+Gate anti-OE decidido por Cósimo (Chief of Staff): **thread direta**, não o time de 5 lentes --
+o `--create` é artefato mecânico de planejamento e as decisões já estavam fechadas. A única
+exceção que ele exigiu é o passe de ADR (`ADR-1`) antes dos consertos.
+
+**Fundidos** (viraram sub-bullets dentro de um item, não sumiram): `LIC-1` → `SCAF-1`;
+`ABS-2` → `ABS-1`; `CI-2`, `CI-3`, `TST-T2` (estática), `TST-T8` (secrets) e `TST-GAP-3`
+(shims) → jobs do `CI-1`; `CIT-1`+`TCH-1`+`HDR-1` → `PRED-FIX`; `CHK-01..04`+`CHK-08`+`CHK-11`
+→ `CHK-CORE`; `CHK-05..07` → `CHK-GRAPH`; `CHK-12`+`CHK-13`+`CHK-14` → `CHK-CASA`;
+`FIX-SUGGEST` → `FIX-ENG`; `CHANGELOG-1`+`TAG-1` → `REL-1`.
+
+**Cortados, com o que os substitui**: `TST-T5` (deps), `TST-T12` (CVE) e `AUD-DEPS` -- o runtime
+é stdlib puro, não há superfície; substituídos por um guard de 3 linhas no `CI-1` ("nenhum import
+fora da stdlib") e pela verificação de licença dentro do `AUD-FINAL`. `TST-T14` (integração) --
+já coberto por `GAP-2` + `CONTR-1`. `AUD-DISC/ARCH/SEC/QUALITY/COV/LANG/REPORT` -- 7 itens
+consolidados em `AUD-FINAL` (o conteúdo permanece; o que sumiu foi a burocracia de 7 linhas).
+`CI-4` (consistência README×SKILL.md) -- vira linha do DoD de `README-1`, porque o README só
+nasce em W10 e um check sem objeto é infra vazia. `CHK-15..18` (`--audit=repo`) -- **v1.1** por
+decisão D-5; higiene de disco fica fora da skill.
+
+**Ondas**: 14 ondas para 33 itens (32 pendentes + 1 concluído) porque as dependências são reais,
+não decorativas. Itens da mesma onda são paralelizáveis **logicamente**; quando dois deles tocam
+o mesmo arquivo (caso de W5, toda ela em `todo_lib.py`), o orquestrador serializa fatia a fatia --
+disputa de arquivo não é dependência, mas impede paralelismo de verdade. WIP = 1 onda.
+
+**Verificação desta tabela** (rodada na montagem, com script escape-aware -- é o que `CHK-05/06/07`
+vão automatizar): 33 linhas de 9 células, **zero ID duplicado**, **zero pré-requisito inexistente**,
+**zero ciclo**. Um defeito real foi encontrado e corrigido aqui: `AC-FIX` estava na mesma onda do
+seu pré-requisito `FIX-ENG` -- exatamente o `CHK-07`, achado na primeira aplicação. O
+`todo_health.py` não roda ainda porque `Projects/tab_pendencias/` não é repositório git até o
+`SCAF-1`; ele saiu com a mensagem "Nao e um repositorio git" **e exit code 0**, que é o `CLI-1`
+se manifestando ao vivo.
+
+**WSJF qualitativo** (porte early; a tabela de scoring completa da [[AGILE]] §17.2 é exigida em
+scale/bigtech, aqui seria cerimônia). O critério que ordenou: fundação e one-way-door primeiro
+(`ADR-1`, `SCAF-1` com a licença), **rede de segurança antes dos consertos** (`CONTR-1` precede
+todo conserto de parser de propósito -- é o que prova 116=116 e 215=215 depois de mexer), e
+desbloqueio de terceiro cedo (`BUS-1` sobe assim que `BUG-5` fecha, porque o consumidor B está
+parado esperando).
+
+**Não pode ser cortado** (Cósimo, risco de subdimensionar): `CORP-0` e `CONTR-1` (sem eles não
+há contrato, há esperança); os invariantes de round-trip byte-exato e "sync nunca seta ✅"
+(quebrados, corrompem TODO.md de terceiro); `ENC-1`; o gate `AC-FIX`; e o mutation testing por
+`qa-engineer` independente -- implementer ≠ reviewer não é cerimônia, é o único mecanismo que
+pega teste que passa sem verificar nada.
+
+**Ordem inviolável respeitada**: T1 unitário ride com a implementação e nunca vira item;
+`TST-T15` e `AUD-FINAL` são downstream do que cobrem. Nota de dogfooding: os itens de lacuna de
+teste foram nomeados `GAP-*`, não `TST-*`, justamente para não colidirem com o namespace do
+catálogo e disparar um falso positivo do futuro `CHK-12`.
+
+⚠️ **Hook de TDD**: este projeto ainda não tem `.claude/tdd-guard.json`. O TDD dos itens de
+implementação depende de disciplina do implementer até o hook ser ativado.
+
+## INBOX (descobertas não priorizadas)
+
+<!-- 1 linha por descoberta: `- <ID tentativo ou —>: descrição curta`. Drenada por --create/--reorder. -->
+
+---
+
 | ID | Onda | Grupo | Descrição Técnica | Prioridade | Pré-requisito | Dificuldade | Status | Estado Auditado |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | W0-DEC | — | Governança | Kickoff `/bigtech`: porte early classificado por Cósimo, mapa de ativação aprovado, e as 8 decisões **D-1..D-8** resolvidas pelo líder (registro em `decisoes_lider.md`). Gate anti-OE do `--create` decidido por Cósimo: **thread direta** + 1 passe de ADR. | Alta | — | Baixa | ✅ Concluído | — |
@@ -123,65 +185,4 @@
 | TAB-REL-003 | W25 | Release | Fase 12: **bump do pin de submódulo é do lado consumidor** (`claude-memory`): pin explícito no SHA validado de v1.2.0, `git diff --submodule`, commit separado, recovery drill. Este repo só publica a revisão; **não** atualiza o gitlink do consumidor. AGUARDANDO AUTORIZAÇÃO DO LÍDER. Pin é do consumidor claude-memory; bloco colável no checklist. NÃO editar ~/.claude sem ordem. **Pin no consumidor autorizado 16/08** -- aplicar no claude-memory. | Alta | TAB-REL-002 | Media | ✅ Concluído | TST+AUD 2026-08-16 (AUD-CAMPANHA-VERIF) |
 | TAB-REL-004 | W25 | Release | Fase 12: prova de que o GitHub é fonte recuperável -- clone fresco `claude-memory --recursive` obtém skill+toolkit 1.2.0, hook, skill e um candidato de intake sem copiar arquivo de instalação antiga. Prova clone fresco pode rodar em /var/tmp quando autorizado; se falhar rede, reportar. Depende REL-003. **Clone fresco autorizado 16/08**. | Alta | TAB-REL-003 | Media | ✅ Concluído | TST+AUD 2026-08-16 (AUD-CAMPANHA-VERIF) |
 | TAB-HOOK-005 | W26 | Hook | Roteamento por `hook_event_name` no adapter: o mesmo hook estava ligado a `SessionStart` **e** a `UserPromptSubmit` e emitia a MESMA mensagem de defasagem nos dois eventos, repetida ao usuário a cada turno. Particao exaustiva e disjunta em `session_signals.SIGNALS_BY_EVENT` (estado do repositório -> SessionStart; reativo ao turno -> UserPromptSubmit); campo ausente assume SessionStart (lado que nao repete), evento desconhecido nao emite; dedup por `session_id` so no evento por-turno (mesmas reasons nao repetem, reasons novas voltam a emitir), estado em `gettempdir()` com TTL + teto. 24 testes novos; mutation testing sobre o blob commitado. | Alta | TAB-HOOK-004 | Média | 🔍 Pendente verificação | — |
-
-## INBOX (descobertas não priorizadas)
-
-<!-- 1 linha por descoberta: `- <ID tentativo ou —>: descrição curta`. Drenada por --create/--reorder. -->
-
----
-
-## Notas de montagem (o que foi fundido, cortado e por quê)
-
-Registrado aqui porque **truncar em silêncio faz a tabela parecer completa quando não é**.
-Gate anti-OE decidido por Cósimo (Chief of Staff): **thread direta**, não o time de 5 lentes --
-o `--create` é artefato mecânico de planejamento e as decisões já estavam fechadas. A única
-exceção que ele exigiu é o passe de ADR (`ADR-1`) antes dos consertos.
-
-**Fundidos** (viraram sub-bullets dentro de um item, não sumiram): `LIC-1` → `SCAF-1`;
-`ABS-2` → `ABS-1`; `CI-2`, `CI-3`, `TST-T2` (estática), `TST-T8` (secrets) e `TST-GAP-3`
-(shims) → jobs do `CI-1`; `CIT-1`+`TCH-1`+`HDR-1` → `PRED-FIX`; `CHK-01..04`+`CHK-08`+`CHK-11`
-→ `CHK-CORE`; `CHK-05..07` → `CHK-GRAPH`; `CHK-12`+`CHK-13`+`CHK-14` → `CHK-CASA`;
-`FIX-SUGGEST` → `FIX-ENG`; `CHANGELOG-1`+`TAG-1` → `REL-1`.
-
-**Cortados, com o que os substitui**: `TST-T5` (deps), `TST-T12` (CVE) e `AUD-DEPS` -- o runtime
-é stdlib puro, não há superfície; substituídos por um guard de 3 linhas no `CI-1` ("nenhum import
-fora da stdlib") e pela verificação de licença dentro do `AUD-FINAL`. `TST-T14` (integração) --
-já coberto por `GAP-2` + `CONTR-1`. `AUD-DISC/ARCH/SEC/QUALITY/COV/LANG/REPORT` -- 7 itens
-consolidados em `AUD-FINAL` (o conteúdo permanece; o que sumiu foi a burocracia de 7 linhas).
-`CI-4` (consistência README×SKILL.md) -- vira linha do DoD de `README-1`, porque o README só
-nasce em W10 e um check sem objeto é infra vazia. `CHK-15..18` (`--audit=repo`) -- **v1.1** por
-decisão D-5; higiene de disco fica fora da skill.
-
-**Ondas**: 14 ondas para 33 itens (32 pendentes + 1 concluído) porque as dependências são reais,
-não decorativas. Itens da mesma onda são paralelizáveis **logicamente**; quando dois deles tocam
-o mesmo arquivo (caso de W5, toda ela em `todo_lib.py`), o orquestrador serializa fatia a fatia --
-disputa de arquivo não é dependência, mas impede paralelismo de verdade. WIP = 1 onda.
-
-**Verificação desta tabela** (rodada na montagem, com script escape-aware -- é o que `CHK-05/06/07`
-vão automatizar): 33 linhas de 9 células, **zero ID duplicado**, **zero pré-requisito inexistente**,
-**zero ciclo**. Um defeito real foi encontrado e corrigido aqui: `AC-FIX` estava na mesma onda do
-seu pré-requisito `FIX-ENG` -- exatamente o `CHK-07`, achado na primeira aplicação. O
-`todo_health.py` não roda ainda porque `Projects/tab_pendencias/` não é repositório git até o
-`SCAF-1`; ele saiu com a mensagem "Nao e um repositorio git" **e exit code 0**, que é o `CLI-1`
-se manifestando ao vivo.
-
-**WSJF qualitativo** (porte early; a tabela de scoring completa da [[AGILE]] §17.2 é exigida em
-scale/bigtech, aqui seria cerimônia). O critério que ordenou: fundação e one-way-door primeiro
-(`ADR-1`, `SCAF-1` com a licença), **rede de segurança antes dos consertos** (`CONTR-1` precede
-todo conserto de parser de propósito -- é o que prova 116=116 e 215=215 depois de mexer), e
-desbloqueio de terceiro cedo (`BUS-1` sobe assim que `BUG-5` fecha, porque o consumidor B está
-parado esperando).
-
-**Não pode ser cortado** (Cósimo, risco de subdimensionar): `CORP-0` e `CONTR-1` (sem eles não
-há contrato, há esperança); os invariantes de round-trip byte-exato e "sync nunca seta ✅"
-(quebrados, corrompem TODO.md de terceiro); `ENC-1`; o gate `AC-FIX`; e o mutation testing por
-`qa-engineer` independente -- implementer ≠ reviewer não é cerimônia, é o único mecanismo que
-pega teste que passa sem verificar nada.
-
-**Ordem inviolável respeitada**: T1 unitário ride com a implementação e nunca vira item;
-`TST-T15` e `AUD-FINAL` são downstream do que cobrem. Nota de dogfooding: os itens de lacuna de
-teste foram nomeados `GAP-*`, não `TST-*`, justamente para não colidirem com o namespace do
-catálogo e disparar um falso positivo do futuro `CHK-12`.
-
-⚠️ **Hook de TDD**: este projeto ainda não tem `.claude/tdd-guard.json`. O TDD dos itens de
-implementação depende de disciplina do implementer até o hook ser ativado.
+| TAB-LAYOUT-001 | W27 | Contrato | **INBOX ANTES da tabela** (LAYOUT-1): a ordem canônica do arquivo passa a ser título → preâmbulo → `## INBOX` → prosa opcional → TABELA → EOF. Motivo: com a INBOX depois da tabela, um guard de consumidor que exige "o arquivo termina na tabela" contradizia o produto por construção e bloqueava toda edição do `TODO.md`. Leitura do formato LEGADO (INBOX depois) continua VÁLIDA, com aviso (`todo_lib.legacy_layout_warning`); escrita e criação usam sempre a ordem nova. Novo `tools/todo_migrate_inbox.py` (`--check`/dry-run/`--apply`, idempotente, prova invariantes e escreve atômico) converte arquivo legado preservando tabela e INBOX byte a byte. Este `TODO.md` migrado com o próprio utilitário. 29 testes novos + mutation testing. | Alta | TAB-HOOK-005 | Média | 🔍 Pendente verificação | — |

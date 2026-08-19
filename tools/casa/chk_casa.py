@@ -36,7 +36,7 @@ funcao sintetica que nunca roda em producao.
             dele por esta MESMA checagem (nao ha logica especial para
             "depois de teste" alem de tratar o TST-* como mais um
             pre-requisito comum).
-  CHK-13 -- INBOX (`references/frescor-da-tabela.md` SS5): toda linha
+  CHK-13 -- INBOX (`references/frescor-da-tabela.md` SS5.1): toda linha
             "- <ID tentativo ou -->: descricao curta" e verificada em dois
             eixos independentes -- formato (falta o separador ':', ou
             descricao vazia apos ele) e ID duplicando um ID JA presente na
@@ -178,7 +178,7 @@ def chk13(ctx):
                 message=(
                     f"Linha da INBOX {raw!r} nao segue o formato "
                     "'<ID tentativo ou -->: descricao curta' "
-                    "(references/frescor-da-tabela.md SS5) -- falta o "
+                    "(references/frescor-da-tabela.md SS5.1) -- falta o "
                     "separador ':'."),
                 line_no=entry["line_no"], fixable=False))
             continue

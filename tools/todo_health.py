@@ -191,6 +191,12 @@ def run(root=None, verbose=False, now=None):
     report = SS.collect_signals(root, now=now, cfg=cfg)
     m = report.metrics
 
+    # LAYOUT-1: layout legado (INBOX depois da tabela, ou texto depois dela)
+    # e VALIDO para leitura -- so avisa, nunca falha nem muda contagem.
+    aviso_layout = L.legacy_layout_warning(text, table=tbl)
+    if aviso_layout:
+        print(aviso_layout)
+
     print(f"Saude da TODO.md ({len(items)} itens):")
     print(f"  ✅ concluidos: {len(done)}")
     print(f"  ⏳/🔄 pendentes (nao entregues): {len(pend)}")
@@ -253,6 +259,8 @@ def run(root=None, verbose=False, now=None):
         "concluidos": len(done),
         "pendentes": len(pend),
         "aguardando_verificacao": len(verif),
+        "layout": L.layout(text, table=tbl)["order"],
+        "layout_legacy": bool(aviso_layout),
         "inbox": len(inbox),
         "classifiable_inbox_count": len(classifiable),
         "residual_inbox_count": len(residual),

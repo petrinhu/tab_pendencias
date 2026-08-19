@@ -140,7 +140,7 @@ def test_inbox_items_heading_alheio_sozinho_nao_captura_nada():
 
 def test_inbox_items_token_precisa_ser_maiuscula_exata():
     """'inbox' minusculo ou 'Inbox' mixed-case nao sao o token de contrato
-    (references/frescor-da-tabela.md SS5 usa literalmente 'INBOX' -- mesmo
+    (references/frescor-da-tabela.md SS5.1 usa literalmente 'INBOX' -- mesmo
     principio de 'ID'/'Status' como tokens de cabecalho nunca traduzidos,
     ADR-0001 secao d, mas aqui a caixa importa porque e o unico sinal que
     distingue o token do substantivo comum em prosa)."""

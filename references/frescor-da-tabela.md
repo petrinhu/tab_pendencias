@@ -12,7 +12,7 @@ A norma abaixo vale só para um dos dois tipos. Não confundir:
 
 | Tipo | O que é | A norma de frescor vale? |
 |---|---|---|
-| **De projeto** | Itens editáveis; cada item corresponde a um trabalho identificável, e a relação item-commit faz sentido. | Sim -- DoD de status (§2), separação sincronizar/reordenar (§3), regra do ID no commit (§4) e INBOX (§5) valem aqui. |
+| **De projeto** | Itens editáveis; cada item corresponde a um trabalho identificável, e a relação item-commit faz sentido. | Sim -- DoD de status (§2), separação sincronizar/reordenar (§3), regra do ID no commit (§4), ordem canônica do arquivo (§5) e INBOX (§5.1) valem aqui. |
 | **Hub agregador** | Contagens derivadas de vários `TODO.md` de projeto (ex.: um painel que soma pendências de vários repositórios). | Não. Um hub agregador NÃO é editado à mão e NÃO usa INBOX. Ele é regenerado por script a partir dos `TODO.md` de projeto, que continuam sendo a fonte da verdade. |
 
 ## 2. Vocabulário de status e DoD de transição
@@ -58,7 +58,7 @@ porque parece exigir o mesmo esforço de replanejar.
 | Operação | O que é | Custo | Quando acontece |
 |---|---|---|---|
 | **Sincronizar status** | Marcar um item existente como `🔍` ou `✅` (§2) | Barato, mecânico, determinístico | A cada commit/PR que entrega ou valida trabalho |
-| **Reordenar** | Recalcular a ordem das linhas, a coluna `Onda`, ou inserir item novo com dependência/prioridade | Caro, exige julgamento | Só quando um input de priorização muda: nova dependência, item ficou urgente, ou a INBOX (§5) deixou de estar vazia |
+| **Reordenar** | Recalcular a ordem das linhas, a coluna `Onda`, ou inserir item novo com dependência/prioridade | Caro, exige julgamento | Só quando um input de priorização muda: nova dependência, item ficou urgente, ou a INBOX (§5.1) deixou de estar vazia |
 
 **Regra:** sincronizar status nunca dispara reordenação. Reordenar é sempre um ato
 consciente -- via `/tab_pendencias --reorder` --, nunca automático por passagem de tempo
@@ -80,7 +80,42 @@ código/conteúdo substantivo do item, não apenas por citar o ID na mensagem.
 > Citar o ID não substitui tocar a célula de `Status` manualmente quando não há mecanismo
 > automatizado disponível (§6). Citação e toque manual se reforçam; não são alternativas.
 
-## 5. INBOX -- exception queue (nao e a fila normal de descoberta)
+## 5. Ordem canônica do arquivo (INBOX antes, tabela por último)
+
+Um `TODO.md` de projeto tem esta ordem, de cima para baixo:
+
+| # | Bloco | Obrigatório? |
+|---|---|---|
+| 1 | Linha 1: título `#` do arquivo | Sim |
+| 2 | Preâmbulo livre (prosa, blockquote, legenda, notas, WSJF, critérios) | Não |
+| 3 | Seção `## INBOX (...)` -- a exception queue de §5.1, com seus bullets | Não (só existe quando há residual) |
+| 4 | Mais prosa/seções livres | Não |
+| 5 | **A tabela canônica** (cabeçalho com `ID` e `Status`, separador, linhas de dados) | Sim |
+| 6 | **EOF logo após a última linha da tabela** (só o `\n` final) | Sim |
+
+Duas regras derivam disso, e são o que mudou em 2026-08-19:
+
+- **A INBOX vem ANTES da tabela.** A norma anterior a colocava depois.
+- **Nada vem DEPOIS da tabela.** A tabela é o último bloco do arquivo.
+
+**Por quê:** ferramentas e guards de consumidor (e a leitura humana) tratam
+"fim da tabela = fim do arquivo" como invariante -- é o que permite acrescentar
+linha no fim sem procurar onde a tabela termina, e o que faz um `TODO.md`
+crescer sempre pelo mesmo lado. Com uma seção depois da tabela, essa invariante
+era falsa por construção, e um guard que a exigisse recusaria qualquer edição
+do arquivo. Pôr a INBOX no cabeçalho resolve na raiz e ainda a deixa visível:
+descoberta não triada aparece antes do backlog, não enterrada no rodapé.
+
+**Compatibilidade (leitura):** um arquivo no formato **legado** (INBOX depois
+da tabela, ou qualquer texto após ela) continua **válido para leitura** --
+nenhuma ferramenta desta skill o recusa, e os itens e entradas lidos são
+exatamente os mesmos. O que ele recebe é um **aviso** de formato legado.
+**Escrita e criação usam sempre a ordem nova.** A conversão é mecânica e
+preserva byte a byte o conteúdo da tabela e da INBOX (só a ordem dos blocos
+muda); ver o `README` deste repositório para o utilitário disponível na versão
+que você está usando.
+
+## 5.1. INBOX -- exception queue (nao e a fila normal de descoberta)
 
 > **Historico:** a formulacao antiga ("trabalho novo vai para a INBOX na hora")
 > descrevia a epoca pre-intake. Mantida so como aviso: a norma vigente e a
@@ -95,8 +130,8 @@ por default. O caminho normal e o **pipeline de intake** (descoberta -> main ->
 3. so o **ambiguo** (campos incompletos, sem autoridade, needs-leader) vira
    **INBOX residual** -- exception queue, 1 linha, sem `Onda` nem WSJF.
 
-- **Local padrao da residual:** secao `## INBOX (descobertas não priorizadas)` no
-  fim do `TODO.md` de projeto:
+- **Local padrao da residual:** secao `## INBOX (descobertas não priorizadas)`
+  **antes da tabela** do `TODO.md` de projeto (ordem canonica, §5):
   ```markdown
   - <ID tentativo ou —>: [triage ...] descricao curta
   ```
@@ -124,7 +159,7 @@ próprio ambiente. Quando presentes no repositório, seguem este contrato:
   (`TAB_TRIAGE_REQUIRED`, `TAB_STATUS_SYNC_RECOMMENDED`, ...). Contrato dos IDs em
   [`sinais-de-frescor.md`](sinais-de-frescor.md). `TAB_TRIAGE_REQUIRED` pede **dreno**
   (`--drain`), não full reorder por passagem de tempo.
-- **Intake / dreno**: classifica e persiste trabalho novo (§5); journal write-ahead e lock
+- **Intake / dreno**: classifica e persiste trabalho novo (§5.1); journal write-ahead e lock
   de escrita no apply.
 - **Aviso pós-commit**: quando ativado como hook local, opera sempre em modo *só aviso* --
   nunca bloqueia o commit, nunca falha a operação do git. **HOOKSRC:** o path vivo do hook
@@ -134,5 +169,5 @@ próprio ambiente. Quando presentes no repositório, seguem este contrato:
 **Estes scripts são um acelerador, não um requisito.** Sem eles -- ou num ambiente sem a
 linguagem/runtime necessário --, a norma continua valendo integralmente: quem entrega
 trabalho toca a célula de `Status` manualmente no mesmo commit/PR (§2), cita o ID (§4), e
-usa intake/INBOX residual (§5) à mão. Consulte o `README` deste repositório para a
+usa intake/INBOX residual (§5.1) à mão. Consulte o `README` deste repositório para a
 disponibilidade e a invocação exata desses scripts na versão que você está usando.

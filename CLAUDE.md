@@ -24,6 +24,18 @@ usa a própria skill que este repositório distribui.
 | [`docs/campanha/`](docs/campanha/) | **Histórico** do plano de melhoria 2026-08-16 -- não é doc vivo de produto |
 | [`prompts_legados/`](prompts_legados/) | Briefs legados de bootstrap -- não reabrir como fonte |
 
+## Ordem canônica do `TODO.md` (LAYOUT-1, 2026-08-19)
+
+Título `#` → preâmbulo livre → **`## INBOX (...)`** → prosa opcional →
+**tabela canônica** → **EOF logo após a tabela**. A INBOX vem **antes** da
+tabela; nada vem depois dela ("fim da tabela = fim do arquivo").
+
+Layout **legado** (INBOX depois) continua **válido para leitura**, com aviso
+(`todo_lib.legacy_layout_warning`); **escrita e criação usam sempre a ordem
+nova**. Converter: `python3 tools/todo_migrate_inbox.py --apply` (idempotente,
+tabela e INBOX preservadas byte a byte). Normativo:
+`references/frescor-da-tabela.md` §5.
+
 ## INBOX = exception queue (não é fila normal)
 
 Trabalho novo **não** "vai para a INBOX" como norma. O caminho normal é o

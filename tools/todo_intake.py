@@ -606,7 +606,13 @@ def _build_inbox_line(candidate: WorkCandidate, route: str) -> str:
 
 
 def _find_inbox_region(lines: list[str]) -> tuple[int | None, int | None]:
-    """(heading_idx, end_idx exclusive). end = proximo heading ou len."""
+    """(heading_idx, end_idx exclusive). end = proximo heading, 1a linha de
+    tabela, ou len.
+
+    LAYOUT-1 (2026-08-19): na ordem canonica a INBOX vem ANTES da tabela e
+    pode nao ter heading nenhum entre as duas -- sem parar no '|', a regiao
+    engoliria a tabela inteira e `_build_residual_text` inseriria o bullet
+    residual DENTRO dela. Espelha `todo_lib.inbox_region`."""
     heading = None
     for i, line in enumerate(lines):
         s = line.lstrip(L.BOM).strip().rstrip("\r")
@@ -618,7 +624,7 @@ def _find_inbox_region(lines: list[str]) -> tuple[int | None, int | None]:
     end = len(lines)
     for j in range(heading + 1, len(lines)):
         s = lines[j].lstrip(L.BOM).strip().rstrip("\r")
-        if s.startswith("#"):
+        if s.startswith("#") or s.startswith("|"):
             end = j
             break
     return heading, end
@@ -635,11 +641,25 @@ def _build_residual_text(text: str, candidate: WorkCandidate,
 
     heading, end = _find_inbox_region(lines)
     if heading is None:
-        # criar secao no fim
-        if lines and lines[-1].strip() != "":
-            lines.append("")
-        lines.append(INBOX_HEADING + ("\r" if sample is not None else ""))
-        lines.append(new_line)
+        # LAYOUT-1: criar a secao ANTES da tabela (ordem canonica nova).
+        # Sem tabela para se ancorar, cai no fim do arquivo -- unico lugar
+        # possivel, e o proximo `--create`/migracao poe no lugar.
+        term = "\r" if sample is not None else ""
+        span = L.table_span(L.parse_table(text))
+        bloco = [INBOX_HEADING + term, new_line, term]
+        if span is None:
+            if lines and lines[-1].strip() != "":
+                lines.append(term)
+            lines.append(INBOX_HEADING + term)
+            lines.append(new_line)
+            return "\n".join(lines)
+        at = span[0]
+        # recuar sobre as linhas em branco que antecedem a tabela para a
+        # secao nova nascer colada no bloco de prosa, nao dentro do
+        # respiro visual que separa prosa e tabela
+        while at > 0 and lines[at - 1].strip() == "":
+            at -= 1
+        lines[at:at] = bloco
         return "\n".join(lines)
 
     # inserir antes do fim da secao (apos ultima linha de conteudo)

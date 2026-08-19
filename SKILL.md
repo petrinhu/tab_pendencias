@@ -22,6 +22,26 @@ O usuário invocou com: $ARGUMENTS
 
 A ordem das linhas (de cima para baixo) É a ordem de execução recomendada. A coluna `Onda` agrupa passos paralelizáveis.
 
+### Ordem canônica do arquivo (INBOX antes, tabela por último)
+
+O `TODO.md` tem esta ordem, de cima para baixo -- contrato de FORMA, detalhe normativo em `references/frescor-da-tabela.md` §5:
+
+1. linha 1: título `#` do arquivo;
+2. preâmbulo livre (prosa, legenda, critérios, notas de montagem);
+3. seção **`## INBOX (...)`** -- a exception queue, **antes** da tabela;
+4. (opcional) mais prosa/seções livres;
+5. **a tabela canônica**;
+6. **EOF logo após a última linha da tabela** -- nada vem depois dela.
+
+**Mudou em 2026-08-19:** a INBOX ficava DEPOIS da tabela. Ela subiu porque "fim da tabela = fim do arquivo" é a invariante que ferramentas e guards de consumidor usam para acrescentar linha sem procurar onde a tabela acaba -- uma seção depois da tabela a tornava falsa por construção.
+
+**Compatibilidade:** arquivo no formato **legado** (INBOX depois, ou qualquer texto após a tabela) continua **válido para LEITURA**, com aviso (`todo_lib.legacy_layout_warning`); os itens e entradas lidos são os mesmos. **Escrita e criação usam sempre a ordem nova.** Conversão mecânica, idempotente e byte-preserving:
+
+```bash
+python3 tools/todo_migrate_inbox.py --check    # diagnostica (exit 2 = legado)
+python3 tools/todo_migrate_inbox.py --apply    # converte
+```
+
 ### Valores por coluna
 
 - **Onda**: `W1`, `W2`, `W3`, ... (leva de execução). Itens da mesma Onda não dependem entre si e têm valor comparável: **podem rodar em paralelo (igual valor)**. `—` para itens concluídos ou fora do fluxo.
@@ -74,7 +94,9 @@ principal chama o **intake** (`--add` / `tools/todo_intake.py`). A cascata decid
 Workers/subagentes **nao** escrevem na INBOX: devolvem `DISCOVERED_WORK` e o
 main chama o intake (ver secao **Fluxo agentivo de `--add`**).
 
-- **Local da residual:** secao no FIM do `TODO.md` de projeto:
+- **Local da residual:** secao **ANTES da tabela** do `TODO.md` de projeto
+  (ordem canonica acima; o formato legado -- INBOX depois -- ainda e lido,
+  com aviso):
   ```markdown
   ## INBOX (descobertas não priorizadas)
   - <ID tentativo ou —>: [triage ...] descricao curta

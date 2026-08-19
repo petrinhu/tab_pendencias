@@ -94,6 +94,34 @@ A ordem das linhas (de cima para baixo) é a ordem de execução recomendada. A 
 8 colunas (sem `Onda`) continuam sendo lidas corretamente por `--show`/`--main`; o
 parser localiza o cabeçalho pelo nome das colunas, nunca por uma contagem fixa.
 
+### Ordem canônica do arquivo (INBOX antes, tabela por último)
+
+Normativo em [`references/frescor-da-tabela.md`](references/frescor-da-tabela.md) §5:
+
+1. linha 1: título `#` do arquivo;
+2. preâmbulo livre (prosa, legenda, critérios, notas);
+3. seção **`## INBOX (...)`** -- exception queue, **antes** da tabela;
+4. (opcional) mais prosa/seções livres;
+5. **a tabela canônica**;
+6. **EOF logo após a última linha da tabela** -- nada vem depois dela.
+
+**Mudou em 2026-08-19** (antes a INBOX ficava depois da tabela). Motivo: "fim da
+tabela = fim do arquivo" é a invariante que ferramentas e guards de consumidor
+usam para acrescentar linha sem procurar onde a tabela acaba; uma seção depois da
+tabela a tornava falsa por construção.
+
+**Compatibilidade:** arquivo no formato **legado** (INBOX depois, ou qualquer texto
+após a tabela) continua **válido para LEITURA** -- mesmos itens, mesmas entradas --,
+só recebe um **aviso** de formato (`todo_lib.legacy_layout_warning`). **Escrita e
+criação usam sempre a ordem nova.** A conversão é mecânica, idempotente e preserva
+byte a byte o conteúdo da tabela e da INBOX (só a ordem dos blocos muda):
+
+```bash
+python3 tools/todo_migrate_inbox.py --check           # diagnostica (exit 2 = legado)
+python3 tools/todo_migrate_inbox.py --apply           # converte o TODO.md do repo
+python3 tools/todo_migrate_inbox.py CAMINHO/TODO.md --apply
+```
+
 ### Valores válidos
 
 O símbolo de célula vazia é o travessão tipográfico (Unicode U+2014, `—`); ele
@@ -325,6 +353,7 @@ em [`tools/`](tools/README.md), sem LLM/agent:
 | `intake_agent_bridge.py` | `DISCOVERED_WORK` -> flags de julgamento |
 | `intake_journal.py` | journal write-ahead + recuperação de órfãos |
 | `todo_audit.py` / `todo_fix.py` | auditoria estrutural e auto-fix (2 classes) |
+| `todo_migrate_inbox.py` | migra layout legado (INBOX depois da tabela) para a ordem canônica |
 | `todo_sync.py` / `todo_health.py` | sync de status e relatório + linhas `TAB_*` |
 | `session_signals.py` | predicados de frescor (`TAB_*`) |
 | `todo_lock.py` | lock de escrita (intake/drain/fix apply) |
@@ -397,6 +426,16 @@ that manages the project pendencies/planning table in `TODO.md` tabular standard
 fixed header, execution order (dependency + value), visual status symbols, structural
 audit, mechanical auto-fix, and an **intake pipeline** (new work classified immediately;
 INBOX only as a residual exception queue).
+
+**Canonical file order (changed 2026-08-19):** title -> free preamble -> `## INBOX`
+section -> optional prose -> **the canonical table** -> **EOF right after the table's
+last line**. The INBOX now comes **before** the table, and nothing comes after it:
+"end of table = end of file" is the invariant consumer tools and guards rely on to
+append a row without hunting for where the table ends. **Legacy files (INBOX after
+the table, or any text past it) stay VALID FOR READING** -- same items, same entries,
+plus a format warning; **writing and creation always use the new order**. Convert with
+`python3 tools/todo_migrate_inbox.py --apply` (idempotent; table and INBOX content
+preserved byte for byte, only block order changes).
 
 > **About this section:** what's documented here is behavior already closed
 > and verified by running the code -- never described ahead of time. If a
@@ -703,6 +742,7 @@ deterministic scripts in [`tools/`](tools/README.md), no LLM/agent involved:
 | `intake_agent_bridge.py` | `DISCOVERED_WORK` -> judgment flags |
 | `intake_journal.py` | write-ahead journal + orphan recovery |
 | `todo_audit.py` / `todo_fix.py` | structural audit and auto-fix (2 classes) |
+| `todo_migrate_inbox.py` | migrates legacy layout (INBOX after the table) to canonical order |
 | `todo_sync.py` / `todo_health.py` | status sync and report + `TAB_*` lines |
 | `session_signals.py` | freshness predicates (`TAB_*`) |
 | `todo_lock.py` | write lock (intake/drain/fix apply) |

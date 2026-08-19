@@ -473,7 +473,7 @@ def set_status_cell(line, status_idx, new_status):
 # palavra em si nao basta como sinal: "Inbox do bus" tambem comeca com a
 # palavra "inbox" (case-insensitive), entao nem "\\bpalavra\\b" resolveria.
 # O que distingue e a CAIXA: o contrato normativo
-# (references/frescor-da-tabela.md SS5) usa literalmente o token "INBOX"
+# (references/frescor-da-tabela.md SS5.1) usa literalmente o token "INBOX"
 # em MAIUSCULA -- mesmo principio de "ID"/"Status" como tokens de
 # cabecalho de tabela que nunca sao traduzidos (ADR-0001 secao d), so que
 # aqui a caixa exata (nao so a palavra) e o sinal estrutural que separa o
@@ -489,19 +489,186 @@ def _is_inbox_heading(s):
 
 
 def inbox_items(text):
-    """Linhas da secao '## INBOX ...' (ate o proximo heading). Ver
-    HEADING-1: a deteccao de secao usa _is_inbox_heading, nao mais
-    substring case-insensitive."""
+    """Linhas da secao '## INBOX ...' (ate o proximo heading OU o comeco de
+    uma tabela). Ver HEADING-1: a deteccao de secao usa _is_inbox_heading,
+    nao mais substring case-insensitive.
+
+    LAYOUT-1 (2026-08-19): com a INBOX ANTES da tabela (ordem canonica
+    nova, ver `layout()`), a secao pode terminar sem heading nenhum entre
+    ela e a tabela -- basta a 1a linha de tabela. Uma linha que comeca com
+    '|' encerra a regiao aqui pelo mesmo motivo que encerra em
+    `inbox_region`: bullet de INBOX nunca comeca com '|', entao fechar ali
+    nunca perde item e evita que a regiao engula a tabela inteira."""
     out = []
     in_inbox = False
     for line in text.split("\n"):
-        s = line.strip()
+        s = line.lstrip(BOM).strip()
         if s.startswith("#"):
             in_inbox = _is_inbox_heading(s)
+            continue
+        if in_inbox and s.startswith("|"):
+            in_inbox = False
             continue
         if in_inbox and s.startswith("- "):
             out.append(s[2:].strip())
     return out
+
+
+# ---------------------------------------------------------------------------
+# LAYOUT-1 (2026-08-19): ordem canonica do arquivo -- INBOX ANTES da tabela
+# ---------------------------------------------------------------------------
+#
+# Ordem canonica de um TODO.md de projeto (contrato de FORMA, nao de
+# conteudo -- ver references/frescor-da-tabela.md SS5):
+#
+#   1. linha 1: titulo H1 do arquivo
+#   2. preambulo livre (prosa, blockquote, legenda, notas de montagem)
+#   3. secao `## INBOX (...)` -- exception queue, com seus bullets
+#   4. (opcional) mais prosa/secoes livres
+#   5. A TABELA canonica (cabecalho ID+Status, separador, linhas de dados)
+#   6. EOF logo apos a ultima linha da tabela (so linha em branco final)
+#
+# A INBOX passou a vir ANTES da tabela porque a tabela precisa ser a
+# ULTIMA coisa do arquivo: guards de consumidor (e a propria leitura
+# humana) tratam "fim da tabela == fim do arquivo" como invariante, e uma
+# secao depois da tabela contradizia isso por construcao.
+#
+# COMPATIBILIDADE: o formato LEGADO (INBOX depois da tabela) continua
+# valido para LEITURA -- nenhum parser deste toolkit recusa arquivo legado.
+# ESCRITA e CRIACAO usam sempre a ordem nova. `legacy_layout_warning()` da
+# o aviso; `tools/todo_migrate_inbox.py` faz a conversao.
+
+LAYOUT_INBOX_FIRST = "inbox-first"      # ordem canonica nova
+LAYOUT_INBOX_AFTER_TABLE = "inbox-after-table"   # legado (aceito na leitura)
+LAYOUT_NO_INBOX = "no-inbox"            # sem secao INBOX (valido)
+LAYOUT_NO_TABLE = "no-table"            # sem tabela canonica
+
+
+def table_span(table):
+    """(start, end) 0-based INCLUSIVE das linhas da tabela canonica, ou
+    None quando `table` e None/sem cabecalho.
+
+    `start` = linha do cabecalho ID+Status. `end` = linha do ULTIMO item
+    (nunca de um 'malformed' distante: uma linha com '|' perdida na prosa
+    do fim do arquivo entra em `malformed` e esticaria o span por cima de
+    texto que nao e tabela), estendido para frente enquanto as linhas
+    seguintes forem CONTIGUAS e comecarem com '|' -- e assim que uma linha
+    malformada que de fato pertence ao rodape da tabela entra no span sem
+    que uma malformada distante entre.
+
+    Tabela vazia (so cabecalho + separador) devolve o span dos dois."""
+    if not table:
+        return None
+    lines = table["lines"]
+    start = None
+    for n, line in enumerate(lines):
+        s = line.lstrip(BOM).strip()
+        if not s.startswith("|"):
+            continue
+        if _is_header(_cells(s)):
+            start = n
+            break
+    if start is None:
+        return None
+    item_lines = [it["line_no"] for it in table["items"]]
+    end = max(item_lines) if item_lines else start
+    while end + 1 < len(lines):
+        nxt = lines[end + 1].lstrip(BOM).strip()
+        if not nxt.startswith("|"):
+            break
+        end += 1
+    return (start, end)
+
+
+def inbox_region(text):
+    """(heading, end) 0-based da secao INBOX: `heading` e a linha do
+    heading; `end` e EXCLUSIVO (1a linha que ja nao pertence a secao).
+    (None, None) quando nao ha secao INBOX.
+
+    A secao termina no proximo heading markdown OU na 1a linha que comeca
+    com '|' (LAYOUT-1: com a INBOX antes da tabela, nem sempre existe um
+    heading entre as duas)."""
+    lines = text.split("\n")
+    heading = None
+    for i, line in enumerate(lines):
+        s = line.lstrip(BOM).strip()
+        if s.startswith("#") and _is_inbox_heading(s):
+            heading = i
+            break
+    if heading is None:
+        return (None, None)
+    end = len(lines)
+    for j in range(heading + 1, len(lines)):
+        s = lines[j].lstrip(BOM).strip()
+        if s.startswith("#") or s.startswith("|"):
+            end = j
+            break
+    return (heading, end)
+
+
+def layout(text, table=None):
+    """Diagnostico da ordem do arquivo (LAYOUT-1). Devolve dict:
+
+      order        um dos LAYOUT_* acima
+      legacy       True so quando order == LAYOUT_INBOX_AFTER_TABLE
+      canonical    True quando a ordem E a nova E nao ha conteudo
+                   nao-branco depois do fim da tabela
+      inbox_line   linha do heading da INBOX (None se nao ha)
+      table_span   (start, end) inclusivo da tabela (None se nao ha)
+      trailing     [(line_no, texto)] das linhas NAO-brancas depois do fim
+                   da tabela (vazio quando o arquivo termina na tabela)
+
+    Nunca levanta excecao: arquivo sem tabela devolve LAYOUT_NO_TABLE.
+    `table` opcional evita reparsear quem ja tem o resultado."""
+    if table is None:
+        table = parse_table(text)
+    lines = text.split("\n")
+    span = table_span(table)
+    inbox_line, _end = inbox_region(text)
+    if span is None:
+        order = LAYOUT_NO_TABLE
+    elif inbox_line is None:
+        order = LAYOUT_NO_INBOX
+    elif inbox_line < span[0]:
+        order = LAYOUT_INBOX_FIRST
+    else:
+        order = LAYOUT_INBOX_AFTER_TABLE
+    trailing = []
+    if span is not None:
+        for n in range(span[1] + 1, len(lines)):
+            if lines[n].strip():
+                trailing.append((n, lines[n]))
+    return {
+        "order": order,
+        "legacy": order == LAYOUT_INBOX_AFTER_TABLE,
+        "canonical": (order in (LAYOUT_INBOX_FIRST, LAYOUT_NO_INBOX)
+                      and not trailing),
+        "inbox_line": inbox_line,
+        "table_span": span,
+        "trailing": trailing,
+    }
+
+
+def legacy_layout_warning(text, table=None):
+    """Mensagem de aviso quando o arquivo NAO esta na ordem canonica nova,
+    ou None quando esta (ou quando nao ha tabela para julgar).
+
+    Aviso, nunca erro: LEITURA de arquivo legado continua valida (ver o
+    bloco LAYOUT-1 acima). Quem ESCREVE usa sempre a ordem nova."""
+    lay = layout(text, table=table)
+    if lay["order"] == LAYOUT_NO_TABLE or lay["canonical"]:
+        return None
+    if lay["legacy"]:
+        return ("AVISO: formato LEGADO -- a secao INBOX esta DEPOIS da "
+                "tabela (linha {}); a ordem canonica poe a INBOX ANTES e "
+                "termina o arquivo na tabela. Leitura continua valida; "
+                "converta com `python3 tools/todo_migrate_inbox.py "
+                "--apply`.".format(lay["inbox_line"] + 1))
+    n, _txt = lay["trailing"][0]
+    return ("AVISO: ha texto DEPOIS do fim da tabela (linha {}); a ordem "
+            "canonica termina o arquivo na tabela. Leitura continua "
+            "valida; converta com `python3 tools/todo_migrate_inbox.py "
+            "--apply`.".format(n + 1))
 
 
 # ADR-0002 secao (f): vocabulario fechado de motivos residuais e origens
@@ -591,7 +758,7 @@ def inbox_entries(text):
     """inbox_items() decomposto (ADR-0002 secao f): cada entrada ganha o
     ID tentativo, a descricao livre e a classificacao de triagem. Formato
     de linha esperado (compat com o legado, references/frescor-da-tabela.md
-    SS5): '<ID-ou-travessao>: descricao livre [com ou sem [triage ...]]'.
+    SS5.1): '<ID-ou-travessao>: descricao livre [com ou sem [triage ...]]'.
 
     Cada item do retorno:
       raw           texto integral da linha (== o que inbox_items ja

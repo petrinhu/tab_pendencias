@@ -555,7 +555,7 @@ pulou.
 | CI (integração contínua) | Um serviço que roda automaticamente os testes e verificações do projeto a cada mudança, sem depender do computador de ninguém |
 | Skill (do Claude Code) | Um pacote de instruções que um assistente de IA carrega para saber executar uma tarefa específica |
 | Intake | Pipeline que classifica trabalho novo e grava no `TODO.md` (ou manda só o residual para a INBOX) |
-| INBOX residual | Seção no fim do `TODO.md` só para o que o intake **não** conseguiu classificar (exception queue) |
+| INBOX residual | Seção do `TODO.md`, **antes da tabela**, só para o que o intake **não** conseguiu classificar (exception queue) |
 | `--drain` | Comando que esvazia a INBOX residual com julgamentos explícitos |
 | `TAB_*` | Sinais de frescor impressos pelo health/hook (ex.: `TAB_TRIAGE_REQUIRED` pede dreno) |
 | Exception queue | Fila de **exceção**, não o caminho normal: só o ambíguo fica lá |
@@ -611,6 +611,33 @@ python3 tools/todo_intake.py --todo TODO.md ... --apply
 # Ver o que a INBOX residual tem / drenar
 python3 tools/todo_intake.py --drain --todo TODO.md
 python3 tools/todo_intake.py --drain --todo TODO.md --apply --judgments-json julgamentos.json
+```
+
+### Onde a INBOX fica no arquivo (e por que ela subiu)
+
+Desde 19/08/2026 o `TODO.md` tem esta ordem, de cima para baixo:
+
+1. o título do arquivo (a linha que começa com `#`);
+2. o texto de apresentação (prosa livre, legendas, critérios);
+3. a seção **`## INBOX (...)`** -- a caixa de exceção descrita acima;
+4. (se houver) mais prosa;
+5. **a tabela de pendências**;
+6. **o fim do arquivo, logo depois da tabela.**
+
+Antes, a INBOX ficava **depois** da tabela. Ela subiu por um motivo prático: se
+a tabela é sempre a última coisa do arquivo, qualquer ferramenta (e qualquer
+pessoa) sabe que "acrescentar um item" é "escrever no fim do arquivo", sem
+precisar procurar onde a tabela acaba. Com uma seção depois dela, essa regra
+simples era falsa -- e ferramentas que a assumiam recusavam o arquivo inteiro.
+
+Se o seu `TODO.md` ainda está no formato antigo, **nada quebra**: todas as
+ferramentas continuam lendo normalmente, só avisam que o formato é legado. Para
+converter (a conversão só troca os blocos de lugar, sem alterar uma vírgula da
+tabela nem da INBOX, e rodar duas vezes não muda nada):
+
+```bash
+python3 tools/todo_migrate_inbox.py --check   # só diz se precisa converter
+python3 tools/todo_migrate_inbox.py --apply   # converte de verdade
 ```
 
 Detalhe completo (cascata, lock, journal, sinais):

@@ -21,6 +21,7 @@ Layout monorepo (D-4): scripts Python aqui; shims POSIX + `_chain.sh` em
 | `todo_lock.py` | `TodoWriteLock` no apply de intake/drain/fix |
 | `todo_audit.py` | Auditoria estrutural (CHK-01..14, perfis core/casa) |
 | `todo_fix.py` | Auto-fix: 2 classes (`escapar_pipe_cru`, `remover_fragmento_duplicado`) |
+| `todo_migrate_inbox.py` | Migra layout legado (INBOX depois da tabela) para a ordem canônica (`--check`/dry-run/`--apply`) |
 | `todo_sync.py` | Avança `⏳`/`🔄` → `🔍` a partir de IDs em commits |
 | `todo_health.py` | Relatório de saúde + linhas `TAB_*` |
 | `todo_freshness.py` | Lógica do aviso pós-commit (warn-only) |
@@ -38,6 +39,17 @@ Layout monorepo (D-4): scripts Python aqui; shims POSIX + `_chain.sh` em
 normal de trabalho novo é `todo_intake.py` (via skill `--add` ou CLI). Ver
 [`../docs/adr/0002-maquina-de-estados-de-intake-e-inbox-como-fila-de-excecao.md`](../docs/adr/0002-maquina-de-estados-de-intake-e-inbox-como-fila-de-excecao.md)
 e [`../references/frescor-da-tabela.md`](../references/frescor-da-tabela.md).
+
+**Ordem canônica do arquivo (LAYOUT-1, desde 2026-08-19):** título -> preâmbulo ->
+`## INBOX` -> prosa opcional -> **tabela** -> **EOF logo após a tabela**. A INBOX
+subiu para ANTES da tabela; nada vem depois dela. Arquivo **legado** (INBOX depois)
+continua **válido para leitura**, com aviso (`todo_lib.legacy_layout_warning`);
+escrita e criação usam sempre a ordem nova. Converter:
+
+```bash
+python3 tools/todo_migrate_inbox.py --check   # exit 2 = legado
+python3 tools/todo_migrate_inbox.py --apply   # idempotente, byte-preserving
+```
 
 ## Aviso pós-commit (frescor)
 

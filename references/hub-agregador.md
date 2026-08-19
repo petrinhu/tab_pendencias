@@ -19,7 +19,8 @@ pedido / descoberta
 
 - Fila editavel de trabalho.
 - Destino de `DISCOVERED_WORK` ou de mensagem de bus.
-- Lugar para secao `## INBOX (descobertas não priorizadas)`.
+- Lugar para secao `## INBOX (descobertas não priorizadas)` (que, num
+  `TODO.md` de projeto, vem ANTES da tabela -- ver `frescor-da-tabela.md` SS5).
 - Substituto do `TODO.md` de um projeto.
 
 ## Protecao mecanica no produto
