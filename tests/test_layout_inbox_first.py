@@ -441,3 +441,30 @@ def test_health_nao_avisa_no_formato_canonico(tmp_path, capsys):
     assert res["layout"] == L.LAYOUT_INBOX_FIRST
     assert res["layout_legacy"] is False
     assert res["itens"] == 3
+
+
+def test_migracao_nao_perde_o_ULTIMO_bullet_quando_nao_ha_branca_de_fecho():
+    """Achado de mutation testing (M9): com a INBOX sempre terminando numa
+    linha em branco, um off-by-one no fim da região passava despercebido --
+    a branca seria descartada de qualquer jeito. Este caso põe o último
+    bullet COLADO no heading seguinte, sem branca, e é o que torna o limite
+    da região observável."""
+    inbox_colada = ["## INBOX (descobertas não priorizadas)",
+                    "- —: [triage since=2026-08-19 reason=missing-info] primeira",
+                    "- Q-1: [triage since=2026-08-19 reason=blocked-external] ULTIMA"]
+    legado = ("\n".join(PREAMBULO + TABELA + [""] + inbox_colada
+                        + ["## Notas", "", "prosa"]) + "\n")
+    assert len(L.inbox_items(legado)) == 2
+    migrado, mudou = M.migrate_text(legado)
+    assert mudou is True
+    assert L.inbox_items(migrado) == L.inbox_items(legado)
+    assert "ULTIMA" in migrado
+    assert L.layout(migrado)["canonical"] is True
+
+
+def test_migracao_nao_perde_o_HEADING_da_inbox():
+    """Gêmeo do anterior no outro extremo da região."""
+    migrado, _ = M.migrate_text(_legado())
+    assert migrado.count("## INBOX (descobertas não priorizadas)") == 1
+    heading, _end = L.inbox_region(migrado)
+    assert heading is not None
