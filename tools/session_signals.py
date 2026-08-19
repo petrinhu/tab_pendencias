@@ -22,8 +22,10 @@ sem rede, sem escrever no TODO. Predicados deterministicos com relogio
 injetavel (`now=datetime.date`).
 
 Consumidores: `todo_health.py` (CLI humano) e o adapter de hook
-`tools/hooks/tab_pendencias_reminder.py` (SessionStart). A regra de negocio
-mora aqui -- o adapter so formata e emite.
+`tools/hooks/tab_pendencias_reminder.py` (SessionStart + UserPromptSubmit).
+A regra de negocio mora aqui -- o adapter so formata e emite. Qual sinal
+pertence a qual evento tambem e regra deste modulo (`SIGNALS_BY_EVENT` /
+`signals_for_event`, TAB-HOOK-005).
 """
 from __future__ import annotations
 
@@ -127,6 +129,99 @@ class SignalReport:
             key = s.id.lower()
             out[key] = s.active
         return out
+
+
+# --- Roteamento por evento de hook (TAB-HOOK-005) ---------------------------
+#
+# O MESMO adapter e ligado a dois eventos do harness (SessionStart e
+# UserPromptSubmit). Sem roteamento, cada sinal ativo era emitido nos DOIS
+# eventos e a mesma mensagem de defasagem se repetia a cada turno.
+#
+# Criterio da particao:
+#   - SessionStart      -> sinais de ESTADO DO REPOSITORIO, que nao mudam a
+#                          cada prompt (granularidade de commit/dia/ciclo de
+#                          drain). Reavaliar por turno so gera ruido.
+#   - UserPromptSubmit  -> sinais REATIVOS AO TURNO, que outra sessao/agent
+#                          pode produzir enquanto esta sessao roda, e cuja
+#                          acao esperada acontece dentro do turno.
+#
+# A particao e EXAUSTIVA e DISJUNTA sobre SIGNAL_IDS: todo sinal pertence a
+# exatamente um evento (garantido por teste). Um sinal em dois eventos
+# reintroduziria a duplicacao.
+EVENT_SESSION_START = "SessionStart"
+EVENT_USER_PROMPT_SUBMIT = "UserPromptSubmit"
+
+_SESSION_START_SIGNALS = (
+    # repo git sem TODO.md: so muda quando alguem cria o arquivo.
+    "TAB_TODO_CREATE_REQUIRED",
+    # defasagem por commits/dias: granularidade de commit, nao de prompt.
+    "TAB_STATUS_SYNC_RECOMMENDED",
+    # "planejar um --drain": decisao tomada uma vez por sessao. A parcela
+    # rapida (inbox/ concorrente) tem sinal proprio por turno.
+    "TAB_TRIAGE_REQUIRED",
+    # envelhecimento em dias/ciclos de drain.
+    "TAB_LEADER_DECISION_AGED",
+    # contagem de 🔍 + dias sem tocar a tabela: planejamento de onda.
+    "TAB_VERIFICATION_AGING",
+)
+
+_USER_PROMPT_SIGNALS = (
+    # inbox/*.md e escrito por OUTRA sessao enquanto esta roda.
+    "TAB_CONCURRENT_INBOX_PRESENT",
+    # orfao de journal bloqueia um intake NOVO -- acao de dentro do turno --
+    # e pode nascer de um intake que morreu no meio desta mesma sessao.
+    "TAB_INTAKE_RECOVERY_REQUIRED",
+)
+
+SIGNALS_BY_EVENT = {
+    EVENT_SESSION_START: _SESSION_START_SIGNALS,
+    EVENT_USER_PROMPT_SUBMIT: _USER_PROMPT_SIGNALS,
+}
+
+# `hook_event_name` ausente/vazio (invocacao manual, harness de terceiro,
+# payload truncado): assume SessionStart. Nao e arbitrario --
+#  (a) e o lado que NAO repete: SessionStart dispara poucas vezes por sessao,
+#      enquanto assumir UserPromptSubmit emitiria a cada turno, exatamente o
+#      defeito que este roteamento conserta;
+#  (b) e o conjunto informativo (estado do repositorio), que e o que um
+#      consumidor manual quer ver;
+#  (c) emitir NADA deixaria o hook indistinguivel de "nenhum sinal ativo"
+#      para todo harness que nao mande o campo -- falha silenciosa.
+DEFAULT_EVENT = EVENT_SESSION_START
+
+
+def normalize_event(event):
+    """Normaliza `hook_event_name`.
+
+    Ausente/vazio -> DEFAULT_EVENT. Conhecido (case-insensitive) -> forma
+    canonica. DESCONHECIDO -> devolvido como veio, e nao casa nenhuma chave
+    de SIGNALS_BY_EVENT: um evento para o qual ninguem projetou o conteudo
+    emite silencio, nao ruido.
+    """
+    if event is None:
+        return DEFAULT_EVENT
+    name = str(event).strip()
+    if not name:
+        return DEFAULT_EVENT
+    for known in SIGNALS_BY_EVENT:
+        if name.lower() == known.lower():
+            return known
+    return name
+
+
+def signals_for_event(report, event=None):
+    """Novo SignalReport contendo so os sinais que pertencem a `event`.
+
+    Nao muta o relatorio de origem; `metrics` e copiado por valor.
+    """
+    allowed = SIGNALS_BY_EVENT.get(normalize_event(event), ())
+    kept = [s for s in report.signals if s.id in allowed]
+    return SignalReport(
+        signals=kept,
+        metrics=dict(report.metrics),
+        root=report.root,
+        now=report.now,
+    )
 
 
 def _is_todo_work_pending(status):

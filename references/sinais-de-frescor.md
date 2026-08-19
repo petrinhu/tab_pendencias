@@ -62,6 +62,57 @@ fresco; interrupcao quando envelhece.
 - tabela so com ⏳/🔄 sem INBOX/classifiable/aged/concurrent (isso e
   `TAB_STATUS_SYNC_RECOMMENDED` se a defasagem de commits/dias bater).
 
+## Roteamento por evento de hook (TAB-HOOK-005)
+
+O mesmo adapter e ligado a **dois** eventos do harness (`SessionStart` e
+`UserPromptSubmit`). Cada sinal e emitido em **exatamente um** deles -- a
+particao e exaustiva e disjunta sobre `SIGNAL_IDS`, garantida por teste. Um
+sinal nos dois eventos repetiria a mesma mensagem ao usuario, que e
+exatamente o defeito que este roteamento fecha.
+
+Criterio: **estado do repositorio** (granularidade de commit, dia ou ciclo de
+drain) vai para `SessionStart`, porque reavaliar a cada prompt so gera ruido;
+**reativo ao turno** (o que outra sessao/agent produz enquanto esta roda, e
+cuja acao esperada acontece dentro do turno) vai para `UserPromptSubmit`.
+
+| ID | Evento | Por que |
+|---|---|---|
+| `TAB_TODO_CREATE_REQUIRED` | `SessionStart` | so muda quando alguem cria o `TODO.md` |
+| `TAB_STATUS_SYNC_RECOMMENDED` | `SessionStart` | defasagem em commits/dias, nao em prompts |
+| `TAB_TRIAGE_REQUIRED` | `SessionStart` | "planejar um `--drain`" e decisao de uma vez por sessao; a parcela rapida (`inbox/`) tem sinal proprio por turno |
+| `TAB_LEADER_DECISION_AGED` | `SessionStart` | envelhece em dias/ciclos de drain |
+| `TAB_VERIFICATION_AGING` | `SessionStart` | contagem de 🔍 + dias sem tocar a tabela; planejamento de onda |
+| `TAB_CONCURRENT_INBOX_PRESENT` | `UserPromptSubmit` | `inbox/*.md` e escrito por OUTRA sessao enquanto esta roda |
+| `TAB_INTAKE_RECOVERY_REQUIRED` | `UserPromptSubmit` | orfao bloqueia um intake NOVO (acao de dentro do turno) e pode nascer de um intake que morreu no meio desta sessao |
+
+### `hook_event_name` ausente ou desconhecido
+
+- **Ausente/vazio** (invocacao manual, harness de terceiro, payload
+  truncado) -> assume `SessionStart`. E o lado que **nao repete** (assumir
+  `UserPromptSubmit` emitiria a cada turno, o defeito original), e e o
+  conjunto informativo para um consumidor manual. Emitir nada deixaria o
+  hook indistinguivel de "nenhum sinal ativo".
+- **Desconhecido** (`PreToolUse`, `Stop`, nome futuro) -> nao casa nenhuma
+  chave e **nao emite nada**. Evento para o qual ninguem projetou o conteudo
+  merece silencio, nao ruido.
+- Comparacao **case-insensitive**, com `strip()`.
+
+### Deduplicacao por sessao
+
+Somente no evento por-turno (`UserPromptSubmit`): um sinal com as **mesmas
+reasons** nao se repete no mesmo `session_id`. Se o fato mudar
+(`inbox_files=1` -> `inbox_files=2`), o sinal volta a ser emitido -- dedup
+nunca silencia informacao nova.
+
+- Estado: um arquivo JSON por sessao no diretorio temporario do SO
+  (`tempfile.gettempdir()`), **nunca** dentro do repositorio do usuario. O
+  `session_id` vira digest hex (sem travessia de caminho); escrita atomica
+  por `os.replace`; limpeza por TTL de 7 dias e teto de arquivos.
+- `SessionStart` **nao** e deduplicado de proposito: dispara poucas vezes por
+  sessao e cada disparo (`startup`/`resume`/`clear`/`compact`) segue um reset
+  de contexto -- suprimir ali apagaria a injecao quando ela mais importa.
+- Sem `session_id`, ou com estado ilegivel: **fail-open**, emite.
+
 ## Formatos de saida
 
 - **Maquina** (`format_machine`): uma linha por sinal ativo

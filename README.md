@@ -182,7 +182,10 @@ python3 tools/todo_intake.py --drain --todo TODO.md --apply --judgments-json pat
 
 Sinais de sessão (`TAB_*`): motor `tools/session_signals.py`, impressos por
 `todo_health.py` e pelo adapter `tools/hooks/tab_pendencias_reminder.py`.
-`TAB_TRIAGE_REQUIRED` pede **`--drain`**, não full reorder por relógio. Contrato:
+`TAB_TRIAGE_REQUIRED` pede **`--drain`**, não full reorder por relógio. O adapter
+atende **SessionStart** e **UserPromptSubmit** e roteia por evento: sinal de estado
+do repositório sai no SessionStart, sinal reativo ao turno sai no UserPromptSubmit,
+nenhum sai nos dois (e o evento por-turno deduplica por `session_id`). Contrato:
 [`references/sinais-de-frescor.md`](references/sinais-de-frescor.md).
 
 ### `--audit` (auditoria estrutural da tabela)
@@ -556,6 +559,9 @@ python3 tools/todo_intake.py --drain --todo TODO.md --apply --judgments-json pat
 Session signals (`TAB_*`): motor `tools/session_signals.py`, printed by
 `todo_health.py` and adapter `tools/hooks/tab_pendencias_reminder.py`.
 `TAB_TRIAGE_REQUIRED` means run **`--drain`**, not a clock-driven full reorder.
+The adapter serves **SessionStart** and **UserPromptSubmit** and routes by event:
+repository-state signals fire on SessionStart, turn-reactive ones on
+UserPromptSubmit, none on both (and the per-turn event dedupes by `session_id`).
 Contract: [`references/sinais-de-frescor.md`](references/sinais-de-frescor.md).
 
 ### `--audit` (structural table audit)

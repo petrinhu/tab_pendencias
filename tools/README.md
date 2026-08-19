@@ -29,7 +29,7 @@ Layout monorepo (D-4): scripts Python aqui; shims POSIX + `_chain.sh` em
 | `bus_contract.py` | Contrato de mensagem de bus (remetente não pontua) |
 | `concurrent_inbox.py` | Fallback `inbox/*.md` entre sessões sem orquestrador |
 | `submodule_pin_drift.py` | Drift do pin de submódulo (read-only, warn-only) |
-| `hooks/` | Shims git + `tab_pendencias_reminder.py` (adapter SessionStart) |
+| `hooks/` | Shims git + `tab_pendencias_reminder.py` (adapter SessionStart + UserPromptSubmit, roteado por evento) |
 | `checks/` | Checks do núcleo (core) usados por `todo_audit` |
 | `casa/` | Checks opt-in do perfil `casa` |
 | `ci/` | Guards (`stdlib_imports`, `no_real_fixtures`) + smoke de shims |
@@ -76,6 +76,10 @@ skill / agente:
   `TAB_INTAKE_RECOVERY_REQUIRED`). Contrato:
   [`../references/sinais-de-frescor.md`](../references/sinais-de-frescor.md).
   Adapter de sessão: `hooks/tab_pendencias_reminder.py` (fail-open, exit 0).
+  Ligado a **SessionStart** e **UserPromptSubmit**, com roteamento: cada
+  sinal sai em **um só** dos dois eventos (`SIGNALS_BY_EVENT`), e o evento
+  por-turno ainda deduplica por `session_id`. Tabela sinal → evento em
+  [`../references/sinais-de-frescor.md`](../references/sinais-de-frescor.md).
 
 Podem ser rodados à mão, por alias, por hook, ou por agendador local
 (systemd/launchd/Task Scheduler).

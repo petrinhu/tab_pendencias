@@ -106,6 +106,14 @@ hook Claude Code: `tools/hooks/tab_pendencias_reminder.py` (stdin JSON ->
 stdout `{continue:true, additionalContext?}`; exit sempre 0; zero regra de
 negocio propria). Health imprime as mesmas linhas `TAB_*`.
 
+O adapter e ligado a **SessionStart** e a **UserPromptSubmit** e **roteia
+por `hook_event_name`**: sinal de estado do repositorio (CREATE, SYNC,
+TRIAGE, LEADER_AGED, VERIF) sai no **SessionStart**; sinal reativo ao turno
+(CONCURRENT, RECOVERY) sai no **UserPromptSubmit**. Nenhum sinal sai nos
+dois. `hook_event_name` ausente assume SessionStart; evento desconhecido
+nao emite. O evento por-turno deduplica por `session_id` (mesmas reasons
+nao repetem; reasons novas voltam a emitir).
+
 Contrato completo: [`references/sinais-de-frescor.md`](references/sinais-de-frescor.md).
 
 | Sinal | Gatilho resumido | Acao da thread |

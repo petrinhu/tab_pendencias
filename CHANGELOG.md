@@ -13,6 +13,44 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Corrigido
+
+- **Duplicação de emissão do hook de sessão (`TAB-HOOK-005`).** O adapter
+  `tools/hooks/tab_pendencias_reminder.py` ignorava `hook_event_name` e rodava a
+  mesma avaliação em `SessionStart` e em `UserPromptSubmit` -- o snippet de vault
+  publicado liga o adapter nos dois eventos, então a MESMA mensagem de defasagem
+  era emitida duas vezes, e a de `UserPromptSubmit` se repetia a cada turno.
+  Agora `session_signals` declara a partição sinal -> evento
+  (`SIGNALS_BY_EVENT`, exaustiva e disjunta sobre `SIGNAL_IDS`, garantida por
+  teste): sinal de **estado do repositório** (`TAB_TODO_CREATE_REQUIRED`,
+  `TAB_STATUS_SYNC_RECOMMENDED`, `TAB_TRIAGE_REQUIRED`,
+  `TAB_LEADER_DECISION_AGED`, `TAB_VERIFICATION_AGING`) sai no `SessionStart`;
+  sinal **reativo ao turno** (`TAB_CONCURRENT_INBOX_PRESENT`,
+  `TAB_INTAKE_RECOVERY_REQUIRED`) sai no `UserPromptSubmit`. Nenhum sinal sai
+  nos dois.
+
+### Adicionado
+
+- `session_signals.SIGNALS_BY_EVENT`, `normalize_event()` e
+  `signals_for_event()`: roteamento por evento como regra do motor, não do
+  adapter (o adapter segue só wiring). `hook_event_name` ausente/vazio assume
+  `SessionStart` (o lado que não repete); evento desconhecido não emite nada;
+  comparação case-insensitive.
+- Deduplicação por sessão no evento por-turno: um sinal com as **mesmas
+  reasons** não se repete no mesmo `session_id`; reasons novas
+  (`inbox_files=1` -> `inbox_files=2`) voltam a emitir. Estado em arquivo JSON
+  por sessão sob `tempfile.gettempdir()` (nunca no repositório do usuário),
+  `session_id` reduzido a digest hex (sem travessia de caminho), escrita
+  atômica por `os.replace`, limpeza por TTL de 7 dias e teto de arquivos.
+  `SessionStart` **não** é deduplicado de propósito (compact/resume seguem
+  reset de contexto). Fail-open em qualquer falha de IO.
+- 24 testes novos em `tests/test_session_hook_adapter.py`: partição exaustiva e
+  disjunta, roteamento ponta a ponta pelos dois eventos (inclusive por processo
+  real), campo ausente não duplica, evento desconhecido silencia, payload
+  corrompido não quebra, dedup (suprime, re-emite ao mudar o fato, é por sessão,
+  não se aplica ao `SessionStart`), `session_id` hostil neutralizado, poda do
+  diretório de estado por TTL e por teto.
+
 ### Documentação
 
 - Alinha `README.md` (pt-br + en), `CLAUDE.md`, `tools/README.md`,

@@ -21,5 +21,5 @@
       }
     ]
   },
-  "_comment": "Snippet sanitizado (TAB-VAULT-004). Paths relativos ao root do vault/memoria; sem path absoluto de maquina, sem tokens. O adapter real mora no submodulo do produto. Cole sob a chave hooks do settings.sanitized.json do vault e confira que o arquivo do command existe apos clone --recursive."
+  "_comment": "Snippet sanitizado (TAB-VAULT-004). Paths relativos ao root do vault/memoria; sem path absoluto de maquina, sem tokens. O adapter real mora no submodulo do produto. Cole sob a chave hooks do settings.sanitized.json do vault e confira que o arquivo do command existe apos clone --recursive. Os DOIS eventos sao intencionais e nao duplicam mensagem: desde TAB-HOOK-005 o adapter roteia por hook_event_name -- sinal de estado do repositorio so no SessionStart, sinal reativo ao turno so no UserPromptSubmit (tabela em references/sinais-de-frescor.md)."
 }
