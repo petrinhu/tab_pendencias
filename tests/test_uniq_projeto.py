@@ -204,3 +204,57 @@ def test_chk21_nao_dispara_no_proprio_repo():
     ctx = A.Context(root=raiz, todo_path=os.path.join(raiz, "TODO.md"),
                     text="", table=None, profile="core", config=None)
     assert P.chk21(ctx) == []
+
+
+# ---------------- varredura via git (o caminho preferido) ------------------
+# Lacuna revelada por mutante: sem repositorio git, `_via_walk` ja poda os
+# diretorios pulados na descida, entao o filtro de `_candidatos` fica sem
+# exercicio -- e ele e justamente o que protege o caminho `git ls-files`,
+# que devolve TUDO que esta rastreado, inclusive `tests/`.
+
+def _git_projeto(tmp_path, arquivos):
+    import subprocess
+
+    from conftest import ENV_GIT_TESTE, git_init_isolado
+    git_init_isolado(str(tmp_path))
+    (tmp_path / "TODO.md").write_text(_md(CHECKLIST), encoding="utf-8",
+                                      newline="")
+    for rel, conteudo in arquivos.items():
+        alvo = tmp_path / rel
+        alvo.parent.mkdir(parents=True, exist_ok=True)
+        alvo.write_text(conteudo, encoding="utf-8", newline="")
+    subprocess.run(["git", "add", "-A"], cwd=str(tmp_path),
+                   env=ENV_GIT_TESTE, capture_output=True, check=True)
+    return A.Context(root=str(tmp_path),
+                     todo_path=str(tmp_path / "TODO.md"), text="",
+                     table=None, profile="core", config=None)
+
+
+def test_chk21_via_git_pula_material_de_teste(tmp_path):
+    """`git ls-files` lista tests/fixture.md (esta rastreado); quem o exclui
+    e o filtro de `_candidatos`, nao a poda do os.walk."""
+    ctx = _git_projeto(tmp_path, {"tests/fixture.md": _md(CHECKLIST),
+                                  "templates/base.md": _md(CHECKLIST)})
+    assert P.chk21(ctx) == []
+
+
+def test_chk21_via_git_acha_checklist_paralelo_real(tmp_path):
+    ctx = _git_projeto(tmp_path, {"AUDIT_FIND.md": _md(CHECKLIST)})
+    achados = P.chk21(ctx)
+    assert len(achados) == 1 and "AUDIT_FIND.md" in achados[0].message
+
+
+def test_chk21_via_git_ignora_arquivo_nao_rastreado(tmp_path):
+    """Arquivo ignorado/nao rastreado nao e fila de trabalho do projeto --
+    e o que `git ls-files` da de graca (respeita .gitignore)."""
+    import subprocess
+
+    from conftest import ENV_GIT_TESTE
+    ctx = _git_projeto(tmp_path, {".gitignore": "rascunho/\n"})
+    (tmp_path / "rascunho").mkdir()
+    (tmp_path / "rascunho" / "ideias.md").write_text(_md(CHECKLIST),
+                                                     encoding="utf-8",
+                                                     newline="")
+    subprocess.run(["git", "add", "-A"], cwd=str(tmp_path),
+                   env=ENV_GIT_TESTE, capture_output=True, check=True)
+    assert P.chk21(ctx) == []
