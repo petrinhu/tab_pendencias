@@ -208,7 +208,8 @@ por default. O caminho normal e o **pipeline de intake** (descoberta -> main ->
 
 §5 é o contrato (que blocos, em que ordem). Esta seção é a **forma** que o
 arquivo-modelo da casa dá a esse contrato -- é ela que se copia ao criar um
-`TODO.md` novo. Nada aqui muda a leitura: um arquivo sem estes elementos
+`TODO.md` novo. O modelo de referência é o `TODO.md` do projeto
+**loucura_c_asm**, onde esta forma foi fixada em 2026-08-17. Nada aqui muda a leitura: um arquivo sem estes elementos
 continua válido; o que eles fazem é deixar a regra **visível dentro do próprio
 arquivo**, para quem editar não quebrar a tabela sem saber que existe regra.
 
