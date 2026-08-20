@@ -241,7 +241,12 @@ def test_chk03_informativo_quando_so_atravessa_headings_sem_fragmentar():
     assert len(achados) == 1
     f = achados[0]
     assert f.severity == "COSMÉTICO"
-    assert "legitim" in f.message.lower() or "informativo" in f.message.lower()
+    assert "informativo" in f.message.lower()
+    # UNIQ-1: a mensagem nao pode mais chamar o padrao de "legitimo" -- desde
+    # 2026-08-20 o contrato exige UMA tabela, e heading no meio parte o bloco.
+    # CHK-03 continua falando so de LEITURA e aponta quem julga (CHK-19).
+    assert "legitim" not in f.message.lower()
+    assert "CHK-19" in f.message
 
 
 def test_chk03_sprawl_nao_e_fragmentacao_de_cabecalho():

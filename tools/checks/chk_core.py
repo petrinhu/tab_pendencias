@@ -296,8 +296,12 @@ def _chk03_tabela_fragmentada(ctx):
             message=(
                 f"Canonica ({span}) atravessa {n_crossed} heading(s) "
                 "markdown sem encerrar (D-12: heading nunca encerra por si "
-                "so) -- informativo, nao e defeito: organizacao visual em "
-                "subtitulos e legitima."),
+                "so) -- informativo sobre a LEITURA: nenhum item se perde, "
+                "todos os {n} continuam sendo lidos. Atencao, porem: desde "
+                "2026-08-20 o contrato exige UMA tabela, e cada heading no "
+                "meio parte o bloco markdown -- e o CHK-19 que julga isso "
+                "(a leitura aqui segue preservada, por compatibilidade)."
+                .format(n=len(table["items"]))),
             line_no=inicio_canonica, fixable=False))
     return out
 
