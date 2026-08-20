@@ -27,11 +27,11 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   esses títulos** -- o código verifica a regra, nunca a convenção de um projeto.
 
 - **O contrato passa a declarar TABELA ÚNICA (`TAB-UNIQ-001`).** Um `TODO.md`
-  tem **exatamente uma tabela markdown de trabalho** -- "de trabalho" = tabela
-  com coluna `Status` (o que se marca; o que a ferramenta lê e escreve). Tabela
-  de **referência** no cabeçalho (legenda, matriz, comparativo, scoring)
-  continua legítima **desde que não tenha coluna `Status`**. Proibido junto:
-  **linha em branco dentro da tabela** (em Markdown ela encerra a tabela ali).
+  tem **exatamente UMA tabela markdown** -- sem qualificação: **qualquer
+  segundo bloco `|...|` é violação**, tenha coluna `Status` ou não. Legenda,
+  matriz, comparativo, sumário, índice, contagem e scoring vão em **bullets ou
+  lista**, nunca em tabela auxiliar. Proibido junto: **linha em branco dentro
+  da tabela** (em Markdown ela encerra a tabela ali e abre outro bloco).
 
   **Motivo (mecânico):** a leitura **para no primeiro cabeçalho repetido**, logo
   tudo o que estiver numa segunda tabela de trabalho fica **invisível** para
@@ -88,12 +88,14 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   consumidor que respeite o Markdown. CRÍTICO fica para o estado em que o dado
   já está invisível de fato.
 
-- **`CHK-19` -- mais de uma tabela de trabalho no arquivo (`TAB-UNIQ-002`,
-  CRÍTICO, perfil `core`).** Conta **blocos** markdown cujo cabeçalho tem
-  coluna `Status` **e** coluna de identificador (`work_tables`/`table_blocks`,
-  novos em `todo_lib`), e acusa quando há 2+. Tabela de **referência** sem
-  `Status` e **legenda** de vocabulário (`| Status | Significado |`, sem coluna
-  de ID) **não** são achado.
+- **`CHK-19` -- mais de uma tabela no arquivo (`TAB-UNIQ-002`, perfil
+  `core`).** Conta **blocos** markdown (`table_blocks`, novo em `todo_lib` --
+  um bloco = o que o Markdown renderiza como uma tabela) e acusa quando há 2+,
+  **sem isenção**: tabela de referência, legenda e metade de baixo de tabela
+  partida também são achado. **Severidade graduada pelo dano medido:** CRÍTICO
+  quando 2+ blocos têm coluna `Status` (aí há dado invisível de fato);
+  IMPORTANTE nos demais casos (violação de contrato sem perda de dado
+  medida) -- acusar, acusa sempre.
 
   **Por que não bastava o `CHK-03`:** ele conta *cabeçalhos* `ID`+`Status` com
   a célula exata `"id"`; uma segunda tabela de trabalho cuja coluna se chama
@@ -140,7 +142,8 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 ### Corrigido
 
 - **`todo_migrate_inbox.py` RECUSA em vez de adivinhar qual é a tabela
-  canônica (`TAB-UNIQ-004`).** Com 2+ tabelas **de trabalho** no arquivo, ele
+  canônica (`TAB-UNIQ-004`).** Com 2+ **blocos de tabela** no arquivo (com ou
+  sem coluna `Status`), ele
   elegia sempre a **primeira** -- e isso não tem nenhuma razão de estar certo:
   em arquivos reais elegeu a tabela errada em 3 casos, num deles tratando uma
   tabela de 3 itens como canônica no lugar de uma de 339. Agora `plan()`
@@ -148,6 +151,11 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   `MigrationError` e a CLI sai com `1` e "migração RECUSADA", **sem tocar no
   arquivo**. Com uma tabela só (com ou sem tabelas de referência ao lado), o
   comportamento é exatamente o de antes.
+
+  **Correção do critério (2026-08-20, ordem do líder):** a primeira versão
+  desta fatia recusava só com 2+ tabelas *de trabalho* e migrava um arquivo com
+  tabela de referência ao lado. Com o critério literal ("uma tabela, ponto"),
+  qualquer 2º bloco de tabela é ambiguidade e a migração é recusada.
 
 - **Duplicação de emissão do hook de sessão (`TAB-HOOK-005`).** O adapter
   `tools/hooks/tab_pendencias_reminder.py` ignorava `hook_event_name` e rodava a

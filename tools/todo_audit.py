@@ -219,7 +219,7 @@ CHECKS: list[Check] = [
     Check(id="CHK-11", title="Reconciliação de contagem (todo_health)",
           profile="core", severity_default="CRÍTICO",
           run=_chk_core._chk11_reconciliacao_contagem),
-    Check(id="CHK-19", title="Mais de uma tabela de trabalho no arquivo",
+    Check(id="CHK-19", title="Mais de uma tabela no arquivo",
           profile="core", severity_default="CRÍTICO",
           run=_chk_core._chk19_tabela_unica),
     Check(id="CHK-20", title="Linha em branco dentro da tabela",

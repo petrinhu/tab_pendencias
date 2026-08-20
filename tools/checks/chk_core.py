@@ -25,7 +25,7 @@ vocabulario de status. Todos com `profile == "core"`:
   CHK-04 -- ncols divergente entre tabelas ID+Status (pre-condicao FIX-ENG).
   CHK-08 -- status fora do vocabulario canonico (D-1).
   CHK-11 -- reconciliacao do total do todo_health com contagem independente.
-  CHK-19 -- mais de uma tabela DE TRABALHO no arquivo (UNIQ-1).
+  CHK-19 -- mais de um bloco de tabela no arquivo (UNIQ-1).
   CHK-20 -- linha em branco DENTRO da tabela canonica (UNIQ-1 b).
 
 Nenhum check aqui reimplementa parsing: consome as chaves ADITIVAS que
@@ -330,40 +330,81 @@ def _chk04_ncols_divergente_entre_tabelas(ctx):
 # Numeracao: CHK-15..18 estao RESERVADOS ao modulo `--audit=repo` (v1.1, D-5,
 # citados em docs/adr/0001-*.md); o proximo numero realmente livre e 19.
 
+_MAX_BLOCOS_LISTADOS = 10
+
+
+def _tipo_de_bloco(lines, bloco, linhas_com_status):
+    """Como o bloco se apresenta, para a mensagem do CHK-19."""
+    n = bloco["start"]
+    if n in linhas_com_status:
+        return "tabela com coluna Status"
+    segunda = bloco["rows"][1] if len(bloco["rows"]) > 1 else None
+    if segunda is not None and L._is_separator(
+            L._cells(lines[segunda].lstrip(L.BOM).strip())):
+        return "tabela sem coluna Status (referencia/legenda)"
+    return "bloco sem cabecalho (continuacao de tabela partida)"
+
+
 def _chk19_tabela_unica(ctx):
-    """UNIQ-1: mais de UMA tabela de trabalho no arquivo.
+    """UNIQ-1: mais de UM bloco de tabela markdown no arquivo.
+
+    O criterio e LITERAL e sem qualificacao (ordem do lider, 2026-08-20):
+    **uma** tabela no arquivo inteiro. Qualquer segundo bloco `|...|` e
+    violacao, tenha coluna Status ou nao -- legenda, matriz, sumario, indice e
+    scoring vao em bullets/lista. A razao de a regra nao admitir "tabela
+    auxiliar inofensiva" e nao depender de julgamento: toda tabela a mais e
+    candidata a ser eleita por engano por uma ferramenta, por um agente ou por
+    um leitor com pressa, e um criterio que exige inspecionar coluna se degrada
+    na primeira excecao (hoje a legenda nao tem Status, amanha alguem poe uma
+    coluna de progresso nela).
 
     Diferente de CHK-03, que conta CABECALHOS `ID`+`Status` (celula exata
-    "id") ao longo do arquivo inteiro: este conta BLOCOS markdown cujo
-    cabecalho tem coluna Status e coluna de identificador. Isso pega dois
-    casos que CHK-03 nao pega -- (a) uma 2a tabela de trabalho cuja coluna de
-    ID nao se chama exatamente "ID" (ex.: "ID (AUD-*)"), que o nucleo nem
-    consegue eleger e por isso passa despercebida, e (b) o fato de o defeito
-    ser de BLOCO (o que o Markdown renderiza como tabela), nao de linha de
-    cabecalho solta. Quando os dois disparam juntos, os dois estao certos e
-    dizem a mesma coisa por angulos diferentes -- redundancia deliberada num
-    defeito que ja custou um backlog de 491 itens lido como 1 item."""
+    "id"): aqui a unidade e o BLOCO -- o que o Markdown de fato renderiza como
+    uma tabela --, o que pega tambem a tabela cuja coluna de ID tem outro nome
+    ("ID (AUD-*)"), a tabela sem Status nenhum e a metade de baixo de uma
+    tabela partida por linha em branco/heading.
+
+    Severidade GRADUADA pelo dano medido, nao pelo incomodo: CRITICO quando 2+
+    blocos tem coluna Status (a leitura para no 1o cabecalho repetido e os
+    itens dos seguintes ficam invisiveis a toda contagem -- ja aconteceu de um
+    backlog de 491 itens se apresentar como 1); IMPORTANTE nos demais casos
+    (violacao de contrato real, sem perda de dado medida). Acusar, acusa
+    sempre: nenhum bloco extra e isento."""
     from todo_audit import Finding
     if ctx.text is None:
         return []
-    tabelas = L.work_tables(ctx.text)
-    if len(tabelas) < 2:
+    blocos = L.table_blocks(ctx.text)
+    if len(blocos) < 2:
         return []
+    lines = ctx.text.split("\n")
+    com_status = L.work_tables(ctx.text)
+    linhas_com_status = {w["line_no"] for w in com_status}
+    mostrados = blocos[:_MAX_BLOCOS_LISTADOS]
     onde = "; ".join(
-        f"linha {w['line_no'] + 1} ({w['n_rows']} linha(s) de dado)"
-        for w in tabelas)
+        f"linha {b['start'] + 1} ({_tipo_de_bloco(lines, b, linhas_com_status)})"
+        for b in mostrados)
+    if len(blocos) > len(mostrados):
+        onde += (f"; ... (+{len(blocos) - len(mostrados)} bloco(s) nao "
+                 "listado(s) aqui -- a contagem acima e completa)")
+    critico = len(com_status) >= 2
+    porque = (
+        "DOIS OU MAIS desses blocos tem coluna Status: a leitura para no 1o "
+        "cabecalho repetido, entao os itens dos blocos seguintes NAO entram "
+        "em 'items' nem em contagem nenhuma -- ficam invisiveis sem erro na "
+        "tela." if critico else
+        "Nenhum dado esta invisivel agora (so um bloco tem coluna Status), "
+        "mas o arquivo ja nao cumpre o contrato: cada tabela a mais e uma "
+        "candidata a ser eleita por engano por ferramenta, agente ou leitor.")
     return [Finding(
-        check_id="CHK-19", severity="CRÍTICO",
+        check_id="CHK-19", severity="CRÍTICO" if critico else "IMPORTANTE",
         message=(
-            f"{len(tabelas)} tabelas DE TRABALHO (com coluna Status) no "
-            f"arquivo -- {onde}. O contrato exige exatamente UMA "
-            "(references/frescor-da-tabela.md SS5): a leitura para no 1o "
-            "cabecalho repetido, entao os itens das tabelas seguintes NAO "
-            "entram em 'items' nem em contagem nenhuma -- ficam invisiveis "
-            "sem erro na tela. Consolide numa tabela so; se alguma for "
-            "tabela de REFERENCIA (legenda, matriz, scoring), tire dela a "
-            "coluna Status, que e o que a marca como de trabalho."),
-        line_no=tabelas[1]["line_no"], fixable=False)]
+            f"{len(blocos)} blocos de tabela markdown no arquivo -- {onde}. O "
+            "contrato exige UMA tabela, sem qualificacao "
+            f"(references/frescor-da-tabela.md SS5). {porque} Consolide numa "
+            "tabela so; legenda, matriz, sumario, indice, contagem e scoring "
+            "vao em BULLETS ou lista, nunca em tabela. Linha em branco (ou "
+            "heading) dentro da tabela tambem cria bloco novo -- ver CHK-20."),
+        line_no=blocos[1]["start"], fixable=False)]
 
 
 # ------------------------------- CHK-20 ------------------------------------

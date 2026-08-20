@@ -105,21 +105,22 @@ Normativo em [`references/frescor-da-tabela.md`](references/frescor-da-tabela.md
 5. **a tabela canônica**;
 6. **EOF logo após a última linha da tabela** -- nada vem depois dela.
 
-**Uma tabela de trabalho, e só uma.** "De trabalho" = tabela com coluna `Status`
--- é o que se marca, e o que a ferramenta lê e escreve. Tabela de **referência**
-no cabeçalho (legenda, matriz, comparativo, scoring) é legítima **desde que não
-tenha coluna `Status`**. Proibido junto: **linha em branco dentro da tabela** (em
-Markdown ela encerra a tabela ali). Motivo mecânico, não estético: a leitura
+**UMA tabela no arquivo, e só uma** -- sem qualificação: **qualquer segundo bloco
+`|...|` é violação**, tenha coluna `Status` ou não. Legenda, matriz, comparativo,
+sumário, índice, contagem e scoring vão em **bullets ou lista**, nunca em tabela
+auxiliar. Proibido junto: **linha em branco dentro da tabela** (em Markdown ela
+encerra a tabela ali e abre outro bloco). Motivo mecânico, não estético: a leitura
 **para no primeiro cabeçalho repetido**, então o que estiver numa segunda tabela
-de trabalho fica **invisível** para qualquer ferramenta e para qualquer contagem,
-sem erro nenhum na tela.
+com `Status` fica **invisível** para qualquer ferramenta e para qualquer contagem,
+sem erro nenhum na tela; e a regra não admite exceção para "tabela auxiliar
+inofensiva" porque toda tabela a mais é candidata a ser eleita por engano.
 
 **Forma do arquivo (o modelo da casa)** -- detalhe em
 [`references/frescor-da-tabela.md`](references/frescor-da-tabela.md) §5.2: a **linha
 1** declara a estrutura em uma linha (blockquote `> **ESTRUTURA CANÔNICA DO ARQUIVO
 — NÃO QUEBRAR A TABELA:** ...`), antes do título `#`; a tabela ganha o heading
-próprio **`## TABELA UNIFICADA`** logo acima dela; e **scoring WSJF, checklists e
-material de referência vão em bullets no cabeçalho**, sob
+próprio **`## TABELA UNIFICADA`** logo acima dela; e **scoring WSJF, checklists, sumários e
+material de referência vão em bullets no cabeçalho** (nunca em tabela), sob
 `### Scoring WSJF (referência — **não** é tabela de trabalho)` com a linha de escopo
 *"Itens abaixo são registro histórico de score; o status de trabalho vive só na
 tabela única."*. É **forma**, não leitura: arquivo sem esses elementos continua
@@ -289,7 +290,7 @@ Catálogo de checks (13 do núcleo + 3 da camada casa, opt-in):
 | `CHK-09` | Claims obsoletas na Descrição (contra o git real) | Importante | core |
 | `CHK-10` | Proposta do `todo_sync.py` (sem `--apply`) anexada | Cosmético | core |
 | `CHK-11` | Reconciliação de contagem (`todo_health`) | Crítico | core |
-| `CHK-19` | Mais de uma tabela de trabalho no arquivo | Crítico | core |
+| `CHK-19` | Mais de uma tabela no arquivo | Crítico / Importante | core |
 | `CHK-20` | Linha em branco dentro da tabela | Importante | core |
 | `CHK-12` | TST-\*/AUD-\* agendado antes do que cobre | Crítico | **casa** |
 | `CHK-13` | INBOX: ID duplicado da tabela ou formato inválido | Importante | **casa** |
@@ -547,19 +548,22 @@ Normative in [`references/frescor-da-tabela.md`](references/frescor-da-tabela.md
 5. **the canonical table**;
 6. **EOF right after the table's last line** -- nothing comes after it.
 
-**Exactly one work table.** "Work table" = a table with a `Status` column (what
-gets marked; what the tooling reads and writes). A **reference** table in the
-header (legend, matrix, comparison, scoring) is legitimate **as long as it has no
-`Status` column**. Also forbidden: a **blank line inside the table** (in Markdown
-it ends the table right there). Mechanical reason, not cosmetic: reading **stops
-at the first repeated header**, so whatever sits in a second work table becomes
-**invisible** to every tool and every count, with no error on screen.
+**Exactly ONE table in the file** -- no qualification: **any second `|...|` block
+is a violation**, with or without a `Status` column. Legend, matrix, comparison,
+summary, index, count and scoring go in **bullets or lists**, never in an auxiliary
+table. Also forbidden: a **blank line inside the table** (in Markdown it ends the
+table right there and opens another block). Mechanical reason, not cosmetic:
+reading **stops at the first repeated header**, so whatever sits in a second table
+with `Status` becomes **invisible** to every tool and every count, with no error on
+screen; and the rule admits no "harmless auxiliary table" exception, because every
+extra table is a candidate to be picked by mistake.
 
 **File shape (the house model)** -- detail in
 [`references/frescor-da-tabela.md`](references/frescor-da-tabela.md) §5.2 (pt-br):
 **line 1** states the structure in a single blockquote line, before the `#` title;
 the table gets its own heading (**"unified table"**) right above it; and WSJF
-scoring, checklists and reference material go in **bullets in the header**, under a
+scoring, checklists, summaries and reference material go in **bullets in the header**
+(never in a table: the file has a single `|...|` block), under a
 title that says what the section is *not* ("reference -- **not** a work table") plus
 a scope line ("the work status lives **only** in the single table"). This is
 **shape**, not reading: a file without those elements is still valid; they exist so
@@ -713,7 +717,7 @@ Check catalog (13 core + 3 opt-in house-layer checks):
 | `CHK-09` | Stale claims in the Description (against real git) | Important | core |
 | `CHK-10` | `todo_sync.py` proposal (without `--apply`) attached | Cosmetic | core |
 | `CHK-11` | Count reconciliation (`todo_health`) | Critical | core |
-| `CHK-19` | More than one work table in the file | Critical | core |
+| `CHK-19` | More than one table in the file | Critical / Important | core |
 | `CHK-20` | Blank line inside the table | Important | core |
 | `CHK-12` | TST-\*/AUD-\* scheduled before what it covers | Critical | **house** |
 | `CHK-13` | INBOX: duplicate table ID or invalid format | Important | **house** |

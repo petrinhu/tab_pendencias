@@ -95,13 +95,13 @@ Um `TODO.md` de projeto tem esta ordem, de cima para baixo:
 
 Três regras derivam disso:
 
-- **Uma tabela de trabalho, e só uma** (o bloco 5). **"De trabalho"** = tabela
-  com coluna **`Status`** -- é o que se marca, e o que a ferramenta lê e
-  escreve. Uma tabela de **referência** no cabeçalho (legenda, matriz,
-  comparativo, scoring) é legítima **desde que não tenha coluna `Status`**.
-  Proibido junto: **linha em branco DENTRO da tabela** -- em Markdown ela
-  encerra a tabela ali, e o que vem depois passa a ser outra tabela (ou prosa):
-  uma tabela vira duas sem ninguém ter escrito nada.
+- **UMA tabela no arquivo, e só uma** (o bloco 5). Sem qualificação:
+  **qualquer segundo bloco `|...|` é violação**, tenha coluna `Status` ou não.
+  Legenda, matriz, comparativo, sumário, índice, contagem e scoring **não
+  viram tabela auxiliar** -- vão em **bullets ou lista**. Proibido junto:
+  **linha em branco DENTRO da tabela** -- em Markdown ela encerra a tabela
+  ali, e o que vem depois já é outro bloco: uma tabela vira duas sem ninguém
+  ter escrito nada.
 - **A INBOX vem ANTES da tabela** (mudou em 2026-08-19; a norma anterior a
   colocava depois).
 - **Nada vem DEPOIS da tabela** (mudou em 2026-08-19). A tabela é o último
@@ -124,10 +124,18 @@ qualquer contagem, **sem erro nenhum na tela**: um backlog de centenas de itens
 pode se apresentar como 1 ou 3 itens. A **linha em branco dentro da tabela** é
 o caminho silencioso para chegar lá: parte a tabela em duas na renderização, e
 a próxima edição que repetir o cabeçalho na metade de baixo fecha o buraco.
-Por isso a tabela de referência não pode ter coluna `Status`: sem esse critério
-não há como uma ferramenta -- nem um leitor humano -- decidir qual das tabelas
-é a canônica, e quem decide por adivinhação erra (foi o que aconteceu com o
-migrador de layout, que elegeu uma tabela de 3 itens no lugar de uma de 339).
+
+**Por quê nem tabela auxiliar "inofensiva":** a regra é literal -- *uma* tabela
+-- justamente para não depender de julgamento sobre qual é a canônica. Toda
+tabela a mais é uma candidata a ser eleita por engano por uma ferramenta, por
+um agente ou por um leitor com pressa; quem decide por adivinhação erra (foi o
+que aconteceu com o migrador de layout, que elegeu uma tabela de 3 itens no
+lugar de uma de 339). Um critério que exige inspecionar colunas para saber se
+aquele bloco "conta" é um critério que se degrada com a primeira exceção: hoje
+a legenda não tem `Status`, amanhã alguém acrescenta uma coluna de progresso
+nela. **Zero tabela auxiliar** é verificável de olho e por script, sem
+interpretação -- e o custo é baixo, porque bullet e lista fazem o mesmo
+trabalho de referência.
 
 **Compatibilidade (leitura):** um arquivo no formato **legado** (INBOX depois
 da tabela, ou qualquer texto após ela) continua **válido para leitura** --
@@ -191,7 +199,11 @@ que separa, a olho nu, o cabeçalho (tudo que é comentário/instrução) do ún
 bloco de trabalho.
 
 **3. Scoring WSJF, checklists e material de referência vão em BULLETS, no
-cabeçalho** -- nunca em tabela com coluna `Status`, e nunca depois da tabela.
+cabeçalho** -- **nunca em tabela** (nem sem coluna `Status`), e nunca depois da
+tabela. Quem precisar registrar scoring, sumário, contagem, legenda ou índice
+usa **bullet ou lista**: é essa a razão de existir do formato em bullets do
+modelo, não uma preferência estética. O arquivo inteiro tem **um** bloco
+`|...|`.
 O modelo usa este título e esta linha de escopo, literalmente:
 
 ```markdown
@@ -206,9 +218,10 @@ Itens abaixo são **registro histórico de score**; o status de trabalho vive **
 Os dois pedaços são intencionais: o **título** diz o que a seção não é
 ("**não** é tabela de trabalho"), e a **linha de escopo** diz onde o status
 mora ("o status de trabalho vive **só** na tabela única"). Sem eles, a próxima
-pessoa que precisar marcar progresso de um score acrescenta uma coluna
-`Status` ali e o arquivo passa a ter duas tabelas de trabalho -- exatamente o
-defeito que §5 proíbe.
+pessoa que precisar marcar progresso de um score transforma a lista numa tabela
+com coluna `Status` -- e o arquivo passa a ter duas tabelas, exatamente o
+defeito que §5 proíbe. Repare que no modelo o scoring é **lista de bullets**,
+não tabela: o arquivo tem um único bloco `|...|`, o da tabela canônica.
 
 **Esqueleto completo:**
 

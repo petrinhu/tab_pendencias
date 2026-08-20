@@ -37,11 +37,12 @@ CRLF/LF e do BOM originais).
 
 Idempotente: rodar de novo num arquivo ja canonico nao muda um byte.
 
-**Recusa em vez de adivinhar (UNIQ-1):** com 2+ tabelas DE TRABALHO (com
-coluna ``Status``) no arquivo, nao ha como saber qual e a canonica -- este
-utilitario acusa e sai com erro, sem tocar em nada. Antes ele elegia sempre a
-1a tabela do arquivo, e numa medicao real isso significou tratar uma tabela de
-3 itens como canonica no lugar de uma de 339.
+**Recusa em vez de adivinhar (UNIQ-1):** com 2+ BLOCOS de tabela no arquivo
+(qualquer tabela, com ou sem coluna ``Status`` -- o contrato exige UMA, sem
+qualificacao), nao ha como saber qual e a canonica: este utilitario acusa e
+sai com erro, sem tocar em nada. Antes ele elegia sempre a 1a tabela do
+arquivo, e numa medicao real isso significou tratar uma tabela de 3 itens como
+canonica no lugar de uma de 339.
 
 Prova antes de escrever (mesma politica de ``todo_fix.py``): o texto novo e
 reparseado e comparado com o original -- multiset de linhas identico, IDs e
@@ -115,8 +116,9 @@ def plan(text: str) -> dict:
 
       order/legacy/canonical/inbox_line/table_span/trailing  (de
                     ``todo_lib.layout``)
-      work_tables      quantas tabelas DE TRABALHO o arquivo tem (UNIQ-1)
-      ambiguous        True quando ha 2+ tabelas de trabalho: a migracao e
+      table_blocks     quantos BLOCOS de tabela markdown o arquivo tem
+      work_tables      quantos desses blocos tem coluna Status (informativo)
+      ambiguous        True quando ha 2+ blocos de tabela: a migracao e
                        RECUSADA (nao ha como saber qual e a canonica)
       needs_migration  True quando ha o que reordenar
       reason           frase curta do porque (ou None)
@@ -132,21 +134,24 @@ def plan(text: str) -> dict:
     # certa). Recusar e acusar, sempre; escolher, nunca. Vem ANTES do teste de
     # LAYOUT_NO_TABLE porque com varias tabelas de trabalho o diagnostico util
     # e a ambiguidade, mesmo quando nenhuma delas e eleita pelo nucleo.
-    tabelas = L.work_tables(text)
-    lay["work_tables"] = len(tabelas)
-    if len(tabelas) > 1:
-        onde = ", ".join(f"linha {w['line_no'] + 1} ({w['n_rows']} linha(s) "
-                          f"de dado)" for w in tabelas)
+    blocos = L.table_blocks(text)
+    lay["table_blocks"] = len(blocos)
+    lay["work_tables"] = len(L.work_tables(text))
+    if len(blocos) > 1:
+        onde = ", ".join(f"linha {b['start'] + 1}" for b in blocos[:10])
+        if len(blocos) > 10:
+            onde += f", ... (+{len(blocos) - 10}; a contagem acima e completa)"
         lay["needs_migration"] = False
         lay["ambiguous"] = True
         lay["reason"] = (
-            f"ha {len(tabelas)} tabelas DE TRABALHO (com coluna Status) no "
-            f"arquivo -- {onde}. O contrato exige exatamente UMA "
-            "(references/frescor-da-tabela.md SS5) e este utilitario NAO "
+            f"ha {len(blocos)} blocos de tabela no arquivo (comecando em "
+            f"{onde}). O contrato exige UMA tabela, sem qualificacao "
+            "(references/frescor-da-tabela.md SS5), e este utilitario NAO "
             "escolhe qual e a canonica: resolva antes (consolide numa tabela "
-            "so, ou tire a coluna Status da tabela que for de REFERENCIA) e "
-            "rode de novo. Rode `python3 tools/todo_audit.py` (CHK-19) para "
-            "ver todas de uma vez")
+            "so; legenda/sumario/scoring viram bullets; linha em branco ou "
+            "heading dentro da tabela tambem cria bloco novo) e rode de "
+            "novo. Rode `python3 tools/todo_audit.py` (CHK-19/CHK-20) para "
+            "ver tudo de uma vez")
         return lay
     if lay["order"] == L.LAYOUT_NO_TABLE:
         lay["needs_migration"] = False

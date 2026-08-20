@@ -1,8 +1,10 @@
-"""UNIQ-1 -- tabela unica DE TRABALHO (contrato SS5).
+"""UNIQ-1 -- UMA tabela no arquivo (contrato SS5, criterio literal).
 
-Cobre `todo_lib.work_tables`/`table_blocks` (o helper que responde "quantas
-tabelas de trabalho ha") e o CHK-19 (`--audit` acusa 2+). Nenhuma fixture real
-de consumidor: todo corpus deste arquivo e GERADO aqui.
+Ordem do lider (2026-08-20): "so deve haver UMA tabela em TODO.md" -- qualquer
+segundo bloco `|...|` e violacao, tenha coluna Status ou nao. Cobre
+`todo_lib.table_blocks`/`work_tables` (blocos, e quais deles tem Status, que e
+o que GRADUA a severidade) e o CHK-19. Nenhuma fixture real de consumidor:
+todo corpus deste arquivo e GERADO aqui.
 """
 import pytest
 
@@ -17,15 +19,16 @@ LINHAS = ["| A-1 | W1 | Base | ⏳ Pendente |",
 TABELA = [CAB, SEP] + LINHAS
 PREAMBULO = ["# TODO -- projeto de exemplo", "", "> Prosa de cabecalho.", ""]
 
-# Tabela de REFERENCIA legitima: sem coluna Status.
+# Tabela de REFERENCIA: sem coluna Status. NAO e legitima no arquivo (o
+# contrato exige UMA tabela) -- so nao e o caso CRITICO.
 REFERENCIA = ["| ID | Significado |",
               "| :--- | :--- |",
               "| A-1 | a primeira |",
               "| A-2 | a segunda |"]
 
 # Legenda do vocabulario: TEM a palavra Status no cabecalho, mas nao tem coluna
-# de identificador -- padrao real de cabecalho de TODO.md, nao pode virar
-# achado (seria CRITICO falso).
+# de identificador -- e tabela, entao tambem viola a regra de UMA tabela, mas
+# nao e uma 2a tabela de trabalho: acusada como IMPORTANTE, nunca CRITICO.
 LEGENDA = ["| Status | Significado |",
            "| :--- | :--- |",
            "| ⏳ Pendente | nao iniciado |",
@@ -60,14 +63,19 @@ def test_duas_tabelas_de_trabalho_sao_contadas_como_duas():
     assert wt[0]["line_no"] < wt[1]["line_no"]
 
 
-def test_tabela_de_referencia_sem_status_nao_conta():
+def test_tabela_de_referencia_sem_status_nao_conta_como_de_trabalho():
+    """O helper `work_tables` responde "quantas tem coluna Status" (e o que
+    gradua a severidade); quem conta TABELA no sentido do contrato e
+    `table_blocks`."""
     assert len(L.work_tables(_arquivo(REFERENCIA, TABELA))) == 1
+    assert len(L.table_blocks(_arquivo(REFERENCIA, TABELA))) == 2
 
 
-def test_legenda_de_status_sem_coluna_de_id_nao_conta():
-    """`| Status | Significado |` e legenda de cabecalho, nao tabela de
-    trabalho -- e o nucleo nem consegue eleger (nao tem coluna ID)."""
+def test_legenda_de_status_sem_coluna_de_id_nao_conta_como_de_trabalho():
+    """`| Status | Significado |` e legenda: o nucleo nem consegue eleger (sem
+    coluna ID). Continua sendo um BLOCO de tabela, e o contrato so admite um."""
     assert len(L.work_tables(_arquivo(LEGENDA, TABELA))) == 1
+    assert len(L.table_blocks(_arquivo(LEGENDA, TABELA))) == 2
 
 
 def test_coluna_de_id_com_nome_composto_conta_como_trabalho():
@@ -119,29 +127,67 @@ def test_work_tables_tolera_crlf_e_bom():
 
 # --------------------------------- CHK-19 ----------------------------------
 
-def test_chk19_calado_com_uma_tabela_de_trabalho():
+def test_chk19_calado_com_uma_tabela_so():
     assert C._chk19_tabela_unica(_ctx(_arquivo(TABELA))) == []
 
 
-def test_chk19_calado_com_tabela_de_referencia_sem_status():
-    assert C._chk19_tabela_unica(_ctx(_arquivo(REFERENCIA, TABELA))) == []
-    assert C._chk19_tabela_unica(_ctx(_arquivo(LEGENDA, TABELA))) == []
+@pytest.mark.parametrize("auxiliar", [REFERENCIA, LEGENDA])
+def test_chk19_ACUSA_tabela_auxiliar_mesmo_sem_status(auxiliar):
+    """Criterio literal: qualquer 2o bloco `|...|` e violacao. Severidade
+    IMPORTANTE (nao CRITICO) porque nenhum dado ficou invisivel -- so um dos
+    blocos tem coluna Status."""
+    achados = C._chk19_tabela_unica(_ctx(_arquivo(auxiliar, TABELA)))
+    assert len(achados) == 1
+    assert achados[0].severity == "IMPORTANTE"
+    assert "2 blocos de tabela" in achados[0].message
 
 
-def test_chk19_acusa_duas_tabelas_de_trabalho():
+def test_chk19_acusa_duas_tabelas_de_trabalho_como_critico():
     achados = C._chk19_tabela_unica(_ctx(_arquivo(TABELA, TABELA)))
     assert len(achados) == 1
     f = achados[0]
     assert f.check_id == "CHK-19" and f.severity == "CRÍTICO"
     assert f.fixable is False
-    assert "2 tabelas" in f.message
-    # aponta para o cabecalho da SEGUNDA (onde o dado comeca a sumir)
-    assert f.line_no == L.work_tables(_arquivo(TABELA, TABELA))[1]["line_no"]
+    assert "2 blocos de tabela" in f.message
+    # aponta para o inicio do SEGUNDO bloco (onde o dado comeca a sumir)
+    assert f.line_no == L.table_blocks(_arquivo(TABELA, TABELA))[1]["start"]
 
 
 def test_chk19_conta_todas_quando_ha_muitas():
     achados = C._chk19_tabela_unica(_ctx(_arquivo(TABELA, TABELA, TABELA)))
-    assert len(achados) == 1 and "3 tabelas" in achados[0].message
+    assert len(achados) == 1 and "3 blocos de tabela" in achados[0].message
+
+
+def test_chk19_declara_o_corte_da_lista_quando_ha_muitos_blocos():
+    """No silent caps: a lista de blocos e amostrada, a CONTAGEM nao."""
+    achados = C._chk19_tabela_unica(_ctx(_arquivo(*([TABELA] * 14))))
+    msg = achados[0].message
+    assert "14 blocos de tabela" in msg
+    assert "+4 bloco(s) nao listado(s)" in msg
+
+
+def test_chk19_acusa_tabela_partida_por_linha_em_branco():
+    """A metade de baixo e um bloco novo para o Markdown -- logo, 2 tabelas.
+    IMPORTANTE (o cabecalho e um so, nada ficou invisivel); CHK-20 diz qual
+    linha apagar."""
+    partida = _arquivo([CAB, SEP, LINHAS[0], "", LINHAS[1]])
+    achados = C._chk19_tabela_unica(_ctx(partida))
+    assert len(achados) == 1 and achados[0].severity == "IMPORTANTE"
+    assert "continuacao de tabela partida" in achados[0].message
+    assert len(C._chk20_linha_em_branco_na_tabela(_ctx(partida))) == 1
+
+
+def test_chk19_acusa_tabela_organizada_sob_subtitulos():
+    """D-12 continua valendo para a LEITURA (o parser atravessa o heading e
+    le todos os itens), mas o contrato passou a exigir UMA tabela: o heading
+    encerra o bloco markdown, entao o arquivo tem 2. Acusa, sem quebrar a
+    leitura."""
+    text = "\n".join(PREAMBULO + [CAB, SEP, LINHAS[0], "", "### Onda 2", "",
+                                  LINHAS[1]]) + "\n"
+    achados = C._chk19_tabela_unica(_ctx(text))
+    assert len(achados) == 1 and achados[0].severity == "IMPORTANTE"
+    # leitura preservada: os 2 itens continuam sendo lidos
+    assert [it["id"] for it in L.parse_table(text)["items"]] == ["A-1", "A-2"]
 
 
 def test_chk19_calado_em_arquivo_sem_tabela():
@@ -150,7 +196,7 @@ def test_chk19_calado_em_arquivo_sem_tabela():
 
 def test_chk19_mensagem_diz_o_que_fazer():
     m = C._chk19_tabela_unica(_ctx(_arquivo(TABELA, TABELA)))[0].message
-    assert "Consolide" in m and "REFERENCIA" in m
+    assert "Consolide" in m and "BULLETS" in m
 
 
 def test_chk19_registrado_como_core():
@@ -179,10 +225,10 @@ def test_chk19_nao_dispara_no_todo_do_proprio_repo():
 
 
 @pytest.mark.parametrize("n", [2, 5])
-def test_chk19_line_no_e_sempre_da_segunda(n):
+def test_chk19_line_no_e_sempre_do_segundo_bloco(n):
     text = _arquivo(*([TABELA] * n))
     f = C._chk19_tabela_unica(_ctx(text))[0]
-    assert f.line_no == L.work_tables(text)[1]["line_no"]
+    assert f.line_no == L.table_blocks(text)[1]["start"]
 
 
 # --------------------------------- CHK-20 ----------------------------------
@@ -330,26 +376,28 @@ def _legado(*blocos_antes_da_inbox):
 def test_plan_marca_ambiguidade_com_duas_tabelas_de_trabalho():
     info = M.plan(_legado(TABELA, TABELA))
     assert info["ambiguous"] is True
-    assert info["work_tables"] == 2
+    assert info["table_blocks"] == 2 and info["work_tables"] == 2
     assert info["needs_migration"] is False
-    assert "2 tabelas" in info["reason"]
+    assert "2 blocos de tabela" in info["reason"]
 
 
 def test_plan_nao_marca_ambiguidade_com_uma_tabela():
     info = M.plan(_legado(TABELA))
-    assert info["ambiguous"] is False and info["work_tables"] == 1
+    assert info["ambiguous"] is False and info["table_blocks"] == 1
     assert info["needs_migration"] is True
 
 
-def test_plan_nao_marca_ambiguidade_com_tabela_de_referencia():
+def test_plan_marca_ambiguidade_TAMBEM_com_tabela_de_referencia():
+    """Criterio literal: 2 blocos = recusa, mesmo o 2o nao tendo Status."""
     info = M.plan(_legado(REFERENCIA, TABELA))
-    assert info["ambiguous"] is False and info["work_tables"] == 1
+    assert info["ambiguous"] is True and info["table_blocks"] == 2
+    assert info["work_tables"] == 1
 
 
 def test_migrate_text_recusa_com_duas_tabelas_de_trabalho():
     with pytest.raises(M.MigrationError) as exc:
         M.migrate_text(_legado(TABELA, TABELA))
-    assert "tabelas DE TRABALHO" in str(exc.value)
+    assert "blocos de tabela" in str(exc.value)
 
 
 def test_migrate_text_ainda_migra_com_uma_so():
@@ -360,9 +408,11 @@ def test_migrate_text_ainda_migra_com_uma_so():
     assert [it["id"] for it in L.parse_table(novo)["items"]] == ["A-1", "A-2"]
 
 
-def test_migrate_text_migra_com_referencia_junto():
-    novo, mudou = M.migrate_text(_legado(REFERENCIA, TABELA))
-    assert mudou is True and L.layout(novo)["canonical"] is True
+def test_migrate_text_recusa_com_referencia_junto():
+    """Antes migrava (a referencia nao "contava"); com o criterio literal, a
+    presenca de qualquer 2a tabela ja e ambiguidade."""
+    with pytest.raises(M.MigrationError):
+        M.migrate_text(_legado(REFERENCIA, TABELA))
 
 
 def test_recusa_nao_toca_o_arquivo(tmp_path):
@@ -395,10 +445,10 @@ def test_com_uma_tabela_o_apply_continua_funcionando(tmp_path):
 
 
 def test_a_recusa_diz_quantas_e_onde():
-    info = M.plan(_legado(TABELA, TABELA))
-    linhas = [w["line_no"] + 1 for w in L.work_tables(_legado(TABELA, TABELA))]
-    for n in linhas:
-        assert f"linha {n} " in info["reason"]
+    texto = _legado(TABELA, TABELA)
+    info = M.plan(texto)
+    for b in L.table_blocks(texto):
+        assert f"linha {b['start'] + 1}" in info["reason"]
 
 
 def test_recusa_mesmo_quando_o_nucleo_nao_elege_nenhuma():
@@ -409,7 +459,8 @@ def test_recusa_mesmo_quando_o_nucleo_nao_elege_nenhuma():
              "| :--- | :--- | :--- | :--- |",
              "| 1 | AUD-01 | Alta | ⏳ Pendente |"]
     info = M.plan(_legado(outra, outra))
-    assert info["ambiguous"] is True and "2 tabelas" in info["reason"]
+    assert info["ambiguous"] is True and "2 blocos de tabela" in info["reason"]
+    assert L.parse_table(_legado(outra, outra)) is None
 
 
 # ------------------- contrato escrito (defeitos 1 e 5) ---------------------
@@ -426,8 +477,9 @@ def _doc(caminho):
 
 
 @pytest.mark.parametrize("trecho", [
-    "Uma tabela de trabalho, e só uma",
-    "coluna **`Status`**",
+    "UMA tabela no arquivo, e só uma",
+    "qualquer segundo bloco `|...|` é violação",
+    "vão em **bullets ou lista**",
     "linha em branco DENTRO da tabela",
     "para no\nprimeiro cabeçalho repetido",
 ])
@@ -480,7 +532,10 @@ def test_coluna_com_id_no_MEIO_da_palavra_nao_e_coluna_de_identificador():
     legenda = ["| Status | Validade |", "| :--- | :--- |",
                "| ⏳ Pendente | permanente |"]
     assert L.work_tables(_arquivo(legenda)) == []
-    assert C._chk19_tabela_unica(_ctx(_arquivo(legenda, TABELA))) == []
+    # a tabela a mais e acusada (contrato), mas como IMPORTANTE: se "Validade"
+    # contasse como coluna de ID, seriam 2 tabelas de trabalho -> CRITICO.
+    f = C._chk19_tabela_unica(_ctx(_arquivo(legenda, TABELA)))
+    assert len(f) == 1 and f[0].severity == "IMPORTANTE"
 
 
 def test_coluna_que_apenas_COMECA_com_id_nao_e_coluna_de_identificador():
@@ -491,7 +546,8 @@ def test_coluna_que_apenas_COMECA_com_id_nao_e_coluna_de_identificador():
     aging = ["| Status | Idade |", "| :--- | :--- |",
              "| ⏳ Pendente | 3 dias |"]
     assert L.work_tables(_arquivo(aging)) == []
-    assert C._chk19_tabela_unica(_ctx(_arquivo(aging, TABELA))) == []
+    f = C._chk19_tabela_unica(_ctx(_arquivo(aging, TABELA)))
+    assert len(f) == 1 and f[0].severity == "IMPORTANTE"
 
 
 def test_line_no_do_buraco_e_sempre_uma_linha_EM_BRANCO():
