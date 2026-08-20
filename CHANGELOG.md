@@ -63,6 +63,23 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **`CHK-19` -- mais de uma tabela de trabalho no arquivo (`TAB-UNIQ-002`,
+  CRÍTICO, perfil `core`).** Conta **blocos** markdown cujo cabeçalho tem
+  coluna `Status` **e** coluna de identificador (`work_tables`/`table_blocks`,
+  novos em `todo_lib`), e acusa quando há 2+. Tabela de **referência** sem
+  `Status` e **legenda** de vocabulário (`| Status | Significado |`, sem coluna
+  de ID) **não** são achado.
+
+  **Por que não bastava o `CHK-03`:** ele conta *cabeçalhos* `ID`+`Status` com
+  a célula exata `"id"`; uma segunda tabela de trabalho cuja coluna se chama
+  `ID (AUD-*)` passava inteira despercebida, e o defeito é de **bloco** (o que
+  o Markdown renderiza como tabela), não de linha de cabeçalho solta. Severidade
+  CRÍTICO porque é perda de visibilidade de dado sem erro na tela: medido em
+  arquivos reais, um backlog de 491 itens sendo lido como 1.
+
+  Numeração: `CHK-15..18` seguem **reservados** ao módulo `--audit=repo` (v1.1,
+  D-5), por isso o próximo número usado é o 19.
+
 - **`tools/todo_migrate_inbox.py` -- conversão do layout legado.** Reordena os
   blocos de um `TODO.md` legado para a ordem canônica, **preservando byte a
   byte** o conteúdo da tabela e o da INBOX (só a ordem dos blocos muda; as

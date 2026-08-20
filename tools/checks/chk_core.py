@@ -17,7 +17,7 @@
 tools/checks/chk_core.py
 
 CHK-CORE (TODO.md, item W7): integridade estrutural da tabela canonica e do
-vocabulario de status. Seis checks, todos `profile == "core"`:
+vocabulario de status. Todos com `profile == "core"`:
 
   CHK-01 -- ID duplicado (todas as ocorrencias, com diff resumido).
   CHK-02 -- nº de celulas != cabecalho, com DIAGNOSTICO heuristico da causa.
@@ -25,6 +25,7 @@ vocabulario de status. Seis checks, todos `profile == "core"`:
   CHK-04 -- ncols divergente entre tabelas ID+Status (pre-condicao FIX-ENG).
   CHK-08 -- status fora do vocabulario canonico (D-1).
   CHK-11 -- reconciliacao do total do todo_health com contagem independente.
+  CHK-19 -- mais de uma tabela DE TRABALHO no arquivo (UNIQ-1).
 
 Nenhum check aqui reimplementa parsing: consome as chaves ADITIVAS que
 `todo_lib.parse_table` ja expoe (`malformed`, `duplicate_ids`,
@@ -322,6 +323,46 @@ def _chk04_ncols_divergente_entre_tabelas(ctx):
                     "coluna (pre-condicao de FIX-ENG, nunca pular)."),
                 line_no=h["line_no"], fixable=False))
     return out
+
+
+# ------------------------------- CHK-19 ------------------------------------
+# Numeracao: CHK-15..18 estao RESERVADOS ao modulo `--audit=repo` (v1.1, D-5,
+# citados em docs/adr/0001-*.md); o proximo numero realmente livre e 19.
+
+def _chk19_tabela_unica(ctx):
+    """UNIQ-1: mais de UMA tabela de trabalho no arquivo.
+
+    Diferente de CHK-03, que conta CABECALHOS `ID`+`Status` (celula exata
+    "id") ao longo do arquivo inteiro: este conta BLOCOS markdown cujo
+    cabecalho tem coluna Status e coluna de identificador. Isso pega dois
+    casos que CHK-03 nao pega -- (a) uma 2a tabela de trabalho cuja coluna de
+    ID nao se chama exatamente "ID" (ex.: "ID (AUD-*)"), que o nucleo nem
+    consegue eleger e por isso passa despercebida, e (b) o fato de o defeito
+    ser de BLOCO (o que o Markdown renderiza como tabela), nao de linha de
+    cabecalho solta. Quando os dois disparam juntos, os dois estao certos e
+    dizem a mesma coisa por angulos diferentes -- redundancia deliberada num
+    defeito que ja custou um backlog de 491 itens lido como 1 item."""
+    from todo_audit import Finding
+    if ctx.text is None:
+        return []
+    tabelas = L.work_tables(ctx.text)
+    if len(tabelas) < 2:
+        return []
+    onde = "; ".join(
+        f"linha {w['line_no'] + 1} ({w['n_rows']} linha(s) de dado)"
+        for w in tabelas)
+    return [Finding(
+        check_id="CHK-19", severity="CRÍTICO",
+        message=(
+            f"{len(tabelas)} tabelas DE TRABALHO (com coluna Status) no "
+            f"arquivo -- {onde}. O contrato exige exatamente UMA "
+            "(references/frescor-da-tabela.md SS5): a leitura para no 1o "
+            "cabecalho repetido, entao os itens das tabelas seguintes NAO "
+            "entram em 'items' nem em contagem nenhuma -- ficam invisiveis "
+            "sem erro na tela. Consolide numa tabela so; se alguma for "
+            "tabela de REFERENCIA (legenda, matriz, scoring), tire dela a "
+            "coluna Status, que e o que a marca como de trabalho."),
+        line_no=tabelas[1]["line_no"], fixable=False)]
 
 
 # ------------------------------- CHK-08 ------------------------------------

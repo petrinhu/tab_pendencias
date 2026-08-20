@@ -20,7 +20,7 @@ tools/todo_audit.py
 Motor do `--audit` (AUDIT-ENG, ADR-0001): registro de checks, ativacao de
 perfil core/casa, execucao, relatorio e CLI. NAO contem os checks
 concretos do catalogo -- esses sao de outras fatias (`checks/chk_core.py`
-= CHK-01/02/03/04/08/11; `checks/chk_graph.py` = CHK-05/06/07;
+= CHK-01/02/03/04/08/11/19; `checks/chk_graph.py` = CHK-05/06/07;
 `checks/chk_frescor.py` = CHK-09/10; `casa/chk_casa.py` = CHK-12/13/14,
 profile="casa"). Todos os 14 ja registrados em `CHECKS` abaixo.
 
@@ -178,7 +178,7 @@ import checks.chk_graph as _chk_graph  # noqa: E402 -- import tardio de
 import checks.chk_frescor as _chk_frescor  # noqa: E402 -- mesmo padrao de
 # import tardio acima (CHK-09/CHK-10, `checks/chk_frescor.py`).
 import checks.chk_core as _chk_core  # noqa: E402 -- mesmo padrao (CHK-CORE:
-# CHK-01/02/03/04/08/11, `checks/chk_core.py`).
+# CHK-01/02/03/04/08/11/19, `checks/chk_core.py`).
 import casa.chk_casa as _chk_casa  # noqa: E402 -- mesmo padrao de import
 # tardio, agora para o perfil "casa" (CHK-12/13/14, `tools/casa/chk_casa.py`,
 # ADR-0001 secao a). E o UNICO ponto do nucleo que sabe da existencia deste
@@ -219,6 +219,9 @@ CHECKS: list[Check] = [
     Check(id="CHK-11", title="Reconciliação de contagem (todo_health)",
           profile="core", severity_default="CRÍTICO",
           run=_chk_core._chk11_reconciliacao_contagem),
+    Check(id="CHK-19", title="Mais de uma tabela de trabalho no arquivo",
+          profile="core", severity_default="CRÍTICO",
+          run=_chk_core._chk19_tabela_unica),
     Check(id="CHK-12", title="TST-*/AUD-* agendado antes do que cobre "
           "(convenção da casa)",
           profile="casa", severity_default="CRÍTICO", run=_chk_casa.chk12),

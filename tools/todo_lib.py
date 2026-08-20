@@ -580,6 +580,148 @@ def table_span(table):
     return (start, end)
 
 
+# --------------------------------------------------------------------------
+# UNIQ-1 -- tabela unica DE TRABALHO (contrato, references/frescor-da-tabela.md
+# SS5). O parser (`parse_table`) sempre leu SO a 1a tabela e sempre parou no 2o
+# cabecalho repetido; o que faltava era um jeito de PERGUNTAR quantas tabelas de
+# trabalho o arquivo tem, para o --audit acusar e o migrador recusar em vez de
+# adivinhar qual e a canonica.
+# --------------------------------------------------------------------------
+
+# Coluna de identificador: celula que COMECA com "id" em fronteira de palavra
+# ("ID", "ID (AUD-*)", "id do item"), nunca "identificador" (sem fronteira
+# depois do "id") nem "id" no meio de outra palavra. Deliberadamente mais larga
+# que `_is_header` (que exige a celula EXATA "id", porque ali a decisao e sobre
+# QUAL tabela o nucleo vai ler/escrever): aqui a pergunta e outra -- "um humano
+# leria isto como tabela de trabalho?" --, e uma tabela com "ID (AUD-*)" +
+# Status e material de trabalho mesmo que o nucleo nao consiga eleger.
+_ID_COLUMN = re.compile(r"^id\b")
+
+
+def _is_work_header(cells):
+    """Cabecalho de tabela DE TRABALHO: tem coluna Status E coluna de
+    identificador.
+
+    "De trabalho" = tem coluna `Status` (o que se marca; o que a ferramenta le
+    e escreve) -- e o criterio do contrato. A exigencia ADICIONAL de uma coluna
+    de identificador nao esta no contrato por preciosismo: sem ela, a LEGENDA
+    de status (`| Status | Significado |`, padrao comum no cabecalho de um
+    TODO.md real) seria contada como 2a tabela de trabalho e viraria um achado
+    CRITICO falso. Uma legenda nao tem como ser eleita pelo nucleo (`_is_header`
+    exige uma celula ID), entao nao e ela que causa o incidente que a regra
+    combate. Tabela de referencia SEM `Status` nunca conta, com ou sem ID."""
+    if not cells:
+        return False
+    low = [c.lower() for c in cells]
+    return (any(_STATUS_WORD.search(c) for c in low)
+            and any(_ID_COLUMN.match(c) for c in low))
+
+
+def table_blocks(text):
+    """Blocos CONTIGUOS de linhas de tabela markdown, na ordem do arquivo:
+    [{'start','end','rows':[line_no,...]}] (0-based, `end` INCLUSIVO).
+
+    Um bloco e uma sequencia de linhas que comecam com "|" sem NENHUMA linha de
+    outro tipo no meio -- e exatamente o que o Markdown renderiza como UMA
+    tabela: linha em branco, heading ou prosa encerram o bloco ali. E por isso
+    que este helper enxerga o que `parse_table` (que atravessa linha em branco
+    e heading, por D-12) nao enxerga."""
+    lines = text.split("\n")
+    blocos = []
+    cur = None
+    for n, line in enumerate(lines):
+        s = line.lstrip(BOM).strip()
+        if s.startswith("|"):
+            if cur is None:
+                cur = {"start": n, "end": n, "rows": [n]}
+            else:
+                cur["end"] = n
+                cur["rows"].append(n)
+        elif cur is not None:
+            blocos.append(cur)
+            cur = None
+    if cur is not None:
+        blocos.append(cur)
+    return blocos
+
+
+def work_tables(text):
+    """Tabelas DE TRABALHO do arquivo (o contrato exige exatamente UMA):
+    [{'line_no','start','end','ncols','cells','n_rows'}], na ordem do arquivo.
+
+    Uma tabela de trabalho e um BLOCO (`table_blocks`) cuja PRIMEIRA linha e um
+    cabecalho de trabalho (`_is_work_header`). Blocos que comecam por linha de
+    DADO nao contam: e o caso da metade de baixo de uma tabela partida por
+    linha em branco (ainda e a MESMA tabela, um so cabecalho -- quem acusa isso
+    e o check de linha em branco) e o das secoes de organizacao visual sob
+    subtitulo (D-12), que nunca repetem o cabecalho.
+
+    Lista vazia = nenhuma tabela de trabalho (arquivo so de prosa/referencia).
+    Nunca levanta excecao."""
+    lines = text.split("\n")
+    out = []
+    for b in table_blocks(text):
+        cells = _cells(lines[b["start"]].lstrip(BOM).strip())
+        if not _is_work_header(cells):
+            continue
+        n_rows = sum(
+            1 for n in b["rows"][1:]
+            if not _is_separator(_cells(lines[n].lstrip(BOM).strip())))
+        out.append({"line_no": b["start"], "start": b["start"],
+                    "end": b["end"], "ncols": len(cells), "cells": cells,
+                    "n_rows": n_rows})
+    return out
+
+
+def blank_gaps_in_table(text, table=None):
+    """Interrupcoes POR LINHA EM BRANCO dentro do span da tabela canonica:
+    [{'line_no','start','end','blanks','prose'}] (0-based; `line_no` = 1a linha
+    em branco do buraco; `end` INCLUSIVO).
+
+    Em Markdown a linha em branco ENCERRA a tabela: a metade de baixo vira uma
+    segunda tabela (se algum cabecalho for repetido ali depois) ou prosa solta.
+    O parser deste toolkit atravessa a linha em branco -- por isso o defeito e
+    SILENCIOSO: os itens continuam sendo lidos aqui enquanto a renderizacao (e
+    o proximo editor) ja veem duas tabelas.
+
+    Buraco que contem um HEADING nao entra: e o padrao de organizacao visual em
+    subtitulos, explicitamente legitimo por D-12 e ja relatado por CHK-03 como
+    informativo. Buraco so com prosa (sem nenhuma linha em branco) tambem nao
+    entra -- nao existe: prosa dentro do span vem sempre cercada de linha em
+    branco, e e essa linha que quebra a tabela."""
+    if table is None:
+        table = parse_table(text)
+    span = table_span(table)
+    if span is None:
+        return []
+    lines = text.split("\n")
+    start, end = span
+    buracos = []
+    cur = None
+    for n in range(start, min(end, len(lines) - 1) + 1):
+        s = lines[n].lstrip(BOM).strip()
+        if s.startswith("|"):
+            if cur is not None:
+                buracos.append(cur)
+                cur = None
+            continue
+        if cur is None:
+            cur = {"start": n, "end": n, "blanks": [], "headings": [],
+                   "prose": []}
+        cur["end"] = n
+        if not s:
+            cur["blanks"].append(n)
+        elif s.startswith("#"):
+            cur["headings"].append(n)
+        else:
+            cur["prose"].append(n)
+    if cur is not None:
+        buracos.append(cur)
+    return [{"line_no": g["blanks"][0], "start": g["start"], "end": g["end"],
+             "blanks": g["blanks"], "prose": g["prose"]}
+            for g in buracos if g["blanks"] and not g["headings"]]
+
+
 def inbox_region(text):
     """(heading, end) 0-based da secao INBOX: `heading` e a linha do
     heading; `end` e EXCLUSIVO (1a linha que ja nao pertence a secao).
