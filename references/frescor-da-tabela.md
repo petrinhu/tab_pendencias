@@ -167,6 +167,82 @@ por default. O caminho normal e o **pipeline de intake** (descoberta -> main ->
   `TAB_TRIAGE_REQUIRED` -- **acao da thread principal**, nao lembrete passivo.
 - **Hub agregador:** nao usa INBOX; ver `references/hub-agregador.md`.
 
+## 5.2. Forma do arquivo (o modelo que a casa escreve)
+
+§5 é o contrato (que blocos, em que ordem). Esta seção é a **forma** que o
+arquivo-modelo da casa dá a esse contrato -- é ela que se copia ao criar um
+`TODO.md` novo. Nada aqui muda a leitura: um arquivo sem estes elementos
+continua válido; o que eles fazem é deixar a regra **visível dentro do próprio
+arquivo**, para quem editar não quebrar a tabela sem saber que existe regra.
+
+**1. Linha 1 declara a estrutura** (uma linha, blockquote, antes do título):
+
+```markdown
+> **ESTRUTURA CANÔNICA DO ARQUIVO — NÃO QUEBRAR A TABELA:** (1) **Comentários e instruções** (só no cabeçalho, acima da tabela) · (2) **TABELA UNIFICADA** (exatamente uma tabela markdown de trabalho: `| ID | Onda | … | Status |`) · **EOF** imediatamente após a última linha da tabela. **Proibido:** segunda tabela; linha em branco **dentro** da tabela (o Markdown parte o arquivo em várias tabelas); qualquer seção de checklist/INBOX/WSJF **depois** da tabela (isso vai no cabeçalho).
+```
+
+Fica na **linha 1**, não no meio do arquivo: é a primeira coisa que qualquer
+leitor (humano ou agente) lê antes de editar. O título `#` do arquivo vem logo
+em seguida.
+
+**2. A tabela tem um heading próprio, `## TABELA UNIFICADA`**, imediatamente
+antes dela. O nome carrega a regra: *unificada* = uma só. É também o marcador
+que separa, a olho nu, o cabeçalho (tudo que é comentário/instrução) do único
+bloco de trabalho.
+
+**3. Scoring WSJF, checklists e material de referência vão em BULLETS, no
+cabeçalho** -- nunca em tabela com coluna `Status`, e nunca depois da tabela.
+O modelo usa este título e esta linha de escopo, literalmente:
+
+```markdown
+### Scoring WSJF (referência — **não** é tabela de trabalho)
+
+Escala 1-10 · CoD = Valor + Criticidade + Redução de Risco/OE · WSJF = CoD ÷ Job Size.
+Itens abaixo são **registro histórico de score**; o status de trabalho vive **só** na tabela única.
+
+- **ID-DO-ITEM** · onda P1 · valor=6 crit=4 red=3 CoD=13 job=2 WSJF=6.5 rank=1
+```
+
+Os dois pedaços são intencionais: o **título** diz o que a seção não é
+("**não** é tabela de trabalho"), e a **linha de escopo** diz onde o status
+mora ("o status de trabalho vive **só** na tabela única"). Sem eles, a próxima
+pessoa que precisar marcar progresso de um score acrescenta uma coluna
+`Status` ali e o arquivo passa a ter duas tabelas de trabalho -- exatamente o
+defeito que §5 proíbe.
+
+**Esqueleto completo:**
+
+```markdown
+> **ESTRUTURA CANÔNICA DO ARQUIVO — NÃO QUEBRAR A TABELA:** (1) ... (2) ... EOF ...
+
+# TODO — <projeto>
+
+<prosa de cabeçalho: convenção de frescor, porte, legenda>
+
+## INBOX (descobertas não priorizadas)
+
+- —: [triage since=AAAA-MM-DD reason=missing-info] descoberta ainda não triada
+
+## Material movido do rodapé (só no cabeçalho)
+
+### Scoring WSJF (referência — **não** é tabela de trabalho)
+
+- **ID-DO-ITEM** · onda P1 · ... WSJF=6.5 rank=1
+
+## TABELA UNIFICADA
+
+| ID | Onda | Grupo | Descrição Técnica | Prioridade | Pré-requisito | Dificuldade | Status | Estado Auditado |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| EX-1 | W1 | Base | ... | Alta | — | Baixa | ⏳ Pendente | — |
+```
+
+**Referência:** esta forma foi extraída do `TODO.md` que serve de **modelo da
+casa** (um backlog real de centenas de itens, mantido pelo líder). O modelo é
+citado aqui como exemplo de documentação; **nenhum nome de projeto, caminho ou
+convenção de projeto específico entra no código deste produto** -- os checks
+verificam a REGRA (uma tabela de trabalho, sem linha em branco no meio), nunca
+a presença destes títulos.
+
 ## 6. Automação mecânica (opcional)
 
 A parte mecânica das seções 2-5 pode ser acelerada por scripts complementares,

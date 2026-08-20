@@ -114,6 +114,17 @@ Markdown ela encerra a tabela ali). Motivo mecânico, não estético: a leitura
 de trabalho fica **invisível** para qualquer ferramenta e para qualquer contagem,
 sem erro nenhum na tela.
 
+**Forma do arquivo (o modelo da casa)** -- detalhe em
+[`references/frescor-da-tabela.md`](references/frescor-da-tabela.md) §5.2: a **linha
+1** declara a estrutura em uma linha (blockquote `> **ESTRUTURA CANÔNICA DO ARQUIVO
+— NÃO QUEBRAR A TABELA:** ...`), antes do título `#`; a tabela ganha o heading
+próprio **`## TABELA UNIFICADA`** logo acima dela; e **scoring WSJF, checklists e
+material de referência vão em bullets no cabeçalho**, sob
+`### Scoring WSJF (referência — **não** é tabela de trabalho)` com a linha de escopo
+*"Itens abaixo são registro histórico de score; o status de trabalho vive só na
+tabela única."*. É **forma**, não leitura: arquivo sem esses elementos continua
+válido; eles existem para a regra ficar visível dentro do próprio arquivo.
+
 **Mudou em 2026-08-19** (antes a INBOX ficava depois da tabela). Motivo: "fim da
 tabela = fim do arquivo" é a invariante que ferramentas e guards de consumidor
 usam para acrescentar linha sem procurar onde a tabela acaba; uma seção depois da
@@ -543,6 +554,17 @@ header (legend, matrix, comparison, scoring) is legitimate **as long as it has n
 it ends the table right there). Mechanical reason, not cosmetic: reading **stops
 at the first repeated header**, so whatever sits in a second work table becomes
 **invisible** to every tool and every count, with no error on screen.
+
+**File shape (the house model)** -- detail in
+[`references/frescor-da-tabela.md`](references/frescor-da-tabela.md) §5.2 (pt-br):
+**line 1** states the structure in a single blockquote line, before the `#` title;
+the table gets its own heading (**"unified table"**) right above it; and WSJF
+scoring, checklists and reference material go in **bullets in the header**, under a
+title that says what the section is *not* ("reference -- **not** a work table") plus
+a scope line ("the work status lives **only** in the single table"). This is
+**shape**, not reading: a file without those elements is still valid; they exist so
+the rule stays visible inside the file itself, and so nobody adds a `Status` column
+to a reference block.
 
 **Legacy compatibility:** a file in the legacy layout (INBOX after the table, or
 any text after it) is still **valid for READING** -- same items, same entries --,

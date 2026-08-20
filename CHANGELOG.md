@@ -15,6 +15,17 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Alterado
 
+- **A forma do arquivo-modelo virou parte do contrato (`TAB-UNIQ-005`).**
+  Nova §5.2 em `references/frescor-da-tabela.md` (resumida em `SKILL.md` e
+  `README.md` pt+en): a **linha 1** declara a estrutura em uma linha, antes do
+  título `#`; a tabela tem o heading próprio **`## TABELA UNIFICADA`** logo
+  acima dela; e **scoring WSJF, checklists e material de referência vão em
+  bullets no cabeçalho**, sob `### Scoring WSJF (referência — **não** é tabela
+  de trabalho)` com a linha de escopo *"Itens abaixo são registro histórico de
+  score; o status de trabalho vive só na tabela única."*. É **forma**, não
+  leitura: arquivo sem esses elementos continua válido, e **nenhum check exige
+  esses títulos** -- o código verifica a regra, nunca a convenção de um projeto.
+
 - **O contrato passa a declarar TABELA ÚNICA (`TAB-UNIQ-001`).** Um `TODO.md`
   tem **exatamente uma tabela markdown de trabalho** -- "de trabalho" = tabela
   com coluna `Status` (o que se marca; o que a ferramenta lê e escreve). Tabela

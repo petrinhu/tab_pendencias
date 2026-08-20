@@ -410,3 +410,60 @@ def test_recusa_mesmo_quando_o_nucleo_nao_elege_nenhuma():
              "| 1 | AUD-01 | Alta | ⏳ Pendente |"]
     info = M.plan(_legado(outra, outra))
     assert info["ambiguous"] is True and "2 tabelas" in info["reason"]
+
+
+# ------------------- contrato escrito (defeitos 1 e 5) ---------------------
+# O contrato e um ENTREGAVEL do produto: se a regra sumir do texto, o resto
+# vira convencao oral de novo. Estes testes so provam que a regra e a forma
+# estao DECLARADAS -- nenhum check de codigo exige os titulos do modelo.
+
+DOC_CONTRATO = os.path.join(REPO_ROOT, "references", "frescor-da-tabela.md")
+
+
+def _doc(caminho):
+    with open(caminho, encoding="utf-8", newline="") as fh:
+        return fh.read()
+
+
+@pytest.mark.parametrize("trecho", [
+    "Uma tabela de trabalho, e só uma",
+    "coluna **`Status`**",
+    "linha em branco DENTRO da tabela",
+    "para no\nprimeiro cabeçalho repetido",
+])
+def test_contrato_declara_a_regra_de_tabela_unica(trecho):
+    assert trecho in _doc(DOC_CONTRATO)
+
+
+@pytest.mark.parametrize("trecho", [
+    "ESTRUTURA CANÔNICA DO ARQUIVO",       # a linha 1 do modelo
+    "## TABELA UNIFICADA",                  # o heading da tabela
+    "### Scoring WSJF (referência — **não** é tabela de trabalho)",
+    "o status de trabalho vive **só** na tabela única",
+])
+def test_contrato_documenta_a_forma_do_modelo(trecho):
+    assert trecho in _doc(DOC_CONTRATO)
+
+
+@pytest.mark.parametrize("arquivo", ["SKILL.md", "README.md"])
+def test_skill_e_readme_declaram_a_tabela_unica(arquivo):
+    texto = _doc(os.path.join(REPO_ROOT, arquivo))
+    assert "tabela de trabalho" in texto
+    assert "TABELA UNIFICADA" in texto
+
+
+def test_nenhum_nome_de_projeto_do_modelo_vaza_para_o_codigo():
+    """Agnostico a projeto: a forma do modelo e citada em DOC; o codigo so
+    verifica a REGRA. Nada em tools/ pode citar titulo do modelo."""
+    tools = os.path.join(REPO_ROOT, "tools")
+    for base, _dirs, arquivos in os.walk(tools):
+        if "__pycache__" in base:
+            continue
+        for nome in arquivos:
+            if not nome.endswith(".py"):
+                continue
+            with open(os.path.join(base, nome), encoding="utf-8",
+                      newline="") as fh:
+                conteudo = fh.read()
+            assert "TABELA UNIFICADA" not in conteudo, nome
+            assert "Scoring WSJF" not in conteudo, nome
