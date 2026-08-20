@@ -467,3 +467,42 @@ def test_nenhum_nome_de_projeto_do_modelo_vaza_para_o_codigo():
                 conteudo = fh.read()
             assert "TABELA UNIFICADA" not in conteudo, nome
             assert "Scoring WSJF" not in conteudo, nome
+
+
+# ------------------- lacunas reveladas por mutantes sobreviventes ----------
+# Mutation testing sobre o blob commitado: 3 mutantes sobreviveram a 1a
+# rodada, cada um apontando um caso de fronteira que faltava.
+
+def test_coluna_com_id_no_MEIO_da_palavra_nao_e_coluna_de_identificador():
+    """Mutante M14 (`^id\\b` -> `id` como substring): "Validade", "Prioridade"
+    e "Liquidez" contem "id" no meio. Uma legenda `| Status | Validade |`
+    passaria a ser contada como 2a tabela de trabalho -- CRITICO falso."""
+    legenda = ["| Status | Validade |", "| :--- | :--- |",
+               "| ⏳ Pendente | permanente |"]
+    assert L.work_tables(_arquivo(legenda)) == []
+    assert C._chk19_tabela_unica(_ctx(_arquivo(legenda, TABELA))) == []
+
+
+def test_line_no_do_buraco_e_sempre_uma_linha_EM_BRANCO():
+    """Mutante M17 (`line_no` = inicio do buraco em vez da 1a branca): num
+    buraco que comeca com PROSA, o achado apontaria para a prosa, e a
+    mensagem ("linha(s) em branco a partir da linha N") mentiria."""
+    text = _arquivo([CAB, SEP, LINHAS[0], "nota colada na tabela", "",
+                     LINHAS[1]])
+    gaps = L.blank_gaps_in_table(text)
+    assert len(gaps) == 1
+    linhas = text.split("\n")
+    assert linhas[gaps[0]["line_no"]].strip() == ""
+    assert gaps[0]["start"] < gaps[0]["line_no"]   # o buraco comecou na prosa
+    f = C._chk20_linha_em_branco_na_tabela(_ctx(text))[0]
+    assert linhas[f.line_no].strip() == ""
+
+
+def test_duas_tabelas_separadas_so_por_heading_ainda_sao_duas():
+    """Mutante M20 (heading deixa de encerrar o bloco): sem linha em branco
+    entre elas, duas tabelas coladas por um heading seriam contadas como
+    UMA -- e o Markdown encerra a tabela no heading, entao seriam duas na
+    tela e uma na contagem."""
+    text = "\n".join(PREAMBULO + TABELA + ["## Outra frente"] + TABELA) + "\n"
+    assert len(L.work_tables(text)) == 2
+    assert len(C._chk19_tabela_unica(_ctx(text))) == 1
