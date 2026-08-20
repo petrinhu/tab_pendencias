@@ -183,3 +183,118 @@ def test_chk19_line_no_e_sempre_da_segunda(n):
     text = _arquivo(*([TABELA] * n))
     f = C._chk19_tabela_unica(_ctx(text))[0]
     assert f.line_no == L.work_tables(text)[1]["line_no"]
+
+
+# --------------------------------- CHK-20 ----------------------------------
+# Linha em branco DENTRO da tabela: o mecanismo silencioso pelo qual uma
+# tabela vira duas (o parser atravessa, o Markdown nao).
+
+def _partida(n_brancas=1):
+    """Tabela canonica com `n_brancas` linha(s) em branco no meio."""
+    return _arquivo([CAB, SEP, LINHAS[0]] + [""] * n_brancas + [LINHAS[1]])
+
+
+def test_blank_gaps_calado_em_tabela_contigua():
+    assert L.blank_gaps_in_table(_arquivo(TABELA)) == []
+
+
+def test_blank_gaps_acha_a_linha_em_branco_do_meio():
+    text = _partida()
+    gaps = L.blank_gaps_in_table(text)
+    assert len(gaps) == 1
+    assert text.split("\n")[gaps[0]["line_no"]].strip() == ""
+
+
+def test_blank_gaps_ignora_buraco_com_heading():
+    """D-12: a mesma tabela sob subtitulos e legitima -- nao e achado aqui."""
+    text = "\n".join(PREAMBULO + [CAB, SEP, LINHAS[0], "", "### Onda 2", "",
+                                  LINHAS[1]]) + "\n"
+    assert L.blank_gaps_in_table(text) == []
+
+
+def test_blank_gaps_nao_acusa_o_fim_do_arquivo():
+    """Linha em branco DEPOIS da tabela nao esta dentro dela."""
+    assert L.blank_gaps_in_table(_arquivo(TABELA) + "\n\nprosa final\n") == []
+
+
+def test_blank_gaps_sem_tabela_devolve_vazio():
+    assert L.blank_gaps_in_table("# so prosa\n\nnada\n") == []
+
+
+def test_chk20_calado_na_tabela_limpa():
+    assert C._chk20_linha_em_branco_na_tabela(_ctx(_arquivo(TABELA))) == []
+
+
+def test_chk20_acusa_linha_em_branco_no_meio():
+    achados = C._chk20_linha_em_branco_na_tabela(_ctx(_partida()))
+    assert len(achados) == 1
+    f = achados[0]
+    assert f.check_id == "CHK-20" and f.severity == "IMPORTANTE"
+    assert f.fixable is False
+    assert "ENCERRA a tabela" in f.message
+
+
+def test_chk20_conta_as_brancas_do_buraco():
+    f = C._chk20_linha_em_branco_na_tabela(_ctx(_partida(3)))[0]
+    assert "3 linha(s) em branco" in f.message
+
+
+def test_chk20_um_achado_por_buraco():
+    text = _arquivo([CAB, SEP, LINHAS[0], "", LINHAS[1], "",
+                     "| A-3 | W2 | Base | ⏳ Pendente |"])
+    assert len(C._chk20_linha_em_branco_na_tabela(_ctx(text))) == 2
+
+
+def test_chk20_declara_prosa_encontrada_no_buraco():
+    text = _arquivo([CAB, SEP, LINHAS[0], "", "nota solta no meio", "",
+                     LINHAS[1]])
+    f = C._chk20_linha_em_branco_na_tabela(_ctx(text))[0]
+    assert "linha(s) de prosa" in f.message
+
+
+def test_chk20_calado_sob_subtitulo_d12():
+    text = "\n".join(PREAMBULO + [CAB, SEP, LINHAS[0], "", "### Onda 2", "",
+                                  LINHAS[1]]) + "\n"
+    assert C._chk20_linha_em_branco_na_tabela(_ctx(text)) == []
+
+
+def test_chk20_a_leitura_continua_completa_apesar_do_defeito():
+    """Prova de que o defeito e SILENCIOSO (e por isso IMPORTANTE, nao
+    CRITICO): com a linha em branco, os 2 itens continuam sendo lidos."""
+    tbl = L.parse_table(_partida())
+    assert [it["id"] for it in tbl["items"]] == ["A-1", "A-2"]
+
+
+def test_chk20_e_chk19_juntos_quando_a_metade_de_baixo_repete_o_cabecalho():
+    """Quebra consumada: dai o dado some de verdade e o CRITICO aparece."""
+    text = _arquivo([CAB, SEP, LINHAS[0]] + [""] + [CAB, SEP, LINHAS[1]])
+    assert len(C._chk19_tabela_unica(_ctx(text))) == 1
+    assert [it["id"] for it in L.parse_table(text)["items"]] == ["A-1"]
+
+
+def test_chk20_registrado_como_core_importante():
+    ids = {c.id: c for c in A.CHECKS}
+    assert "CHK-20" in ids and ids["CHK-20"].profile == "core"
+    assert ids["CHK-20"].severity_default == "IMPORTANTE"
+
+
+def test_chk20_aparece_no_relatorio_do_motor(tmp_path):
+    (tmp_path / "TODO.md").write_text(_partida(), encoding="utf-8",
+                                      newline="")
+    res = A.run_audit(str(tmp_path), checks=A.CHECKS, profile_override="core")
+    assert any(f.check_id == "CHK-20" for f in res.findings)
+    assert "CHK-20" in res.report_text
+
+
+def test_chk20_nao_dispara_no_todo_do_proprio_repo():
+    import os
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(raiz, "TODO.md"), encoding="utf-8",
+              newline="") as fh:
+        text = fh.read()
+    assert C._chk20_linha_em_branco_na_tabela(_ctx(text)) == []
+
+
+def test_chk20_tolera_crlf():
+    text = _partida().replace("\n", "\r\n")
+    assert len(C._chk20_linha_em_branco_na_tabela(_ctx(text))) == 1

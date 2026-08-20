@@ -63,6 +63,20 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **`CHK-20` -- linha em branco dentro da tabela (`TAB-UNIQ-003`, IMPORTANTE,
+  perfil `core`).** É o mecanismo **silencioso** pelo qual uma tabela vira
+  duas: em Markdown a linha em branco encerra a tabela ali, enquanto o parser
+  deste toolkit atravessa e continua lendo os itens -- ninguém vê nada errado
+  até a próxima edição repetir o cabeçalho na metade de baixo (aí o `CHK-19`
+  dispara CRÍTICO e os itens somem). Buraco que contém **heading** não é
+  achado: organizar a tabela em subtítulos continua legítimo (D-12).
+
+  **Severidade IMPORTANTE, não CRÍTICO, por medição do dano:** enquanto só há
+  a linha em branco, nenhum item deixa de ser lido ou contado por este toolkit
+  (há teste que prova isso); o que quebra é a renderização e qualquer
+  consumidor que respeite o Markdown. CRÍTICO fica para o estado em que o dado
+  já está invisível de fato.
+
 - **`CHK-19` -- mais de uma tabela de trabalho no arquivo (`TAB-UNIQ-002`,
   CRÍTICO, perfil `core`).** Conta **blocos** markdown cujo cabeçalho tem
   coluna `Status` **e** coluna de identificador (`work_tables`/`table_blocks`,

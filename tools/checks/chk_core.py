@@ -26,6 +26,7 @@ vocabulario de status. Todos com `profile == "core"`:
   CHK-08 -- status fora do vocabulario canonico (D-1).
   CHK-11 -- reconciliacao do total do todo_health com contagem independente.
   CHK-19 -- mais de uma tabela DE TRABALHO no arquivo (UNIQ-1).
+  CHK-20 -- linha em branco DENTRO da tabela canonica (UNIQ-1 b).
 
 Nenhum check aqui reimplementa parsing: consome as chaves ADITIVAS que
 `todo_lib.parse_table` ja expoe (`malformed`, `duplicate_ids`,
@@ -363,6 +364,50 @@ def _chk19_tabela_unica(ctx):
             "tabela de REFERENCIA (legenda, matriz, scoring), tire dela a "
             "coluna Status, que e o que a marca como de trabalho."),
         line_no=tabelas[1]["line_no"], fixable=False)]
+
+
+# ------------------------------- CHK-20 ------------------------------------
+
+def _chk20_linha_em_branco_na_tabela(ctx):
+    """UNIQ-1 (b): linha em branco DENTRO do span da tabela canonica.
+
+    E o mecanismo SILENCIOSO pelo qual uma tabela vira duas: em Markdown a
+    linha em branco encerra a tabela ali (a metade de baixo passa a renderizar
+    como outra tabela ou como prosa solta), enquanto o parser deste toolkit
+    atravessa e continua lendo os itens -- ninguem ve nada errado ate a
+    proxima edicao repetir o cabecalho na metade de baixo, e ai a leitura para
+    no cabecalho repetido e os itens de la somem (CHK-19/CHK-03).
+
+    Severidade IMPORTANTE, nao CRITICO, por medicao do dano: enquanto so ha a
+    linha em branco, NENHUM item deixa de ser lido nem contado por este
+    toolkit (`parse_table` atravessa) -- o que quebra e a renderizacao e a
+    leitura de qualquer consumidor que respeite o Markdown. O CRITICO fica
+    reservado ao estado em que dado ja esta invisivel de fato, que e o do
+    CHK-19. Buraco que contem HEADING nao entra (organizacao visual em
+    subtitulo e legitima por D-12, e CHK-03 ja a relata como informativa)."""
+    from todo_audit import Finding
+    if ctx.text is None or not ctx.table:
+        return []
+    out = []
+    for g in L.blank_gaps_in_table(ctx.text, table=ctx.table):
+        n_brancas = len(g["blanks"])
+        extra = (f" O buraco (linhas {g['start'] + 1}-{g['end'] + 1}) tem "
+                 f"{len(g['prose'])} linha(s) de prosa junto." if g["prose"]
+                 else "")
+        out.append(Finding(
+            check_id="CHK-20", severity="IMPORTANTE",
+            message=(
+                f"{n_brancas} linha(s) em branco DENTRO da tabela (a partir "
+                f"da linha {g['line_no'] + 1}).{extra} Em Markdown a linha em "
+                "branco ENCERRA a tabela: dali para baixo o arquivo ja "
+                "renderiza como uma segunda tabela (ou prosa solta), embora "
+                "este parser atravesse e continue lendo os itens -- e o "
+                "caminho silencioso para uma tabela virar duas, e ai a "
+                "leitura para no cabecalho repetido e itens somem sem erro na "
+                "tela. Remova a(s) linha(s) em branco; organizar a tabela em "
+                "subtitulos (com heading) continua legitimo (D-12)."),
+            line_no=g["line_no"], fixable=False))
+    return out
 
 
 # ------------------------------- CHK-08 ------------------------------------

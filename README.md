@@ -250,7 +250,7 @@ python3 tools/todo_audit.py [--profile core|casa] [--todo <caminho>] \
   auditado (seção `[profile]`, chave `name = casa`; formato INI lido com
   `configparser` da stdlib -- escolha histórica D-9; piso atual Python >= 3.11).
   O perfil `core` é o default. **A camada casa é aditiva, nunca substitutiva**:
-  sob `casa` rodam os 12 checks do núcleo **mais** os 3 da casa (15 no total);
+  sob `casa` rodam os 13 checks do núcleo **mais** os 3 da casa (16 no total);
   quem não ativa `casa` não perde nenhum check do núcleo, só não ganha os 3
   extras.
 - **`--max-per-check N`** (default 5; `N<=0` = sem limite): amostra no máximo N
@@ -263,7 +263,7 @@ python3 tools/todo_audit.py [--profile core|casa] [--todo <caminho>] \
   é repositório git quando exigido, `TODO.md` ilegível, flag inválida); `2` =
   execução ok e há 1+ achado, de qualquer severidade, inclusive só cosmético.
 
-Catálogo de checks (12 do núcleo + 3 da camada casa, opt-in):
+Catálogo de checks (13 do núcleo + 3 da camada casa, opt-in):
 
 | Check | Título | Severidade (default) | Perfil |
 |---|---|---|---|
@@ -279,6 +279,7 @@ Catálogo de checks (12 do núcleo + 3 da camada casa, opt-in):
 | `CHK-10` | Proposta do `todo_sync.py` (sem `--apply`) anexada | Cosmético | core |
 | `CHK-11` | Reconciliação de contagem (`todo_health`) | Crítico | core |
 | `CHK-19` | Mais de uma tabela de trabalho no arquivo | Crítico | core |
+| `CHK-20` | Linha em branco dentro da tabela | Importante | core |
 | `CHK-12` | TST-\*/AUD-\* agendado antes do que cobre | Crítico | **casa** |
 | `CHK-13` | INBOX: ID duplicado da tabela ou formato inválido | Importante | **casa** |
 | `CHK-14` | Item de Wiki + doc para iniciante ausente na última onda | Cosmético | **casa** |
@@ -662,8 +663,8 @@ python3 tools/todo_audit.py [--profile core|casa] [--todo <path>] \
   the audited repo (`[profile]` section, `name = casa` key; INI format read
   with the stdlib `configparser` -- historical D-9 choice; floor is now Python >= 3.11).
   `core` is the default profile. **The house layer is additive, never
-  substitutive**: under `casa`, the 12 core checks run **plus** the 3 house
-  checks (15 total); not enabling `casa` never removes a core check, it just
+  substitutive**: under `casa`, the 13 core checks run **plus** the 3 house
+  checks (16 total); not enabling `casa` never removes a core check, it just
   skips the 3 extras.
 - **`--max-per-check N`** (default 5; `N<=0` = no limit): samples at most N
   findings per check in the report. **CRITICAL findings are never
@@ -675,7 +676,7 @@ python3 tools/todo_audit.py [--profile core|casa] [--todo <path>] \
   git repository when required, unreadable `TODO.md`, invalid flag); `2` =
   ran ok, 1+ finding of any severity, including cosmetic-only.
 
-Check catalog (12 core + 3 opt-in house-layer checks):
+Check catalog (13 core + 3 opt-in house-layer checks):
 
 | Check | Title | Severity (default) | Profile |
 |---|---|---|---|
@@ -691,6 +692,7 @@ Check catalog (12 core + 3 opt-in house-layer checks):
 | `CHK-10` | `todo_sync.py` proposal (without `--apply`) attached | Cosmetic | core |
 | `CHK-11` | Count reconciliation (`todo_health`) | Critical | core |
 | `CHK-19` | More than one work table in the file | Critical | core |
+| `CHK-20` | Blank line inside the table | Important | core |
 | `CHK-12` | TST-\*/AUD-\* scheduled before what it covers | Critical | **house** |
 | `CHK-13` | INBOX: duplicate table ID or invalid format | Important | **house** |
 | `CHK-14` | Missing Wiki + beginner-doc item in the last wave | Cosmetic | **house** |
