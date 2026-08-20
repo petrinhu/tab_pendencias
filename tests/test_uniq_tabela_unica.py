@@ -483,6 +483,17 @@ def test_coluna_com_id_no_MEIO_da_palavra_nao_e_coluna_de_identificador():
     assert C._chk19_tabela_unica(_ctx(_arquivo(legenda, TABELA))) == []
 
 
+def test_coluna_que_apenas_COMECA_com_id_nao_e_coluna_de_identificador():
+    """Mutante M14, 2a rodada: `^id\b` sem a fronteira de palavra (`^id`)
+    casaria "Idade" -- uma tabela de referencia `| Status | Idade |` (idade
+    de cada status, aging) viraria 2a tabela de trabalho. A fronteira e o
+    que separa "ID"/"ID (AUD-*)" de "Idade"/"Identificador"."""
+    aging = ["| Status | Idade |", "| :--- | :--- |",
+             "| ⏳ Pendente | 3 dias |"]
+    assert L.work_tables(_arquivo(aging)) == []
+    assert C._chk19_tabela_unica(_ctx(_arquivo(aging, TABELA))) == []
+
+
 def test_line_no_do_buraco_e_sempre_uma_linha_EM_BRANCO():
     """Mutante M17 (`line_no` = inicio do buraco em vez da 1a branca): num
     buraco que comeca com PROSA, o achado apontaria para a prosa, e a
