@@ -128,6 +128,16 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Corrigido
 
+- **`todo_migrate_inbox.py` RECUSA em vez de adivinhar qual é a tabela
+  canônica (`TAB-UNIQ-004`).** Com 2+ tabelas **de trabalho** no arquivo, ele
+  elegia sempre a **primeira** -- e isso não tem nenhuma razão de estar certo:
+  em arquivos reais elegeu a tabela errada em 3 casos, num deles tratando uma
+  tabela de 3 itens como canônica no lugar de uma de 339. Agora `plan()`
+  devolve `ambiguous=True` + `work_tables=N`, `migrate_text()` levanta
+  `MigrationError` e a CLI sai com `1` e "migração RECUSADA", **sem tocar no
+  arquivo**. Com uma tabela só (com ou sem tabelas de referência ao lado), o
+  comportamento é exatamente o de antes.
+
 - **Duplicação de emissão do hook de sessão (`TAB-HOOK-005`).** O adapter
   `tools/hooks/tab_pendencias_reminder.py` ignorava `hook_event_name` e rodava a
   mesma avaliação em `SessionStart` e em `UserPromptSubmit` -- o snippet de vault

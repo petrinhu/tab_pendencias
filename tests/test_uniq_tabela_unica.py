@@ -298,3 +298,115 @@ def test_chk20_nao_dispara_no_todo_do_proprio_repo():
 def test_chk20_tolera_crlf():
     text = _partida().replace("\n", "\r\n")
     assert len(C._chk20_linha_em_branco_na_tabela(_ctx(text))) == 1
+
+
+# ----------------------- migrador: recusa em vez de adivinhar ---------------
+# UNIQ-1 aplicado a `tools/todo_migrate_inbox.py`: com 2+ tabelas de trabalho
+# ele NAO escolhe (antes elegia sempre a 1a do arquivo).
+
+import os  # noqa: E402 -- so os testes de CLI abaixo precisam
+import subprocess  # noqa: E402
+import sys  # noqa: E402
+
+import todo_migrate_inbox as M  # noqa: E402
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MIGRADOR = os.path.join(REPO_ROOT, "tools", "todo_migrate_inbox.py")
+INBOX = ["## INBOX (descobertas não priorizadas)", "",
+         "- —: [triage since=2026-08-19 reason=missing-info] descoberta X"]
+
+
+def _legado(*blocos_antes_da_inbox):
+    """Arquivo LEGADO (INBOX DEPOIS da tabela) com os blocos dados."""
+    linhas = list(PREAMBULO)
+    for i, b in enumerate(blocos_antes_da_inbox):
+        if i:
+            linhas.append("")
+        linhas.extend(b)
+    linhas += [""] + INBOX
+    return "\n".join(linhas) + "\n"
+
+
+def test_plan_marca_ambiguidade_com_duas_tabelas_de_trabalho():
+    info = M.plan(_legado(TABELA, TABELA))
+    assert info["ambiguous"] is True
+    assert info["work_tables"] == 2
+    assert info["needs_migration"] is False
+    assert "2 tabelas" in info["reason"]
+
+
+def test_plan_nao_marca_ambiguidade_com_uma_tabela():
+    info = M.plan(_legado(TABELA))
+    assert info["ambiguous"] is False and info["work_tables"] == 1
+    assert info["needs_migration"] is True
+
+
+def test_plan_nao_marca_ambiguidade_com_tabela_de_referencia():
+    info = M.plan(_legado(REFERENCIA, TABELA))
+    assert info["ambiguous"] is False and info["work_tables"] == 1
+
+
+def test_migrate_text_recusa_com_duas_tabelas_de_trabalho():
+    with pytest.raises(M.MigrationError) as exc:
+        M.migrate_text(_legado(TABELA, TABELA))
+    assert "tabelas DE TRABALHO" in str(exc.value)
+
+
+def test_migrate_text_ainda_migra_com_uma_so():
+    novo, mudou = M.migrate_text(_legado(TABELA))
+    assert mudou is True
+    assert L.layout(novo)["canonical"] is True
+    # nenhum item perdido no caminho
+    assert [it["id"] for it in L.parse_table(novo)["items"]] == ["A-1", "A-2"]
+
+
+def test_migrate_text_migra_com_referencia_junto():
+    novo, mudou = M.migrate_text(_legado(REFERENCIA, TABELA))
+    assert mudou is True and L.layout(novo)["canonical"] is True
+
+
+def test_recusa_nao_toca_o_arquivo(tmp_path):
+    alvo = tmp_path / "TODO.md"
+    original = _legado(TABELA, TABELA)
+    alvo.write_text(original, encoding="utf-8", newline="")
+    r = subprocess.run([sys.executable, MIGRADOR, str(alvo), "--apply"],
+                       capture_output=True, text=True, cwd=str(tmp_path))
+    assert r.returncode == 1
+    assert "RECUSADA" in r.stderr
+    assert alvo.read_text(encoding="utf-8") == original
+
+
+def test_recusa_tambem_no_check(tmp_path):
+    alvo = tmp_path / "TODO.md"
+    alvo.write_text(_legado(TABELA, TABELA), encoding="utf-8", newline="")
+    r = subprocess.run([sys.executable, MIGRADOR, str(alvo), "--check"],
+                       capture_output=True, text=True, cwd=str(tmp_path))
+    assert r.returncode == 1 and "RECUSADA" in r.stderr
+
+
+def test_com_uma_tabela_o_apply_continua_funcionando(tmp_path):
+    alvo = tmp_path / "TODO.md"
+    alvo.write_text(_legado(TABELA), encoding="utf-8", newline="")
+    r = subprocess.run([sys.executable, MIGRADOR, str(alvo), "--apply"],
+                       capture_output=True, text=True, cwd=str(tmp_path))
+    assert r.returncode == 0, r.stderr
+    depois = alvo.read_text(encoding="utf-8")
+    assert L.layout(depois)["canonical"] is True
+
+
+def test_a_recusa_diz_quantas_e_onde():
+    info = M.plan(_legado(TABELA, TABELA))
+    linhas = [w["line_no"] + 1 for w in L.work_tables(_legado(TABELA, TABELA))]
+    for n in linhas:
+        assert f"linha {n} " in info["reason"]
+
+
+def test_recusa_mesmo_quando_o_nucleo_nao_elege_nenhuma():
+    """Duas tabelas com coluna de ID de nome composto: `parse_table` nao elege
+    nenhuma (exige a celula exata "id"), mas a ambiguidade e real e a recusa
+    tem que preferir explicar isso a dizer so "sem tabela canonica"."""
+    outra = ["| # | ID (AUD-*) | Severidade | Status |",
+             "| :--- | :--- | :--- | :--- |",
+             "| 1 | AUD-01 | Alta | ⏳ Pendente |"]
+    info = M.plan(_legado(outra, outra))
+    assert info["ambiguous"] is True and "2 tabelas" in info["reason"]

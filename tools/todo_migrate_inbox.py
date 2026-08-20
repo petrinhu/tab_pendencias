@@ -37,6 +37,12 @@ CRLF/LF e do BOM originais).
 
 Idempotente: rodar de novo num arquivo ja canonico nao muda um byte.
 
+**Recusa em vez de adivinhar (UNIQ-1):** com 2+ tabelas DE TRABALHO (com
+coluna ``Status``) no arquivo, nao ha como saber qual e a canonica -- este
+utilitario acusa e sai com erro, sem tocar em nada. Antes ele elegia sempre a
+1a tabela do arquivo, e numa medicao real isso significou tratar uma tabela de
+3 itens como canonica no lugar de uma de 339.
+
 Prova antes de escrever (mesma politica de ``todo_fix.py``): o texto novo e
 reparseado e comparado com o original -- multiset de linhas identico, IDs e
 status dos itens identicos e na mesma ordem, entradas da INBOX identicas e
@@ -109,12 +115,39 @@ def plan(text: str) -> dict:
 
       order/legacy/canonical/inbox_line/table_span/trailing  (de
                     ``todo_lib.layout``)
+      work_tables      quantas tabelas DE TRABALHO o arquivo tem (UNIQ-1)
+      ambiguous        True quando ha 2+ tabelas de trabalho: a migracao e
+                       RECUSADA (nao ha como saber qual e a canonica)
       needs_migration  True quando ha o que reordenar
       reason           frase curta do porque (ou None)
     """
     table = L.parse_table(text)
     lay = L.layout(text, table=table)
     lay = dict(lay)
+    lay["ambiguous"] = False
+    # UNIQ-1: com 2+ tabelas DE TRABALHO, QUAL delas e a canonica e uma decisao
+    # que este utilitario NAO tem como tomar -- e adivinhar custa caro: numa
+    # medicao real ele elegeu uma tabela de 3 itens no lugar de uma de 339 (a
+    # eleita e sempre a 1a do arquivo, que nao tem nenhuma razao de ser a
+    # certa). Recusar e acusar, sempre; escolher, nunca. Vem ANTES do teste de
+    # LAYOUT_NO_TABLE porque com varias tabelas de trabalho o diagnostico util
+    # e a ambiguidade, mesmo quando nenhuma delas e eleita pelo nucleo.
+    tabelas = L.work_tables(text)
+    lay["work_tables"] = len(tabelas)
+    if len(tabelas) > 1:
+        onde = ", ".join(f"linha {w['line_no'] + 1} ({w['n_rows']} linha(s) "
+                          f"de dado)" for w in tabelas)
+        lay["needs_migration"] = False
+        lay["ambiguous"] = True
+        lay["reason"] = (
+            f"ha {len(tabelas)} tabelas DE TRABALHO (com coluna Status) no "
+            f"arquivo -- {onde}. O contrato exige exatamente UMA "
+            "(references/frescor-da-tabela.md SS5) e este utilitario NAO "
+            "escolhe qual e a canonica: resolva antes (consolide numa tabela "
+            "so, ou tire a coluna Status da tabela que for de REFERENCIA) e "
+            "rode de novo. Rode `python3 tools/todo_audit.py` (CHK-19) para "
+            "ver todas de uma vez")
+        return lay
     if lay["order"] == L.LAYOUT_NO_TABLE:
         lay["needs_migration"] = False
         lay["reason"] = ("sem tabela canonica (nenhum cabecalho com colunas "
@@ -149,6 +182,8 @@ def migrate_text(text: str) -> tuple[str, bool]:
       3. remonta: outros + INBOX + TABELA + EOF.
     """
     lay = plan(text)
+    if lay.get("ambiguous"):
+        raise MigrationError(lay["reason"])
     if lay["order"] == L.LAYOUT_NO_TABLE:
         raise MigrationError(
             "sem tabela canonica (nenhum cabecalho com colunas ID e Status) "
@@ -353,6 +388,9 @@ def main(argv) -> int:
     if info["inbox_line"] is not None:
         print(f"INBOX: linha {info['inbox_line'] + 1}")
 
+    if info.get("ambiguous"):
+        print(f"migracao RECUSADA: {info['reason']}.", file=sys.stderr)
+        return 1
     if info["order"] == L.LAYOUT_NO_TABLE:
         print(info["reason"])
         return 1
