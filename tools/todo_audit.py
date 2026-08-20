@@ -179,6 +179,9 @@ import checks.chk_frescor as _chk_frescor  # noqa: E402 -- mesmo padrao de
 # import tardio acima (CHK-09/CHK-10, `checks/chk_frescor.py`).
 import checks.chk_core as _chk_core  # noqa: E402 -- mesmo padrao (CHK-CORE:
 # CHK-01/02/03/04/08/11/19/20, `checks/chk_core.py`).
+import checks.chk_projeto as _chk_projeto  # noqa: E402 -- mesmo padrao
+# (CHK-21, `checks/chk_projeto.py`: varredura do PROJETO atras de
+# checklist paralelo fora do TODO.md).
 import casa.chk_casa as _chk_casa  # noqa: E402 -- mesmo padrao de import
 # tardio, agora para o perfil "casa" (CHK-12/13/14, `tools/casa/chk_casa.py`,
 # ADR-0001 secao a). E o UNICO ponto do nucleo que sabe da existencia deste
@@ -225,6 +228,9 @@ CHECKS: list[Check] = [
     Check(id="CHK-20", title="Linha em branco dentro da tabela",
           profile="core", severity_default="IMPORTANTE",
           run=_chk_core._chk20_linha_em_branco_na_tabela),
+    Check(id="CHK-21", title="Tabela de checklist fora do TODO.md (projeto)",
+          profile="core", severity_default="IMPORTANTE",
+          run=_chk_projeto.chk21),
     Check(id="CHK-12", title="TST-*/AUD-* agendado antes do que cobre "
           "(convenção da casa)",
           profile="casa", severity_default="CRÍTICO", run=_chk_casa.chk12),

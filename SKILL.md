@@ -35,6 +35,8 @@ O `TODO.md` tem esta ordem, de cima para baixo -- contrato de FORMA, detalhe nor
 
 **UMA tabela no arquivo, e só uma** -- sem qualificação: **qualquer segundo bloco `|...|` é violação**, tenha coluna `Status` ou não. Legenda, matriz, sumário, índice, contagem e scoring vão em **bullets ou lista**, nunca em tabela auxiliar. Proibido junto: **linha em branco dentro da tabela** -- em Markdown ela encerra a tabela ali (e cria um bloco novo). Motivo mecânico: a leitura **para no primeiro cabeçalho repetido**, então tudo que estiver numa segunda tabela com `Status` fica invisível para qualquer contagem, sem erro na tela (um backlog de 491 itens já se apresentou como 1); e a regra é literal, sem exceção para "tabela auxiliar inofensiva", porque toda tabela a mais é candidata a ser eleita por engano -- critério que exige inspecionar coluna se degrada na primeira exceção.
 
+**Uma tabela de checklist por PROJETO**, e ela vive no `TODO.md` (contrato §5.0.1): nenhum outro arquivo do projeto carrega fila de trabalho (`TODO_ARCHIVE.md`, `AUDIT_FIND.md`, `PLANO.md` com coluna `Status`). Tabela em documento que **não é fila de trabalho** (índice de ADR com `Status = Aceito`, matriz de rotas, contagem) continua legítima -- o `--audit` (CHK-21) só acusa tabela com **ID + Status + status do vocabulário fechado**, e é desligável por `.tab_pendencias.ini` (`[audit] checklist_scan = off`).
+
 **Forma do arquivo (o modelo da casa, detalhe em `references/frescor-da-tabela.md` §5.2):** a **linha 1** declara a estrutura em uma linha (`> **ESTRUTURA CANÔNICA DO ARQUIVO — NÃO QUEBRAR A TABELA:** ... **EOF** ... **Proibido:** segunda tabela; linha em branco **dentro** da tabela ...`), antes do título `#`; a tabela tem o heading próprio **`## TABELA UNIFICADA`** logo acima dela (o nome carrega a regra: unificada = uma só); e **scoring WSJF/checklists/sumários vão em bullets no cabeçalho** (nunca em tabela: o arquivo tem um bloco `|...|` só), sob `### Scoring WSJF (referência — **não** é tabela de trabalho)` com a linha de escopo *"Itens abaixo são registro histórico de score; o status de trabalho vive só na tabela única."*. Isso é **forma**, não leitura: arquivo sem esses elementos continua válido -- eles existem para a regra ficar visível dentro do próprio arquivo, e para ninguém acrescentar coluna `Status` num bloco de referência.
 
 **Mudou em 2026-08-19:** a INBOX ficava DEPOIS da tabela. Ela subiu porque "fim da tabela = fim do arquivo" é a invariante que ferramentas e guards de consumidor usam para acrescentar linha sem procurar onde a tabela acaba -- uma seção depois da tabela a tornava falsa por construção.
@@ -500,8 +502,8 @@ que usa a skill; `--audit` cobre a *integridade da própria tabela*).
   (ausência de arquivo ou de chave); `--profile` na linha de comando sobrepõe o
   arquivo para uma execução pontual. Config lido com `configparser` da stdlib
   (D-9/D-10 -- INI, escolha histórica; piso oficial Python >= 3.11, PYFLOOR-2).
-  **A camada casa é aditiva, nunca substitutiva**: sob `casa` rodam os 13 checks
-  do núcleo **mais** os 3 da casa (16 no total); quem não ativa `casa` não perde
+  **A camada casa é aditiva, nunca substitutiva**: sob `casa` rodam os 14 checks
+  do núcleo **mais** os 3 da casa (17 no total); quem não ativa `casa` não perde
   nenhum check do núcleo, só não ganha os 3 extras. Medido ao vivo: sob `core`
   (default), os 11
   checks do núcleo executam e cada check `profile = casa` é **declarado como não
@@ -526,7 +528,7 @@ que usa a skill; `--audit` cobre a *integridade da própria tabela*).
   qualquer severidade, inclusive só COSMÉTICO**. Isto é o que permite usar
   `--audit` em automação/CI: um pipeline que quer tolerar cosmético filtra por
   severidade dentro do relatório, não pelo exit code.
-- **Catálogo de checks hoje** (13 do núcleo + 3 da casa = 16 registrados;
+- **Catálogo de checks hoje** (14 do núcleo + 3 da casa = 17 registrados;
   severidade indicada é o default do registro -- alguns checks emitem achados
   com severidade diferente conforme o caso concreto, ex.: `CHK-08` cobre tanto
   COSMÉTICO quanto IMPORTANTE). A coluna `Perfil` diz se o check roda sempre
@@ -547,6 +549,7 @@ que usa a skill; `--audit` cobre a *integridade da própria tabela*).
   | `CHK-11` | Reconciliação de contagem (`todo_health`) | CRÍTICO | core |
   | `CHK-19` | Mais de uma tabela no arquivo | CRÍTICO / IMPORTANTE | core |
   | `CHK-20` | Linha em branco dentro da tabela | IMPORTANTE | core |
+  | `CHK-21` | Tabela de checklist fora do TODO.md (projeto) | IMPORTANTE | core |
   | `CHK-12` | TST-*/AUD-* agendado antes do que cobre | CRÍTICO | **casa** |
   | `CHK-13` | INBOX: ID duplicado da tabela ou formato inválido | IMPORTANTE | **casa** |
   | `CHK-14` | Item de Wiki + doc para iniciante ausente na última onda | COSMÉTICO | **casa** |

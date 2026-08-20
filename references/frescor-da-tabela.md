@@ -146,6 +146,35 @@ preserva byte a byte o conteúdo da tabela e da INBOX (só a ordem dos blocos
 muda); ver o `README` deste repositório para o utilitário disponível na versão
 que você está usando.
 
+## 5.0.1. Uma tabela de checklist por PROJETO (não só por arquivo)
+
+A regra de §5 é sobre o `TODO.md`. Ela tem uma irmã, de escopo maior: **o
+projeto inteiro tem UMA tabela de checklist, e ela vive no `TODO.md`.** Nenhum
+outro arquivo do projeto carrega fila de trabalho -- nada de `TODO_ARCHIVE.md`
+com pendências vivas, `AUDIT_FIND.md` com achados a resolver, `PLANO.md` com
+sua própria coluna `Status`. Checklist paralelo divide a fonte da verdade: dois
+lugares para marcar a mesma coisa, e nenhum dos dois confiável.
+
+**O que NÃO é violação:** tabela em outro documento que **não é fila de
+trabalho** -- índice de ADR (`| ID | Título | Decisão | Status |` com `Status =
+Aceito`), matriz de rotas, contagem de auditoria, comparativo. É documentação
+de produto, e continua legítima.
+
+**Como a diferença é medida** (é o critério que o `--audit` usa, e ele é
+deliberadamente estreito porque falso positivo aqui é caro): a tabela só conta
+como checklist quando tem, ao mesmo tempo, **coluna de identificador**, **coluna
+`Status`** e **pelo menos uma linha cujo `Status` começa com um dos símbolos do
+vocabulário fechado de §2**. O índice de ADR falha no terceiro critério e por
+isso não é acusado. **Limitação declarada:** um checklist paralelo escrito sem
+os símbolos (só "Pendente"/"Concluído" em texto) não é detectado -- falso
+negativo aceito de propósito, para não acusar documento alheio.
+
+**Ao absorver um checklist paralelo**, funda os itens na tabela do `TODO.md` e
+deixe no lugar antigo, se precisar, só um ponteiro em prosa. O arquivo-modelo
+da casa registra a absorção com uma seção de cabeçalho no estilo
+`## Achados de auditoria (ex-ARQUIVO.md -- fundidos nesta única tabela)`, que
+preserva a história sem recriar a fila.
+
 ## 5.1. INBOX -- exception queue (nao e a fila normal de descoberta)
 
 > **Historico:** a formulacao antiga ("trabalho novo vai para a INBOX na hora")

@@ -621,6 +621,8 @@ def table_blocks(text):
     """Blocos CONTIGUOS de linhas de tabela markdown, na ordem do arquivo:
     [{'start','end','rows':[line_no,...]}] (0-based, `end` INCLUSIVO).
 
+    Linha dentro de bloco de codigo cercado (``` ou ~~~) e ignorada (FENCE-1).
+
     Um bloco e uma sequencia de linhas que comecam com "|" sem NENHUMA linha de
     outro tipo no meio -- e exatamente o que o Markdown renderiza como UMA
     tabela: linha em branco, heading ou prosa encerram o bloco ali. E por isso
@@ -629,8 +631,24 @@ def table_blocks(text):
     lines = text.split("\n")
     blocos = []
     cur = None
+    cerca = None
     for n, line in enumerate(lines):
         s = line.lstrip(BOM).strip()
+        # FENCE-1: tabela DENTRO de bloco de codigo cercado (``` ou ~~~) e
+        # EXEMPLO, nao tabela -- o Markdown a renderiza como texto literal.
+        # Sem isto, um TODO.md que mostre o schema num bloco de codigo no
+        # cabecalho (uso legitimo e comum) seria acusado de ter 2 tabelas.
+        if cerca is None:
+            if s.startswith("```") or s.startswith("~~~"):
+                cerca = s[:3]
+                if cur is not None:
+                    blocos.append(cur)
+                    cur = None
+                continue
+        else:
+            if s.startswith(cerca):
+                cerca = None
+            continue
         if s.startswith("|"):
             if cur is None:
                 cur = {"start": n, "end": n, "rows": [n]}
@@ -670,6 +688,47 @@ def work_tables(text):
         out.append({"line_no": b["start"], "start": b["start"],
                     "end": b["end"], "ncols": len(cells), "cells": cells,
                     "n_rows": n_rows})
+    return out
+
+
+def checklist_tables(text):
+    """Tabelas que sao FILA DE TRABALHO desta skill (nao qualquer tabela com
+    Status): [{'line_no','ncols','n_rows','n_status_canonicos'}].
+
+    Discriminante (os TRES criterios juntos, deliberadamente estreito porque
+    falso positivo aqui e caro -- acusar o indice de ADR de um projeto seria
+    ruido que faz o usuario ignorar o audit):
+
+      1. coluna de identificador no cabecalho (`^id\b`);
+      2. coluna `Status` no cabecalho;
+      3. pelo menos UMA linha de dado cujo Status comeca com um dos 7 emojis
+         do vocabulario fechado (D-1) -- `_status_kind(...) is not None`.
+
+    E o criterio (3) que separa fila de trabalho de documentacao de produto:
+    uma tabela de ADRs com `Status = Aceito`, uma matriz de rotas ou uma
+    contagem de auditoria tem coluna Status e ID, mas nao fala o vocabulario
+    desta skill. Em compensacao, LIMITACAO DECLARADA: um checklist paralelo
+    escrito sem emoji (so "Pendente"/"Concluido" em texto) NAO e detectado --
+    falso negativo aceito de proposito, para nao acusar documento alheio."""
+    lines = text.split("\n")
+    out = []
+    for w in work_tables(text):
+        cells = w["cells"]
+        status_idx = next((i for i, c in enumerate(cells)
+                           if _STATUS_WORD.search(c.lower())), None)
+        if status_idx is None:
+            continue
+        canonicos = 0
+        for n in range(w["start"] + 1, w["end"] + 1):
+            cel = _cells(lines[n].lstrip(BOM).strip())
+            if len(cel) != w["ncols"] or _is_separator(cel):
+                continue
+            if _status_kind(cel[status_idx]) is not None:
+                canonicos += 1
+        if canonicos:
+            out.append({"line_no": w["line_no"], "ncols": w["ncols"],
+                        "n_rows": w["n_rows"],
+                        "n_status_canonicos": canonicos})
     return out
 
 

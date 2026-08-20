@@ -115,6 +115,16 @@ com `Status` fica **invisível** para qualquer ferramenta e para qualquer contag
 sem erro nenhum na tela; e a regra não admite exceção para "tabela auxiliar
 inofensiva" porque toda tabela a mais é candidata a ser eleita por engano.
 
+**Uma tabela de checklist por PROJETO**, e ela vive no `TODO.md`
+([`references/frescor-da-tabela.md`](references/frescor-da-tabela.md) §5.0.1):
+nenhum outro arquivo do projeto carrega fila de trabalho (`TODO_ARCHIVE.md`,
+`AUDIT_FIND.md`, `PLANO.md` com coluna `Status`). Tabela em documento que **não é
+fila de trabalho** (índice de ADR com `Status = Aceito`, matriz de rotas, contagem
+de auditoria) continua legítima: o `--audit` (`CHK-21`) só acusa tabela com **ID +
+Status + status do vocabulário fechado**, varre só arquivos `.md` do projeto e é
+desligável por `.tab_pendencias.ini` (`[audit] checklist_scan = off`,
+`checklist_exclude = glob, glob`).
+
 **Forma do arquivo (o modelo da casa)** -- detalhe em
 [`references/frescor-da-tabela.md`](references/frescor-da-tabela.md) §5.2: a **linha
 1** declara a estrutura em uma linha (blockquote `> **ESTRUTURA CANÔNICA DO ARQUIVO
@@ -262,7 +272,7 @@ python3 tools/todo_audit.py [--profile core|casa] [--todo <caminho>] \
   auditado (seção `[profile]`, chave `name = casa`; formato INI lido com
   `configparser` da stdlib -- escolha histórica D-9; piso atual Python >= 3.11).
   O perfil `core` é o default. **A camada casa é aditiva, nunca substitutiva**:
-  sob `casa` rodam os 13 checks do núcleo **mais** os 3 da casa (16 no total);
+  sob `casa` rodam os 14 checks do núcleo **mais** os 3 da casa (17 no total);
   quem não ativa `casa` não perde nenhum check do núcleo, só não ganha os 3
   extras.
 - **`--max-per-check N`** (default 5; `N<=0` = sem limite): amostra no máximo N
@@ -275,7 +285,7 @@ python3 tools/todo_audit.py [--profile core|casa] [--todo <caminho>] \
   é repositório git quando exigido, `TODO.md` ilegível, flag inválida); `2` =
   execução ok e há 1+ achado, de qualquer severidade, inclusive só cosmético.
 
-Catálogo de checks (13 do núcleo + 3 da camada casa, opt-in):
+Catálogo de checks (14 do núcleo + 3 da camada casa, opt-in):
 
 | Check | Título | Severidade (default) | Perfil |
 |---|---|---|---|
@@ -292,6 +302,7 @@ Catálogo de checks (13 do núcleo + 3 da camada casa, opt-in):
 | `CHK-11` | Reconciliação de contagem (`todo_health`) | Crítico | core |
 | `CHK-19` | Mais de uma tabela no arquivo | Crítico / Importante | core |
 | `CHK-20` | Linha em branco dentro da tabela | Importante | core |
+| `CHK-21` | Tabela de checklist fora do `TODO.md` (projeto) | Importante | core |
 | `CHK-12` | TST-\*/AUD-\* agendado antes do que cobre | Crítico | **casa** |
 | `CHK-13` | INBOX: ID duplicado da tabela ou formato inválido | Importante | **casa** |
 | `CHK-14` | Item de Wiki + doc para iniciante ausente na última onda | Cosmético | **casa** |
@@ -558,6 +569,15 @@ with `Status` becomes **invisible** to every tool and every count, with no error
 screen; and the rule admits no "harmless auxiliary table" exception, because every
 extra table is a candidate to be picked by mistake.
 
+**One checklist table per PROJECT**, living in `TODO.md` (§5.0.1 of the contract,
+pt-br): no other file in the project carries a work queue (`TODO_ARCHIVE.md`,
+`AUDIT_FIND.md`, a `PLANO.md` with its own `Status` column). A table in a document
+that is **not a work queue** (ADR index with `Status = Accepted`, route matrix,
+audit count) stays legitimate: `--audit` (`CHK-21`) only flags tables with **ID +
+Status + a status from the closed vocabulary**, scans only the project's `.md`
+files, and can be turned off in `.tab_pendencias.ini` (`[audit] checklist_scan =
+off`).
+
 **File shape (the house model)** -- detail in
 [`references/frescor-da-tabela.md`](references/frescor-da-tabela.md) §5.2 (pt-br):
 **line 1** states the structure in a single blockquote line, before the `#` title;
@@ -689,8 +709,8 @@ python3 tools/todo_audit.py [--profile core|casa] [--todo <path>] \
   the audited repo (`[profile]` section, `name = casa` key; INI format read
   with the stdlib `configparser` -- historical D-9 choice; floor is now Python >= 3.11).
   `core` is the default profile. **The house layer is additive, never
-  substitutive**: under `casa`, the 13 core checks run **plus** the 3 house
-  checks (16 total); not enabling `casa` never removes a core check, it just
+  substitutive**: under `casa`, the 14 core checks run **plus** the 3 house
+  checks (17 total); not enabling `casa` never removes a core check, it just
   skips the 3 extras.
 - **`--max-per-check N`** (default 5; `N<=0` = no limit): samples at most N
   findings per check in the report. **CRITICAL findings are never
@@ -702,7 +722,7 @@ python3 tools/todo_audit.py [--profile core|casa] [--todo <path>] \
   git repository when required, unreadable `TODO.md`, invalid flag); `2` =
   ran ok, 1+ finding of any severity, including cosmetic-only.
 
-Check catalog (13 core + 3 opt-in house-layer checks):
+Check catalog (14 core + 3 opt-in house-layer checks):
 
 | Check | Title | Severity (default) | Profile |
 |---|---|---|---|
@@ -719,6 +739,7 @@ Check catalog (13 core + 3 opt-in house-layer checks):
 | `CHK-11` | Count reconciliation (`todo_health`) | Critical | core |
 | `CHK-19` | More than one table in the file | Critical / Important | core |
 | `CHK-20` | Blank line inside the table | Important | core |
+| `CHK-21` | Checklist table outside `TODO.md` (project-wide) | Important | core |
 | `CHK-12` | TST-\*/AUD-\* scheduled before what it covers | Critical | **house** |
 | `CHK-13` | INBOX: duplicate table ID or invalid format | Important | **house** |
 | `CHK-14` | Missing Wiki + beginner-doc item in the last wave | Cosmetic | **house** |

@@ -74,6 +74,31 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **`CHK-21` -- tabela de checklist FORA do `TODO.md`, no mesmo projeto
+  (`TAB-UNIQ-006`, IMPORTANTE, perfil `core`).** Ordem do líder: *"só deve
+  haver uma tabela checklist por projeto"*. Varre os arquivos `.md` do projeto
+  (via `git ls-files` quando há git -- de graça respeita `.gitignore` --, senão
+  `os.walk` pulando dependência/build/material de teste) e acusa fila de
+  trabalho paralela (`TODO_ARCHIVE.md`, `AUDIT_FIND.md`, `PLANO.md` com coluna
+  `Status`).
+
+  **Discriminante deliberadamente estreito, porque falso positivo aqui é caro:**
+  só conta como checklist a tabela com **coluna de identificador + coluna
+  `Status` + ao menos uma linha cujo `Status` começa com um símbolo do
+  vocabulário fechado**. Índice de ADR (`Status = Aceito`), matriz de rotas e
+  contagem de auditoria **não** são achado -- medido contra 22 projetos reais:
+  zero achado em 17 deles, e os achados dos outros 5 eram checklist paralelo de
+  verdade. **Limitação declarada:** checklist paralelo sem símbolo (só
+  "Pendente" em texto) não é detectado -- falso negativo deliberado.
+
+  Desligável e ajustável por `.tab_pendencias.ini` (`[audit] checklist_scan =
+  off`, `checklist_exclude = glob, glob`). Tetos de varredura (400 arquivos,
+  1 MB por arquivo) são **declarados** quando atingidos, nunca silenciosos.
+
+  Junto: `todo_lib.table_blocks` passa a **ignorar tabela dentro de bloco de
+  código cercado** (FENCE-1) -- um `TODO.md` que mostre o schema num bloco
+  ```` ``` ```` no cabeçalho é uso legítimo e não pode virar "2 tabelas".
+
 - **`CHK-20` -- linha em branco dentro da tabela (`TAB-UNIQ-003`, IMPORTANTE,
   perfil `core`).** É o mecanismo **silencioso** pelo qual uma tabela vira
   duas: em Markdown a linha em branco encerra a tabela ali, enquanto o parser
