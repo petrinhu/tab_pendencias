@@ -93,10 +93,19 @@ Um `TODO.md` de projeto tem esta ordem, de cima para baixo:
 | 5 | **A tabela canônica** (cabeçalho com `ID` e `Status`, separador, linhas de dados) | Sim |
 | 6 | **EOF logo após a última linha da tabela** (só o `\n` final) | Sim |
 
-Duas regras derivam disso, e são o que mudou em 2026-08-19:
+Três regras derivam disso:
 
-- **A INBOX vem ANTES da tabela.** A norma anterior a colocava depois.
-- **Nada vem DEPOIS da tabela.** A tabela é o último bloco do arquivo.
+- **Uma tabela de trabalho, e só uma** (o bloco 5). **"De trabalho"** = tabela
+  com coluna **`Status`** -- é o que se marca, e o que a ferramenta lê e
+  escreve. Uma tabela de **referência** no cabeçalho (legenda, matriz,
+  comparativo, scoring) é legítima **desde que não tenha coluna `Status`**.
+  Proibido junto: **linha em branco DENTRO da tabela** -- em Markdown ela
+  encerra a tabela ali, e o que vem depois passa a ser outra tabela (ou prosa):
+  uma tabela vira duas sem ninguém ter escrito nada.
+- **A INBOX vem ANTES da tabela** (mudou em 2026-08-19; a norma anterior a
+  colocava depois).
+- **Nada vem DEPOIS da tabela** (mudou em 2026-08-19). A tabela é o último
+  bloco do arquivo.
 
 **Por quê:** ferramentas e guards de consumidor (e a leitura humana) tratam
 "fim da tabela = fim do arquivo" como invariante -- é o que permite acrescentar
@@ -105,6 +114,20 @@ crescer sempre pelo mesmo lado. Com uma seção depois da tabela, essa invariant
 era falsa por construção, e um guard que a exigisse recusaria qualquer edição
 do arquivo. Pôr a INBOX no cabeçalho resolve na raiz e ainda a deixa visível:
 descoberta não triada aparece antes do backlog, não enterrada no rodapé.
+
+**Por quê a tabela única (mecânico, não estético):** a **leitura para no
+primeiro cabeçalho repetido** -- ao encontrar um segundo cabeçalho com colunas
+`ID` e `Status`, o parser encerra a tabela ali (é a defesa que impede contar
+como itens as linhas de uma tabela alheia). Com duas tabelas de trabalho, tudo
+o que está na segunda fica **invisível** para qualquer ferramenta e para
+qualquer contagem, **sem erro nenhum na tela**: um backlog de centenas de itens
+pode se apresentar como 1 ou 3 itens. A **linha em branco dentro da tabela** é
+o caminho silencioso para chegar lá: parte a tabela em duas na renderização, e
+a próxima edição que repetir o cabeçalho na metade de baixo fecha o buraco.
+Por isso a tabela de referência não pode ter coluna `Status`: sem esse critério
+não há como uma ferramenta -- nem um leitor humano -- decidir qual das tabelas
+é a canônica, e quem decide por adivinhação erra (foi o que aconteceu com o
+migrador de layout, que elegeu uma tabela de 3 itens no lugar de uma de 339).
 
 **Compatibilidade (leitura):** um arquivo no formato **legado** (INBOX depois
 da tabela, ou qualquer texto após ela) continua **válido para leitura** --

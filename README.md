@@ -105,6 +105,15 @@ Normativo em [`references/frescor-da-tabela.md`](references/frescor-da-tabela.md
 5. **a tabela canônica**;
 6. **EOF logo após a última linha da tabela** -- nada vem depois dela.
 
+**Uma tabela de trabalho, e só uma.** "De trabalho" = tabela com coluna `Status`
+-- é o que se marca, e o que a ferramenta lê e escreve. Tabela de **referência**
+no cabeçalho (legenda, matriz, comparativo, scoring) é legítima **desde que não
+tenha coluna `Status`**. Proibido junto: **linha em branco dentro da tabela** (em
+Markdown ela encerra a tabela ali). Motivo mecânico, não estético: a leitura
+**para no primeiro cabeçalho repetido**, então o que estiver numa segunda tabela
+de trabalho fica **invisível** para qualquer ferramenta e para qualquer contagem,
+sem erro nenhum na tela.
+
 **Mudou em 2026-08-19** (antes a INBOX ficava depois da tabela). Motivo: "fim da
 tabela = fim do arquivo" é a invariante que ferramentas e guards de consumidor
 usam para acrescentar linha sem procurar onde a tabela acaba; uma seção depois da
@@ -513,6 +522,30 @@ Row order (top to bottom) is the recommended execution order. The `Wave` column
 groups steps of equal value that can run in parallel. Legacy 8-column tables
 (without `Wave`) are still read correctly by `--show`/`--main`; the parser locates
 the header by column name, never by a fixed count.
+
+### Canonical file order (exactly one work table)
+
+Normative in [`references/frescor-da-tabela.md`](references/frescor-da-tabela.md) §5:
+
+1. line 1: the file `#` title;
+2. free preamble (prose, legend, criteria, notes);
+3. **`## INBOX (...)`** section -- exception queue, **before** the table;
+4. (optional) more free prose/sections;
+5. **the canonical table**;
+6. **EOF right after the table's last line** -- nothing comes after it.
+
+**Exactly one work table.** "Work table" = a table with a `Status` column (what
+gets marked; what the tooling reads and writes). A **reference** table in the
+header (legend, matrix, comparison, scoring) is legitimate **as long as it has no
+`Status` column**. Also forbidden: a **blank line inside the table** (in Markdown
+it ends the table right there). Mechanical reason, not cosmetic: reading **stops
+at the first repeated header**, so whatever sits in a second work table becomes
+**invisible** to every tool and every count, with no error on screen.
+
+**Legacy compatibility:** a file in the legacy layout (INBOX after the table, or
+any text after it) is still **valid for READING** -- same items, same entries --,
+it only gets a format **warning** (`todo_lib.legacy_layout_warning`). **Writing
+and creation always use the new order.**
 
 ### Valid values
 

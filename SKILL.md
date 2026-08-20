@@ -33,6 +33,8 @@ O `TODO.md` tem esta ordem, de cima para baixo -- contrato de FORMA, detalhe nor
 5. **a tabela canônica**;
 6. **EOF logo após a última linha da tabela** -- nada vem depois dela.
 
+**Uma tabela de trabalho, e só uma.** "De trabalho" = tabela com coluna `Status` (o que se marca; o que a ferramenta lê e escreve). Tabela de **referência** no cabeçalho (legenda, matriz, comparativo, scoring) é legítima **desde que não tenha coluna `Status`**. Proibido junto: **linha em branco dentro da tabela** -- em Markdown ela encerra a tabela ali. Motivo mecânico: a leitura **para no primeiro cabeçalho repetido**, então tudo que estiver numa segunda tabela de trabalho fica invisível para qualquer contagem, sem erro na tela (um backlog de 491 itens já se apresentou como 1). A linha em branco é o caminho silencioso para virar duas tabelas.
+
 **Mudou em 2026-08-19:** a INBOX ficava DEPOIS da tabela. Ela subiu porque "fim da tabela = fim do arquivo" é a invariante que ferramentas e guards de consumidor usam para acrescentar linha sem procurar onde a tabela acaba -- uma seção depois da tabela a tornava falsa por construção.
 
 **Compatibilidade:** arquivo no formato **legado** (INBOX depois, ou qualquer texto após a tabela) continua **válido para LEITURA**, com aviso (`todo_lib.legacy_layout_warning`); os itens e entradas lidos são os mesmos. **Escrita e criação usam sempre a ordem nova.** Conversão mecânica, idempotente e byte-preserving:

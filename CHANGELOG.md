@@ -15,6 +15,20 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Alterado
 
+- **O contrato passa a declarar TABELA ÚNICA (`TAB-UNIQ-001`).** Um `TODO.md`
+  tem **exatamente uma tabela markdown de trabalho** -- "de trabalho" = tabela
+  com coluna `Status` (o que se marca; o que a ferramenta lê e escreve). Tabela
+  de **referência** no cabeçalho (legenda, matriz, comparativo, scoring)
+  continua legítima **desde que não tenha coluna `Status`**. Proibido junto:
+  **linha em branco dentro da tabela** (em Markdown ela encerra a tabela ali).
+
+  **Motivo (mecânico):** a leitura **para no primeiro cabeçalho repetido**, logo
+  tudo o que estiver numa segunda tabela de trabalho fica **invisível** para
+  qualquer ferramenta e para qualquer contagem, sem erro nenhum na tela -- um
+  backlog de centenas de itens pode se apresentar como 1 ou 3 itens. A regra
+  estava implícita no parser desde sempre; o que faltava era **declará-la** em
+  `references/frescor-da-tabela.md` §5, `SKILL.md` e `README.md` (pt+en).
+
 - **BREAKING (contrato de forma) -- a seção `## INBOX` passa a vir ANTES da
   tabela (`TAB-LAYOUT-001` / LAYOUT-1).** A ordem canônica de um `TODO.md` de
   projeto é agora: título `#` -> preâmbulo livre -> `## INBOX (...)` -> prosa
