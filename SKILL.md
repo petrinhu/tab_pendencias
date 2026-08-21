@@ -83,85 +83,31 @@ A parte mecânica (sincronizar status) tem executores LOCAIS e determinísticos,
 
 ### INBOX (exception queue -- nao e fila normal)
 
-> **Historico (pre-intake):** versoes antigas da skill mandavam *toda* descoberta
-> para a INBOX "na hora" e esperavam dreno humano/`--reorder`. Isso ficou
-> obsoleto com o pipeline de intake (ADR-0002). A INBOX residual **nao** e a
-> fila normal de descoberta.
+A INBOX residual **nao** e a fila normal de descoberta: trabalho novo vai ao
+intake (`--add`), e so o ambiguo / sem autoridade vira residual `[triage ...]`,
+sem Onda nem WSJF. Proibicoes que valem sempre, sem abrir a referencia:
+workers/subagentes **nao** escrevem na INBOX (devolvem `DISCOVERED_WORK` e o
+main chama o intake); conflito de INBOX resolve **sempre por uniao, NUNCA
+descartando linha**; **hub agregador** nao usa INBOX nem marcacao a mao (view
+derivada -- `references/hub-agregador.md`); e `--drain` opera so a secao
+`## INBOX` do `TODO.md`, nunca os arquivos `inbox/*.md`.
 
-Trabalho novo descoberto no meio do sprint **nao espera reordenar**: a thread
-principal chama o **intake** (`--add` / `tools/todo_intake.py`). A cascata decide:
-
-1. **Local (L0)** -- entra no `TODO.md` na hora (append).
-2. **Escopado / fundacao** -- `SCOPED_REORDER` ou `FULL_REORDER` proporcional.
-3. **Duplicata** -- nao cria linha; limpa residual relacionado se houver.
-4. **Ambiguo / sem autoridade** -- so entao vira **INBOX residual** (exception
-   queue) com metadado `[triage ...]`, sem Onda nem WSJF.
-
-Workers/subagentes **nao** escrevem na INBOX: devolvem `DISCOVERED_WORK` e o
-main chama o intake (ver secao **Fluxo agentivo de `--add`**).
-
-- **Local da residual:** secao **ANTES da tabela** do `TODO.md` de projeto
-  (ordem canonica acima; o formato legado -- INBOX depois -- ainda e lido,
-  com aviso):
-  ```markdown
-  ## INBOX (descobertas não priorizadas)
-  - <ID tentativo ou —>: [triage ...] descricao curta
-  ```
-- **Concorrência (worktrees/PRs paralelos, sem orquestrador comum):** fallback
-  `inbox/` via `tools/concurrent_inbox.py` (arquivo por descoberta). Nao e
-  backlog normal. Resolucao de conflito: **sempre uniao, NUNCA descartar linha**.
-- **Dreno (secao residual `## INBOX` no `TODO.md`):** preferir `--drain`
-  (classifiable com julgamento agentivo + residual envelhece por `cycles`
-  **ou** idade em dias). `--create` e `--reorder` tambem drenam essa secao
-  residual no TODO. O motor **nao** le nem apaga `inbox/*.md`.
-- **Fallback `inbox/` (arquivos concurrent):** fluxo proprio entre sessoes --
-  `concurrent_inbox.list_pending` / `read_discovery`, depois a thread principal
-  processa cada `DISCOVERED_WORK` via bridge+intake. Nao confiar em `--drain`
-  para esvaziar o diretorio. `TAB_TRIAGE_REQUIRED` e **acao obrigatoria**
-  da thread principal (SessionStart/health), nao lembrete passivo. Sinais:
-  secao **Sinais de frescor (`TAB_*`)** e `references/sinais-de-frescor.md`.
-
-> **Dois tipos de `TODO.md`:** o de **projeto** (itens editaveis; item↔commit
-> faz sentido; esta secao se aplica) e o **hub agregador** (contagens derivadas;
-> NÃO marcar a mao nem usar INBOX -- regenerar por script; ver
-> `references/hub-agregador.md` e guarda `hub_is_derived_readonly`). A
-> convencao de frescor vale no de projeto.
+> Cascata de rota, local e formato do bullet residual, dreno e a fronteira entre
+> `## INBOX` e o fallback `inbox/`: [`references/intake-e-inbox.md`](references/intake-e-inbox.md).
 
 ### Sinais de frescor (`TAB_*`)
 
-Motor: `tools/session_signals.py` (read-only, offline, sem LLM). Adapter de
-hook Claude Code: `tools/hooks/tab_pendencias_reminder.py` (stdin JSON ->
-stdout `{continue:true, additionalContext?}`; exit sempre 0; zero regra de
-negocio propria). Health imprime as mesmas linhas `TAB_*`.
+Motor read-only `tools/session_signals.py`; adapter de hook
+`tools/hooks/tab_pendencias_reminder.py`; `todo_health.py` imprime as mesmas
+linhas sob demanda. Sinal `TAB_*` emitido e **acao obrigatoria da thread
+principal**, nunca lembrete passivo -- e nenhum deles autoriza reordenar por
+relogio.
 
-O adapter e ligado a **SessionStart** e a **UserPromptSubmit** e **roteia
-por `hook_event_name`**: sinal de estado do repositorio (CREATE, SYNC,
-TRIAGE, LEADER_AGED, VERIF, RECOVERY) sai no **SessionStart**; sinal reativo
-ao turno (CONCURRENT) sai no **UserPromptSubmit**. Nenhum sinal sai nos
-dois. RECOVERY ficou no SessionStart por decisao do lider em 19/08/2026
-(zero repeticao; orfao nascido no meio da sessao so aparece na sessao
-seguinte -- na hora, `todo_health.py` imprime o mesmo sinal sob demanda).
-`hook_event_name` ausente assume SessionStart; evento desconhecido
-nao emite. O evento por-turno deduplica por `session_id` (mesmas reasons
-nao repetem; reasons novas voltam a emitir).
-
-Contrato completo: [`references/sinais-de-frescor.md`](references/sinais-de-frescor.md).
-
-| Sinal | Gatilho resumido | Acao da thread |
-|---|---|---|
-| `TAB_TODO_CREATE_REQUIRED` | git sem `TODO.md` | `--create` |
-| `TAB_STATUS_SYNC_RECOMMENDED` | ha ⏳/🔄 e tabela defasada (commits/dias) | `todo_sync.py` (barato) |
-| `TAB_TRIAGE_REQUIRED` | classifiable **ou** residual aged **ou** `inbox/` | residual TODO: `--drain`; se so `inbox/`: fallback por arquivo (nao full reorder por relogio) |
-| `TAB_CONCURRENT_INBOX_PRESENT` | `inbox/*.md` pendente | `list_pending` + bridge+intake por arquivo (motor `--drain` nao apaga) |
-| `TAB_LEADER_DECISION_AGED` | residual `needs-leader-decision` envelhecido | 2-3 opcoes + re-intake |
-| `TAB_VERIFICATION_AGING` | muitos 🔍 ou 🔍 + dias sem tocar TODO | onda TST-*/AUD-* |
-| `TAB_INTAKE_RECOVERY_REQUIRED` | orfaos no journal de intake | recuperacao idempotente |
-
-**Envelhecimento residual (INTAKE-AGE-1):** `cycles >= triage_max_cycles`
-(default 2) **ou** idade desde `since` >= `triage_max_age_days` (default 1).
-A idade de calendario avanca mesmo sem `--drain` (liveness). Leader fresco
-**nao** polui `TAB_TRIAGE_REQUIRED`; leader aged dispara `TAB_LEADER_DECISION_AGED`
-e entra no TRIAGE. Limiares em `.tab_pendencias.ini` secao `[signals]`.
+> Os 7 sinais (`TODO_CREATE_REQUIRED`, `STATUS_SYNC_RECOMMENDED`,
+> `TRIAGE_REQUIRED`, `CONCURRENT_INBOX_PRESENT`, `LEADER_DECISION_AGED`,
+> `VERIFICATION_AGING`, `INTAKE_RECOVERY_REQUIRED`) com gatilho, acao da thread,
+> roteamento SessionStart/UserPromptSubmit e envelhecimento residual:
+> [`references/sinais-de-frescor.md`](references/sinais-de-frescor.md).
 
 ---
 
@@ -309,298 +255,91 @@ recomendando `/tab_pendencias --add_tests_audit`.
 
 ### `--add`
 
-Entrada de descoberta / item novo no pipeline de intake (ADR-0002). O núcleo
-mecânico é `tools/todo_intake.py` (offline, stdlib, sem LLM): recebe um
-`WorkCandidate` **já julgado** (flags booleanas de predicado preenchidas por
-quem chama -- a skill/agente --, o núcleo **não** infere de prosa) e aplica a
-cascata fixa de rota.
+Entrada de item novo no pipeline de intake (ADR-0002). Motor
+`tools/todo_intake.py` (offline, stdlib, **sem LLM**). Fronteira fixa: **o
+agente julga** (prosa, impacto, autoridade) e preenche flags booleanas; **o
+nucleo nao infere de prosa**, so classifica por flag e grava. Cascata, primeiro
+que casa vence: `DUPLICATE` -> `NEEDS_TRIAGE` -> `NEEDS_LEADER_DECISION` ->
+`FULL_REORDER` (fundacao) -> `LOCAL_INTEGRATION` (L0) -> `SCOPED_REORDER` ->
+`FULL_REORDER` (default). Nunca jogar L0 na INBOX por conveniencia.
 
-**Cascata** (primeiro que casa vence):
+Gates que abortam o `--apply` sem escrever: working tree do `TODO.md` suja;
+INBOX residual com item **classificavel** (`classifiable_inbox_present` --
+drain-first); equivalencia fora do subgrafo violada (`scoped_equivalence_failed`).
+`Status` de linha pre-existente nunca muda.
 
-1. ID já **na tabela** **ou** descrição normalizada (strip + colapsa whitespace +
-   casefold) igual a item da tabela/INBOX residual, com critérios de aceitação
-   iguais se **ambos** tiverem o campo → `DUPLICATE` (não cria linha; limpa
-   residual relacionado se houver). Fronteira: equivalência **além** de string
-   normalizada é julgamento do agente (sem NLP no núcleo).
-2. campos incompletos / dep inexistente / source inválido → `NEEDS_TRIAGE` (INBOX residual)
-3. sem autoridade → `NEEDS_LEADER_DECISION` (INBOX residual)
-4. fundação → `FULL_REORDER` (topo estável + ondas; `--apply` grava)
-5. local (L0) → `LOCAL_INTEGRATION` (append puro de 1 linha no fim da tabela)
-6. escopado → `SCOPED_REORDER` (subgrafo S; `--apply` grava com equivalência fora de S)
-7. default → `FULL_REORDER`
-
-P-dup por **id** **não** conta id só na INBOX residual: residual re-entra no
-pipeline (ex.: após o líder decidir). P-dup por **descrição normalizada**
-**sim** casa residual. Id só na residual + flags de integração → rota
-L0/SCOPED/FULL e o núcleo remove a linha residual do mesmo id ao gravar.
-
-**Contrato de L0:** zero células de linhas existentes mudam; marcador
-recuperável `<!-- intake:CANDIDATE_ID -->` na descrição (para o journal
-`recover_orphans`). Journal write-ahead antes de mutar (L0/residual/DUPLICATE);
-`mark_done` após escrita validada. Working tree do `TODO.md` limpa é
-pré-condição de `--apply`. Se a INBOX residual tiver item **classificável**
-(sem `[triage ...]` válido), o apply aborta com `classifiable_inbox_present`
--- drain-first.
-
-**Contrato SCOPED/FULL (TAB-ADD-005/006):** `item_id` obrigatório; W1
-(Status de linhas pré-existentes nunca muda); FULL faz topological sort
-estável + ondas `W1..` e insere o candidato com o marcador intake.
-SCOPED calcula o menor subgrafo seguro `S` (deps abertas + ancestrais
-não-done + descendentes + peers de onda); se `|S|/n` exceder
-`scoped_reorder_max_fraction` (default 0.5; override via
-`WorkCandidate.scoped_max_fraction`, env `TAB_INTAKE_SCOPED_MAX_FRACTION`
-ou `.tab_pendencias.ini` `[intake]`) **ou** `S` tocar mais de um `Grupo`,
-promove a FULL (`promoted_from=SCOPED_REORDER`). Fora de `S`, a linha
-bruta de cada id existente permanece byte-a-byte idêntica; violação
-aborta com `scoped_equivalence_failed` sem escrever. SCOPED/FULL montam
-o texto em memória **antes** do journal (ciclo/equivalência não deixam
-órfão NEW); journal imediatamente antes da escrita atômica.
-
-**Após decisão do líder (TAB-ADD-007):** residual `needs-leader-decision`
-não fica estacionado. A skill/agente (não o Python) apresenta 2–3 opções
-com trade-offs. Quando o líder decide, a **thread chama de novo o intake**
-com as flags de julgamento preenchidas (`fields_complete=True`, rota
-`local` / `scoped` / `full` / fundação conforme o caso,
-`authority_ok=True`). O núcleo integra e **remove da INBOX residual
-qualquer linha com o mesmo `item_id`** (outras linhas da INBOX ficam;
-heading vazio pode permanecer). Apresentar opções e colher a decisão é
-dever da skill/agente; o strip do residual é mecânico no apply.
-
-**Uso mecânico (CLI):**
-
-```text
-python3 tools/todo_intake.py --todo TODO.md \
-  --candidate-id cand-1 --item-id F-12 \
-  --description "..." --source agent \
-  --fields-complete --local
-# dry-run (exit 2 se a rota exigiria escrita)
-
-python3 tools/todo_intake.py --todo TODO.md ... --apply
-```
-
-Gatilhos em linguagem natural ("adicione isto às pendências", "registra esta
-feature", "isso precisa entrar no TODO") usam o mesmo pipeline. A skill
-preenche o julgamento (local/escopado/fundação/autoridade/campos) e chama o
-núcleo; não joga L0 na INBOX por conveniência.
+> Contratos de L0/SCOPED/FULL, regra de duplicata, journal write-ahead,
+> `scoped_reorder_max_fraction`, retomada apos decisao do lider e a CLI:
+> [`references/intake-e-inbox.md`](references/intake-e-inbox.md).
 
 ### Fluxo agentivo de `--add` (agente julga, motor persiste)
 
-Subagentes / workers **não** editam `TODO.md`. Devolvem descoberta no bloco:
+Subagentes/workers **nao editam `TODO.md`**: devolvem o bloco `DISCOVERED_WORK`
+(`source_item` / `description` / `evidence` / `known_dependencies` /
+`blast_radius`) e a thread principal converte com `tools/intake_agent_bridge.py`
+(stdlib, sem LLM) e chama o intake.
 
-```text
-DISCOVERED_WORK
-source_item: <ID atual>
-description: <trabalho descoberto>
-evidence: <arquivo:linha/teste/log>
-known_dependencies: <IDs ou unknown>
-blast_radius: <local/component/system/unknown>
-```
-
-A thread principal (único escritor lógico por orquestração):
-
-1. Lê o bloco (prosa já julgada pelo agente).
-2. Converte com `tools/intake_agent_bridge.py` (stdlib, **sem LLM**):
-   `parse_discovered_work` + `judgment_from_discovered` mapeia
-   `blast_radius` → flags (`local`→`is_local`, `component`→`is_scoped`,
-   `system`→`is_foundation`, `unknown`→`fields_complete=False`).
-3. Ou preenche as mesmas flags via CLI (`--local` / `--scoped` / …).
-4. Chama `todo_intake.run_intake(..., apply=True)` -- o motor só **persiste**
-   (com `TodoWriteLock` antes de mutar; timeout default 10s).
-
-Fronteira: o agente **julga** (prosa, impacto, autoridade); o motor
-**classifica por flags e grava**. Não há NLP no núcleo.
+> Formato do bloco e mapa `blast_radius` -> flags: secao "Fluxo agentivo" de
+> [`references/intake-e-inbox.md`](references/intake-e-inbox.md).
 
 ### Concorrência e `inbox/` (TAB-CONC)
 
-- **Dentro de uma orquestração multi-agent:** só o `main` altera a tabela.
-  Subagente devolve `DISCOVERED_WORK`; main chama bridge + intake.
-- **Sessões / worktrees independentes (sem orquestrador comum):** usar
-  `tools/concurrent_inbox.write_discovery(root, session_id, slug, body_md)`
-  → `inbox/YYYYMMDD-HHMMSS-<session>-<slug>.md`. Não é backlog normal.
-- **Próxima sessão principal:** se `todo_health` emitir
-  `TAB_CONCURRENT_INBOX_PRESENT` / `TAB_TRIAGE_REQUIRED` por `inbox/`,
-  processar cada arquivo (`list_pending` → `read_discovery` → bridge+intake)
-  no próximo ponto seguro. `--drain` **nao** consome `inbox/*.md` -- so a
-  secao residual `## INBOX` do `TODO.md`.
-- **Escrita segura:** `run_intake`/`run_drain` em apply adquirem
-  `tools/todo_lock.TodoWriteLock` (fcntl em POSIX; msvcrt em Windows;
-  fallback exclusive-create com stale 120s). Lock reentrant no mesmo
-  thread (drain aninha intake).
+Dentro de uma orquestracao multi-agent, **so o `main` altera a tabela**.
+Sessoes/worktrees independentes escrevem em `inbox/*.md` via
+`tools/concurrent_inbox.py`: nao e backlog normal, e o `--drain` **nao** le nem
+apaga esses arquivos. Escrita em apply sempre sob `tools/todo_lock.TodoWriteLock`.
+
+> Receita de processamento por arquivo e detalhe do lock: secao "Concorrencia"
+> de [`references/intake-e-inbox.md`](references/intake-e-inbox.md).
+
 ### `--drain` (TAB-INBOX-004)
 
-Opera a secao residual `## INBOX` do `TODO.md` como **exception queue**.
-Motor: `tools/todo_intake.py --drain`. **Nao** le nem apaga arquivos em
-`inbox/` (fallback concurrent -- ver secao TAB-CONC acima).
+Opera **somente** a secao residual `## INBOX` do `TODO.md`
+(`tools/todo_intake.py --drain`). Item classificavel sem julgamento nao e
+adivinhado: dry-run lista e sai `2`; `--apply` sem `--judgments-json` sai `1`.
+`needs-leader-decision` **nunca** auto-integra, so envelhece. Pos-condicao de
+apply verde: `classifiable_inbox_count == 0`.
 
-```text
-python3 tools/todo_intake.py --drain --todo PATH
-python3 tools/todo_intake.py --drain --todo PATH --apply
-python3 tools/todo_intake.py --drain --todo PATH --apply --judgments-json PATH
-# ou --judgments-json -  (stdin) / --json com --drain
-```
-
-Comportamento:
-
-1. Lê INBOX via `inbox_entries`.
-2. **classifiable** (sem `[triage ...]` válido): dry-run lista e exit 2;
-   `--apply` exige julgamento em `--judgments-json` (senão exit 1).
-3. Residual com triage **válido**: em apply, incrementa `cycles` no metadado;
-   `needs-leader-decision` **não** auto-integra (só envelhece).
-4. Judgments (por id da linha INBOX):
-
-```json
-{
-  "FIX-RISCO-1": {
-    "action": "split",
-    "items": [
-      {"candidate_id":"...", "item_id":"FIX-RISCO-A", "description":"...",
-       "source":"audit", "fields_complete": true, "is_local": true,
-       "authority_ok": true}
-    ]
-  }
-}
-```
-
-   `action`: `integrate` (1 item), `split` (N items), `keep` (+ `reason` de
-   triage). Após integrate/split remove a linha original e chama `run_intake`
-   apply por candidato (journal write-ahead por candidato).
-5. Pós-condição de apply bem-sucedido: `classifiable_inbox_count == 0`
-   (senão rc=1). Working tree do TODO limpa no início do apply.
-   Contagem e strip referem-se só a bullets da secao residual no TODO --
-   `inbox/*.md` permanece intacto mesmo com drain verde.
-
-Health (`todo_health.py`) consome `session_signals.collect_signals` e imprime
-as linhas `TAB_*` (ver secao **Sinais de frescor** e
-`references/sinais-de-frescor.md`). `TAB_TRIAGE_REQUIRED` = classifiable **ou**
-residual aged (cycles/idade) **ou** `inbox/` concorrente -- **nao**
-`inbox_count>=3` so de leader frescos. Quando o gatilho e so `inbox/`, a
-acao e o fluxo TAB-CONC (list_pending + bridge+intake), nao "apagar pasta
-apos `--drain`". Contagem de `needs-leader-decision` fresco e separada;
-so o aged emite `TAB_LEADER_DECISION_AGED` (+ TRIAGE).
+> CLI, schema dos judgments (`integrate` / `split` / `keep`) e ciclo de
+> envelhecimento: secao "`--drain`" de
+> [`references/intake-e-inbox.md`](references/intake-e-inbox.md).
 
 ## `--audit`
 
-Motor de auditoria estrutural do próprio `TODO.md` (`tools/todo_audit.py`, camada
-núcleo genérico, decisão em
-[`docs/adr/0001-fronteira-nucleo-generico-e-convencoes-da-casa.md`](docs/adr/0001-fronteira-nucleo-generico-e-convencoes-da-casa.md)):
-roda offline, sem LLM/rede, sem orquestrar nenhum agent. Executa sob demanda; **não** faz parte da Injeção
-automática de testes e auditorias acima (aquela cobre o *planejamento* do projeto
-que usa a skill; `--audit` cobre a *integridade da própria tabela*).
+Auditoria estrutural do proprio `TODO.md` (`tools/todo_audit.py`): offline, sem
+LLM/rede, sem orquestrar agent; **nao** faz parte da Injecao automatica de testes
+e auditorias acima. **Sempre read-only** -- nenhum caminho abre o `TODO.md` para
+escrita nem muta estado de git; `--output` e a unica escrita possivel e e
+**bloqueada (`exit 1`) se resolver para dentro do repositorio auditado**.
 
-- **Sempre read-only.** Nenhum caminho de código abre o `TODO.md` em modo de
-  escrita, nem muta estado de git. A única escrita possível é a de `--output`
-  (relatório opcional em arquivo à parte), e ela é bloqueada com erro (`exit 1`) se o
-  caminho resolver para dentro do repositório auditado.
-- **`--todo <caminho>`**: audita um arquivo fora do repositório corrente (não
-  precisa estar no `cwd` nem no mesmo repositório git de quem invoca). Restrição
-  fixa: o arquivo precisa se chamar exatamente `TODO.md` (mesma convenção de
-  `todo_lib.find_todo`); qualquer outro nome sai com `exit 1` e mensagem explicando
-  a restrição. Sem a flag, o comportamento é o mesmo de sempre: descoberta
-  automática a partir do `cwd`, que precisa ser um repositório git.
-- **`--profile core|casa`** e o arquivo `.tab_pendencias.ini` na raiz do repo
-  auditado (seção `[profile]`, chave `name = casa`): perfil `core` é o default
-  (ausência de arquivo ou de chave); `--profile` na linha de comando sobrepõe o
-  arquivo para uma execução pontual. Config lido com `configparser` da stdlib
-  (D-9/D-10 -- INI, escolha histórica; piso oficial Python >= 3.11, PYFLOOR-2).
-  **A camada casa é aditiva, nunca substitutiva**: sob `casa` rodam os 14 checks
-  do núcleo **mais** os 3 da casa (17 no total); quem não ativa `casa` não perde
-  nenhum check do núcleo, só não ganha os 3 extras. Medido ao vivo: sob `core`
-  (default), os 11
-  checks do núcleo executam e cada check `profile = casa` é **declarado como não
-  executado** nos avisos do motor (`"CHK-12 (convencao da casa) nao executado --
-  perfil ativo = core. Habilite com --profile casa ou .tab_pendencias.ini
-  [profile] name = casa."`, um por check pulado) -- nunca silenciado. Sob
-  `--profile casa`, os 14 checks executam e nenhum aviso de check pulado
-  aparece.
-- **`--max-per-check N`** (default 5; `N<=0` = sem limite): amostra no máximo N
-  achados por check no relatório impresso. Achados de severidade **CRÍTICO nunca
-  são truncados**; o corte incide só sobre IMPORTANTE/COSMÉTICO, e o que ficou de
-  fora é sempre contado e declarado na própria seção do check (nunca só
-  descartado -- "no silent caps").
-- **`--output <arquivo>`**: também grava o relatório nesse arquivo (além de
-  imprimir no terminal). Nunca pode resolver para dentro do repositório auditado
-  (aborta com `exit 1` se apontar para lá); use um caminho de scratchpad.
-- **`-v` / `--verbose`**: acrescenta traceback completo quando um check ou a
-  leitura do `TODO.md` falha (default: só tipo + mensagem da exceção).
-- **Exit codes** (fixos, nenhum check inventa um novo): `0` = execução ok e zero
-  achados; `1` = erro de execução (não é repositório git quando exigido, `TODO.md`
-  ilegível, flag inválida ou desconhecida); `2` = execução ok e há 1+ achado, **de
-  qualquer severidade, inclusive só COSMÉTICO**. Isto é o que permite usar
-  `--audit` em automação/CI: um pipeline que quer tolerar cosmético filtra por
-  severidade dentro do relatório, não pelo exit code.
-- **Catálogo de checks hoje** (14 do núcleo + 3 da casa = 17 registrados;
-  severidade indicada é o default do registro -- alguns checks emitem achados
-  com severidade diferente conforme o caso concreto, ex.: `CHK-08` cobre tanto
-  COSMÉTICO quanto IMPORTANTE). A coluna `Perfil` diz se o check roda sempre
-  (`core`) ou só quando `casa` está ativo:
+Exit codes fixos, nenhum check inventa outro: `0` = ok e zero achados; `1` = erro
+de execucao; `2` = ok e ha 1+ achado, **de qualquer severidade, inclusive so
+COSMETICO** (por isso automacao filtra por severidade no relatorio, nunca pelo
+exit code). Achado CRITICO **nunca** e truncado por `--max-per-check`, e o que
+ficou de fora e sempre contado e declarado ("no silent caps"). O perfil `casa` e
+**aditivo, nunca substitutivo** (14 checks do nucleo + 3 da casa); sob `core`
+cada check `casa` e declarado como nao executado, nunca silenciado.
 
-  | Check | Título | Severidade (default) | Perfil |
-  |---|---|---|---|
-  | `CHK-01` | ID duplicado | CRÍTICO | core |
-  | `CHK-02` | nº de células ≠ cabeçalho (diagnóstico) | CRÍTICO | core |
-  | `CHK-03` | Tabela fragmentada + span da canônica | CRÍTICO | core |
-  | `CHK-04` | ncols divergente entre tabelas ID+Status | CRÍTICO | core |
-  | `CHK-05` | Pré-requisito citando ID inexistente | IMPORTANTE | core |
-  | `CHK-06` | Ciclo de dependência | CRÍTICO | core |
-  | `CHK-07` | Onda inconsistente com a dependência | IMPORTANTE | core |
-  | `CHK-08` | Status fora do vocabulário canônico | IMPORTANTE | core |
-  | `CHK-09` | Claims obsoletas na Descrição (contra o git real) | IMPORTANTE | core |
-  | `CHK-10` | Proposta do `todo_sync.py` (sem `--apply`) anexada | COSMÉTICO | core |
-  | `CHK-11` | Reconciliação de contagem (`todo_health`) | CRÍTICO | core |
-  | `CHK-19` | Mais de uma tabela no arquivo | CRÍTICO / IMPORTANTE | core |
-  | `CHK-20` | Linha em branco dentro da tabela | IMPORTANTE | core |
-  | `CHK-21` | Tabela de checklist fora do TODO.md (projeto) | IMPORTANTE | core |
-  | `CHK-12` | TST-*/AUD-* agendado antes do que cobre | CRÍTICO | **casa** |
-  | `CHK-13` | INBOX: ID duplicado da tabela ou formato inválido | IMPORTANTE | **casa** |
-  | `CHK-14` | Item de Wiki + doc para iniciante ausente na última onda | COSMÉTICO | **casa** |
-
-  Os 3 checks de perfil `casa` moram em `tools/casa/chk_casa.py` (não mais
-  vazio) e implementam, respectivamente, a ordem inviolável de teste/auditoria
-  (ver "Testes e auditoria: ordem inviolavel" acima), a higiene da seção INBOX,
-  e a regra da casa de item fixo de Wiki+doc-iniciante como última onda
-  pós-tag.
-
-  Alvo (`--todo`) fora de qualquer repositório git resolvível: `CHK-09`/`CHK-10`
-  (os únicos que dependem de `git`) degradam sozinhos por achado
-  ("desconhecido"/erro), e o motor soma um aviso sistêmico único explicando a
-  causa comum, em vez de N achados soltos sem contexto.
+> Catalogo dos 17 checks (CHK-01..14, CHK-19..21) com severidade e perfil, flags
+> (`--todo`, `--profile`, `--max-per-check`, `--output`, `-v`) e degradacao fora
+> de repositorio git: [`references/audit-e-fix.md`](references/audit-e-fix.md).
 
 ### `--fix` (`tools/todo_fix.py`)
 
-Motor do `--fix` (FIX-ENG, ADR-0001 seção c, FIX-ESCOPO-2): aplica **só** as
-**duas** classes mecânicas e byte-preserving do escopo real --
-`escapar_pipe_cru` (CHK-02) e `remover_fragmento_duplicado` (CHK-01) -- marcadas
-`[auto-fixável]` pelos checks. Consolidar tabela (CHK-03/04) e reescrever claim
-(CHK-09) ficam **fora** do auto-fix (movem linhas em arquivo de terceiro).
-Regra: audit nunca marca `fixable=True` sem corretor no motor. **Nunca** muda
-`Status`, nunca reordena, nunca toca branch/commit do repositório.
+Aplica **so** as duas classes mecanicas e byte-preserving do escopo real:
+`escapar_pipe_cru` (CHK-02) e `remover_fragmento_duplicado` (CHK-01). **Nunca**
+muda `Status`, nunca reordena, nunca toca branch/commit. **Default e dry-run**;
+`--apply` e confirmado **classe a classe**, nunca por um "sim" global implicito.
+Precondicao obrigatoria: working tree do `TODO.md` limpa (suja, ou sem repo git
+resolvivel, aborta com `exit 1` sem tocar o arquivo). Escrita sempre atomica, com
+prova de round-trip antes do `os.replace`; correcao cuja posicao o motor nao
+localiza sem ambiguidade sai no plano como **nao aplicavel** -- o motor nunca
+escreve adivinhando. Regra fixa do lider: todo `--audit` termina sugerindo o
+`--fix` com o que faria.
 
-- **Default é dry-run.** Sem `--apply`, só mostra o plano (o que faria, com
-  diff das linhas envolvidas) e nunca escreve.
-- **`--apply <classe...>`**: aplica só as classes nomeadas (`escapar_pipe_cru`,
-  `remover_fragmento_duplicado`), ou `--apply all` para todas as detectadas
-  nesta execução -- confirmação sempre **separada por classe**, nunca um "sim"
-  global implícito.
-- **Precondição obrigatória**: a working tree do `TODO.md` tem que estar
-  limpa (`git status --porcelain` vazio para o arquivo) antes de qualquer
-  `--apply`; working tree suja, ou ausência de repositório git resolvível,
-  aborta com `exit 1` sem tocar o arquivo.
-- **Escrita sempre atômica**: arquivo temporário no mesmo diretório, prova de
-  round-trip (linhas não tocadas byte-a-byte) e de contagem de itens
-  ANTES de trocar o arquivo real (`os.replace`); qualquer falha na prova ou
-  na escrita aborta sem deixar o `TODO.md` tocado.
-- Uma correção marcada `[auto-fixável]` pelo `--audit`, mas cuja posição exata
-  o motor de fix não consegue localizar sem ambiguidade (ex.: pipe cru fora
-  de qualquer *code span*), aparece no plano como **não aplicável**, com o
-  motivo -- o motor nunca escreve adivinhando.
-- Exit codes (D-6): `0` = nada a corrigir; `1` = erro de execução (não é
-  repositório git, `TODO.md` ilegível, working tree suja ao aplicar, falha de
-  escrita); `2` = há 1+ correção disponível (mostrada em dry-run ou aplicada).
-
-Regra fixa do líder: ao final de todo `--audit`, sugerir o `--fix` listando o
-que faria. O engate conversacional (a sugestão automática dentro do relatório
-de `--audit`) é de outra fatia; o motor (`todo_fix.build_plan`) já expõe o
-hook necessário.
+> Fora do auto-fix por desenho: consolidar tabela (CHK-03/04) e reescrever claim
+> (CHK-09). Exit codes e detalhe do plano:
+> [`references/audit-e-fix.md`](references/audit-e-fix.md).
 
 ## Invocação sem argumento
 

@@ -15,6 +15,31 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Alterado
 
+- **`SKILL.md` encurtado de 634 para 373 linhas (contexto por invocação).** O
+  `SKILL.md` é o único arquivo do produto que entra no contexto **toda vez** que
+  a skill é invocada; as demais ~40.000 linhas ficam em disco e não custam nada.
+  Oito seções operacionais saíram do corpo e foram para `references/`: `--audit`
+  e `--fix` → **`references/audit-e-fix.md`** (novo); INBOX residual, `--add`,
+  fluxo agentivo de `--add`, concorrência/`inbox/` e `--drain` →
+  **`references/intake-e-inbox.md`** (novo); sinais `TAB_*` →
+  `references/sinais-de-frescor.md`, que **já continha** o catálogo dos 7 sinais,
+  o predicado de envelhecimento e o roteamento por evento de hook (movimento sem
+  conteúdo novo: era duplicação).
+
+  **O que NÃO saiu do `SKILL.md`:** toda proibição e todo gate de cada seção
+  movida, porque são o que decide se vale abrir a referência -- worker/subagente
+  não escreve na INBOX nem edita `TODO.md`; conflito de INBOX resolve por união,
+  nunca descartando linha; hub agregador é view derivada; `--drain` não toca
+  `inbox/*.md`; o núcleo do intake não infere de prosa; gates de `--apply`
+  (árvore suja, INBOX classificável, equivalência do subgrafo); `--audit` sempre
+  read-only, `--output` bloqueado dentro do repo auditado, exit code `2` = há
+  achado (não é erro), CRÍTICO nunca truncado, perfil `casa` aditivo; `--fix`
+  default dry-run, confirmação classe a classe, nunca muda `Status`, nunca
+  escreve adivinhando. Cada seção movida deixou no lugar um ponteiro dizendo o
+  que há na referência e em qual arquivo. **A `description` do frontmatter não
+  mudou** (é o que faz a skill disparar). Zero mudança de comportamento: nenhum
+  motor, teste ou garantia foi tocado (905 passed antes e depois).
+
 - **A forma do arquivo-modelo virou parte do contrato (`TAB-UNIQ-005`).**
   Nova §5.2 em `references/frescor-da-tabela.md` (resumida em `SKILL.md` e
   `README.md` pt+en): a **linha 1** declara a estrutura em uma linha, antes do
