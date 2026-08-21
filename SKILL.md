@@ -13,11 +13,11 @@ O usuário invocou com: $ARGUMENTS
 
 ---
 
-## Schema canônico (9 colunas)
+## Schema canônico (10 colunas)
 
 ```markdown
-| ID | Onda | Grupo | Descrição Técnica | Prioridade | Pré-requisito | Dificuldade | Status | Estado Auditado |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| WSJF | ID | Onda | Grupo | Descrição Técnica | Prioridade | Pré-requisito | Dificuldade | Status | Estado Auditado |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 ```
 
 A ordem das linhas (de cima para baixo) É a ordem de execução recomendada. A coluna `Onda` agrupa passos paralelizáveis.
@@ -37,7 +37,7 @@ O `TODO.md` tem esta ordem, de cima para baixo -- contrato de FORMA, detalhe nor
 
 **Uma tabela de checklist por PROJETO**, e ela vive no `TODO.md` (contrato §5.0.1): nenhum outro arquivo do projeto carrega fila de trabalho (`TODO_ARCHIVE.md`, `AUDIT_FIND.md`, `PLANO.md` com coluna `Status`). Tabela em documento que **não é fila de trabalho** (índice de ADR com `Status = Aceito`, matriz de rotas, contagem) continua legítima -- o `--audit` (CHK-21) só acusa tabela com **ID + Status + status do vocabulário fechado**, e é desligável por `.tab_pendencias.ini` (`[audit] checklist_scan = off`).
 
-**Forma do arquivo (o modelo da casa, detalhe em `references/frescor-da-tabela.md` §5.2):** a **linha 1** declara a estrutura em uma linha (`> **ESTRUTURA CANÔNICA DO ARQUIVO — NÃO QUEBRAR A TABELA:** ... **EOF** ... **Proibido:** segunda tabela; linha em branco **dentro** da tabela ...`), antes do título `#`; a tabela tem o heading próprio **`## TABELA UNIFICADA`** logo acima dela (o nome carrega a regra: unificada = uma só); e **scoring WSJF/checklists/sumários vão em bullets no cabeçalho** (nunca em tabela: o arquivo tem um bloco `|...|` só), sob `### Scoring WSJF (referência — **não** é tabela de trabalho)` com a linha de escopo *"Itens abaixo são registro histórico de score; o status de trabalho vive só na tabela única."*. Isso é **forma**, não leitura: arquivo sem esses elementos continua válido -- eles existem para a regra ficar visível dentro do próprio arquivo, e para ninguém acrescentar coluna `Status` num bloco de referência.
+**Forma do arquivo (o modelo da casa, detalhe em `references/frescor-da-tabela.md` §5.2):** a **linha 1** declara a estrutura em uma linha (`> **ESTRUTURA CANÔNICA DO ARQUIVO — NÃO QUEBRAR A TABELA:** ... **EOF** ... **Proibido:** segunda tabela; linha em branco **dentro** da tabela ...`), antes do título `#`; a tabela tem o heading próprio **`## TABELA UNIFICADA`** logo acima dela (o nome carrega a regra: unificada = uma só); e **checklists/sumários/material de referência vão em bullets no cabeçalho** (nunca em tabela: o arquivo tem um bloco `|...|` só). **O WSJF é a exceção:** o **valor calculado de cada item vive na coluna `WSJF`**, a primeira da tabela, e **não** em bullet no cabeçalho; o que fica no cabeçalho é só a **fórmula** (como se calcula), sob `### Scoring WSJF (referência — **não** é tabela de trabalho)` com a linha de escopo *"o status de trabalho vive só na tabela única"*. Isso é **forma**, não leitura: arquivo sem esses elementos continua válido -- eles existem para a regra ficar visível dentro do próprio arquivo, e para ninguém acrescentar coluna `Status` num bloco de referência.
 
 **Mudou em 2026-08-19:** a INBOX ficava DEPOIS da tabela. Ela subiu porque "fim da tabela = fim do arquivo" é a invariante que ferramentas e guards de consumidor usam para acrescentar linha sem procurar onde a tabela acaba -- uma seção depois da tabela a tornava falsa por construção.
 
@@ -223,7 +223,7 @@ Subagent não dispara subagent: quem dispara cada agent é a thread principal (a
 2. Perguntar só o essencial: caminho (sugerir `TODO.md` na raiz) e título do projeto.
 3. Aplicar o gate anti-OE: **o Cosimo decide a abordagem** (thread direta vs time) pela complexidade.
 4. Montar a tabela: thread direta (simples) OU **time coordenado pelo Cosmo** (complexa), conforme a decisão do Cosimo.
-5. Escrever `TODO.md` com as 9 colunas, linhas em ordem de execução, Onda preenchida. Se houver secao residual `## INBOX` no TODO, drená-la (integrar e limpar residual). Se houver `inbox/*.md` concurrent, processar em fluxo proprio (`list_pending` + bridge+intake por arquivo) -- o motor de `--drain`/`--create`/`--reorder` **nao** apaga esses arquivos.
+5. Escrever `TODO.md` com as 10 colunas, linhas em ordem de execução, Onda preenchida. Se houver secao residual `## INBOX` no TODO, drená-la (integrar e limpar residual). Se houver `inbox/*.md` concurrent, processar em fluxo proprio (`list_pending` + bridge+intake por arquivo) -- o motor de `--drain`/`--create`/`--reorder` **nao** apaga esses arquivos.
 
 ### `--reorder`
 

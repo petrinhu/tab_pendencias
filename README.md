@@ -82,17 +82,19 @@ stdlib -- escolha **histórica** (D-9; na época o motivo era não exigir 3.11+ 
 `tomllib`); o formato **permanece INI** por compatibilidade com configs já
 publicadas, não porque o piso ainda seja inferior a 3.11.
 
-### Estrutura padrão da tabela (9 colunas)
+### Estrutura padrão da tabela (10 colunas)
 
 ```markdown
-| ID | Onda | Grupo | Descrição Técnica | Prioridade | Pré-requisito | Dificuldade | Status | Estado Auditado |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| WSJF | ID | Onda | Grupo | Descrição Técnica | Prioridade | Pré-requisito | Dificuldade | Status | Estado Auditado |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 ```
 
 A ordem das linhas (de cima para baixo) é a ordem de execução recomendada. A coluna
-`Onda` agrupa passos de igual valor que podem rodar em paralelo. Tabelas legadas de
-8 colunas (sem `Onda`) continuam sendo lidas corretamente por `--show`/`--main`; o
-parser localiza o cabeçalho pelo nome das colunas, nunca por uma contagem fixa.
+`Onda` agrupa passos de igual valor que podem rodar em paralelo. A coluna `WSJF`
+carrega o valor já calculado do item (`—` quando não há score). Tabelas legadas de
+8 ou 9 colunas (sem `WSJF`, sem `Onda`) continuam sendo lidas corretamente por
+`--show`/`--main`; o parser localiza o cabeçalho pelo nome das colunas, nunca por
+uma contagem fixa.
 
 ### Ordem canônica do arquivo (INBOX antes, tabela por último)
 
@@ -129,10 +131,12 @@ desligável por `.tab_pendencias.ini` (`[audit] checklist_scan = off`,
 [`references/frescor-da-tabela.md`](references/frescor-da-tabela.md) §5.2: a **linha
 1** declara a estrutura em uma linha (blockquote `> **ESTRUTURA CANÔNICA DO ARQUIVO
 — NÃO QUEBRAR A TABELA:** ...`), antes do título `#`; a tabela ganha o heading
-próprio **`## TABELA UNIFICADA`** logo acima dela; e **scoring WSJF, checklists, sumários e
-material de referência vão em bullets no cabeçalho** (nunca em tabela), sob
+próprio **`## TABELA UNIFICADA`** logo acima dela; e **checklists, sumários e
+material de referência vão em bullets no cabeçalho** (nunca em tabela). **O WSJF é a
+exceção:** o valor calculado de cada item vive na **coluna `WSJF`**, a primeira da
+tabela; no cabeçalho fica só a **fórmula**, sob
 `### Scoring WSJF (referência — **não** é tabela de trabalho)` com a linha de escopo
-*"Itens abaixo são registro histórico de score; o status de trabalho vive só na
+*"o valor por item vive na coluna `WSJF` da tabela; o status de trabalho vive só na
 tabela única."*. É **forma**, não leitura: arquivo sem esses elementos continua
 válido; eles existem para a regra ficar visível dentro do próprio arquivo.
 
@@ -536,17 +540,18 @@ originally to avoid requiring 3.11+ via `tomllib`); the format **stays INI** for
 compatibility with already-published configs, not because the floor is still
 below 3.11.
 
-### Standard table structure (9 columns)
+### Standard table structure (10 columns)
 
 ```markdown
-| ID | Wave | Group | Technical Description | Priority | Prerequisite | Difficulty | Status | Audit State |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| WSJF | ID | Wave | Group | Technical Description | Priority | Prerequisite | Difficulty | Status | Audit State |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 ```
 
 Row order (top to bottom) is the recommended execution order. The `Wave` column
-groups steps of equal value that can run in parallel. Legacy 8-column tables
-(without `Wave`) are still read correctly by `--show`/`--main`; the parser locates
-the header by column name, never by a fixed count.
+groups steps of equal value that can run in parallel. The `WSJF` column carries the
+item's already computed score (`—` when unscored). Legacy 8- and 9-column tables
+(without `WSJF`, without `Wave`) are still read correctly by `--show`/`--main`; the
+parser locates the header by column name, never by a fixed count.
 
 ### Canonical file order (exactly one work table)
 
@@ -581,11 +586,14 @@ off`).
 **File shape (the house model)** -- detail in
 [`references/frescor-da-tabela.md`](references/frescor-da-tabela.md) §5.2 (pt-br):
 **line 1** states the structure in a single blockquote line, before the `#` title;
-the table gets its own heading (**"unified table"**) right above it; and WSJF
-scoring, checklists, summaries and reference material go in **bullets in the header**
-(never in a table: the file has a single `|...|` block), under a
+the table gets its own heading (**"unified table"**) right above it; and checklists,
+summaries and reference material go in **bullets in the header**
+(never in a table: the file has a single `|...|` block). **WSJF is the exception:**
+each item's computed score lives in the **`WSJF` column**, the first one in the
+table, and only the **formula** stays in the header, under a
 title that says what the section is *not* ("reference -- **not** a work table") plus
-a scope line ("the work status lives **only** in the single table"). This is
+a scope line ("the per-item score lives in the `WSJF` column; the work status lives
+**only** in the single table"). This is
 **shape**, not reading: a file without those elements is still valid; they exist so
 the rule stays visible inside the file itself, and so nobody adds a `Status` column
 to a reference block.

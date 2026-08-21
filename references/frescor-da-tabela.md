@@ -228,30 +228,63 @@ antes dela. O nome carrega a regra: *unificada* = uma só. É também o marcador
 que separa, a olho nu, o cabeçalho (tudo que é comentário/instrução) do único
 bloco de trabalho.
 
-**3. Scoring WSJF, checklists e material de referência vão em BULLETS, no
-cabeçalho** -- **nunca em tabela** (nem sem coluna `Status`), e nunca depois da
-tabela. Quem precisar registrar scoring, sumário, contagem, legenda ou índice
-usa **bullet ou lista**: é essa a razão de existir do formato em bullets do
-modelo, não uma preferência estética. O arquivo inteiro tem **um** bloco
-`|...|`.
-O modelo usa este título e esta linha de escopo, literalmente:
+**3. Checklists e material de referência vão em BULLETS, no cabeçalho** --
+**nunca em tabela** (nem sem coluna `Status`), e nunca depois da tabela. Quem
+precisar registrar sumário, contagem, legenda ou índice usa **bullet ou
+lista**: é essa a razão de existir do formato em bullets do modelo, não uma
+preferência estética. O arquivo inteiro tem **um** bloco `|...|`.
+
+**O WSJF é a exceção, e só ele:** o **valor calculado de cada item é célula da
+tabela**, na coluna `WSJF`, a primeira de todas. Não existe mais lista de score
+por item no cabeçalho. O que permanece no cabeçalho é a **fórmula**, porque ela
+diz *como se calcula*, e não é um valor por item:
 
 ```markdown
 ### Scoring WSJF (referência — **não** é tabela de trabalho)
 
-Escala 1-10 · CoD = Valor + Criticidade + Redução de Risco/OE · WSJF = CoD ÷ Job Size.
-Itens abaixo são **registro histórico de score**; o status de trabalho vive **só** na tabela única.
-
-- **ID-DO-ITEM** · onda P1 · valor=6 crit=4 red=3 CoD=13 job=2 WSJF=6.5 rank=1
+Escala 1-10 · CoD = Valor + Criticidade + Redução de Risco/OE · WSJF = CoD ÷ Esforço.
+O valor por item vive na coluna `WSJF` da tabela; o status de trabalho vive **só** na tabela única.
 ```
 
-Os dois pedaços são intencionais: o **título** diz o que a seção não é
-("**não** é tabela de trabalho"), e a **linha de escopo** diz onde o status
-mora ("o status de trabalho vive **só** na tabela única"). Sem eles, a próxima
-pessoa que precisar marcar progresso de um score transforma a lista numa tabela
-com coluna `Status` -- e o arquivo passa a ter duas tabelas, exatamente o
-defeito que §5 proíbe. Repare que no modelo o scoring é **lista de bullets**,
-não tabela: o arquivo tem um único bloco `|...|`, o da tabela canônica.
+Em resumo: **o número vai na coluna, a fórmula fica no cabeçalho.**
+
+O título e a linha de escopo continuam sendo intencionais: o **título** diz o
+que a seção não é ("**não** é tabela de trabalho"), e a **linha de escopo** diz
+onde o valor e o status moram. Sem eles, a próxima pessoa que precisar registrar
+score transforma a explicação numa tabela com coluna `Status` -- e o arquivo
+passa a ter duas tabelas, exatamente o defeito que §5 proíbe.
+
+### 5.2.1. Adaptar uma tabela que já existe (receita)
+
+Vale para o `TODO.md` de um projeto que ainda está em 9 colunas, com os valores
+de WSJF em bullets no cabeçalho. **É transporte, não recálculo.** Executa-se sob
+pedido do líder, projeto a projeto; nenhuma tabela é migrada em massa.
+
+1. **Acrescentar a coluna `WSJF` na primeira posição**, antes de `ID`, no
+   cabeçalho **e** na linha de separador (`| :--- |` a mais). Esquecer o
+   separador quebra a tabela no Markdown.
+2. **Transportar o valor já calculado** de cada item, do bullet do cabeçalho
+   para a célula `WSJF` da linha daquele item. O número que já existe é o que
+   vale: **recalcular mudaria a ordem por acidente**, e a ordem das linhas é o
+   produto da skill.
+3. **Remover do cabeçalho a lista de valores por item**, que passou a ser
+   redundante com a coluna.
+4. **Manter a fórmula no cabeçalho:**
+   `Escala 1-10 · CoD = Valor + Criticidade + Redução de Risco/OE · WSJF = CoD ÷ Esforço`.
+   Sai a lista de valores, fica a explicação de como se calcula.
+5. **Item sem WSJF calculado:** célula `—` (travessão), o mesmo marcador de
+   célula vazia que o schema já usa em `Onda`, `Pré-requisito` e `Estado
+   Auditado`. Não inventar `n/a`, `?` nem deixar a célula em branco.
+
+Dois cuidados, porque são as armadilhas conhecidas:
+
+- ⚠️ **Linha em branco dentro da tabela parte o arquivo em duas tabelas** no
+  Markdown, e o validador passa a enxergar outra coisa (§5). Ao terminar,
+  conferir que continua sendo **uma** tabela só.
+- ⚠️ **Não conte coluna por `|` no olho:** um `\|` escapado dentro de célula
+  também é uma barra, e a contagem visual erra. Confira a largura pela
+  ferramenta (`tools/todo_audit.py`), que compara cada linha com o cabeçalho e
+  acusa a divergência.
 
 **Esqueleto completo:**
 
@@ -270,13 +303,15 @@ não tabela: o arquivo tem um único bloco `|...|`, o da tabela canônica.
 
 ### Scoring WSJF (referência — **não** é tabela de trabalho)
 
-- **ID-DO-ITEM** · onda P1 · ... WSJF=6.5 rank=1
+Escala 1-10 · CoD = Valor + Criticidade + Redução de Risco/OE · WSJF = CoD ÷ Esforço.
+O valor por item vive na coluna `WSJF` da tabela.
 
 ## TABELA UNIFICADA
 
-| ID | Onda | Grupo | Descrição Técnica | Prioridade | Pré-requisito | Dificuldade | Status | Estado Auditado |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| EX-1 | W1 | Base | ... | Alta | — | Baixa | ⏳ Pendente | — |
+| WSJF | ID | Onda | Grupo | Descrição Técnica | Prioridade | Pré-requisito | Dificuldade | Status | Estado Auditado |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 6.5 | EX-1 | W1 | Base | ... | Alta | — | Baixa | ⏳ Pendente | — |
+| — | EX-2 | W1 | Base | ... | Média | — | Baixa | ⏳ Pendente | — |
 ```
 
 **Referência:** esta forma foi extraída do `TODO.md` que serve de **modelo da
