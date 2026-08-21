@@ -268,6 +268,30 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   **v1.2**: intake, INBOX como exception queue, `--add`/`--drain`/`--fix`, sinais `TAB_*`,
   lock, HOOKSRC-1. Não altera comportamento de runtime.
 
+### Removido
+
+- **`tools/submodule_pin_drift.py` e `tests/test_submodule_pin_drift.py`
+  (1.178 linhas).** Código morto medido: nenhum módulo o importava, nenhum job
+  de CI o executava e nenhum projeto consumidor o invocou (a própria
+  `docs/auditoria/AUD-EXTREME-01-2026-08-16.md` já registrava a lacuna).
+  **O que deixa de estar provado (33 testes):** que o pin do submódulo está na
+  última release, e que remoto inalcançável é declarado `nao_verificavel` em vez
+  de `atualizado` -- inclusive a distinção entre `a_frente`, `desatualizado` e
+  `divergente`, que existia para um pin à frente da release não virar alarme
+  falso. **Substituto manual**, agora documentado em `tools/README.md`:
+  `git ls-tree HEAD <caminho>` no superprojeto contra `git ls-remote --tags <url>`.
+
+- **`scripts/dogfood_metrics.py` e `tests/test_dogfood_metrics.py`
+  (372 linhas).** Instrumento da campanha de cutover de agosto, que terminou;
+  zero chamador em runtime, zero invocação em consumidor.
+  **O que deixa de estar provado (7 testes):** a medição repetível de adesão
+  pós-cutover (`inbox_total`, `classifiable`, `oldest_age_days`, contagens da
+  tabela) num comando só, com saída JSON comparável entre execuções.
+  **Substituto**, já refletido em `references/cutover-and-rollback.md`:
+  `python3 tools/todo_health.py` (traz `classifiable` e as contagens) e
+  `python3 tools/todo_intake.py --drain [--todo PATH]` para o número por
+  arquivo. A saída JSON comparável não tem substituto.
+
 ## [1.2.0] - 2026-08-16
 
 Entrega o **motor de intake** (ADR-0002 deixou de ser só arquitetura: vira comportamento

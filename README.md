@@ -399,7 +399,6 @@ em [`tools/`](tools/README.md), sem LLM/agent:
 | `bus_contract.py` | contrato de mensagem de bus (remetente não pontua) |
 | `concurrent_inbox.py` | fallback `inbox/*.md` entre sessões |
 | `todo_freshness.py` + `hooks/` | aviso pós-commit (warn-only) |
-| `submodule_pin_drift.py` | drift do pin de submódulo (read-only) |
 
 **HOOKSRC-1:** `core.hooksPath` global deve apontar para a **instalação publicada**
 (submódulo pinado no consumidor), **nunca** para o checkout de desenvolvimento
@@ -842,7 +841,6 @@ deterministic scripts in [`tools/`](tools/README.md), no LLM/agent involved:
 | `bus_contract.py` | bus message contract (sender never scores) |
 | `concurrent_inbox.py` | `inbox/*.md` fallback across sessions |
 | `todo_freshness.py` + `hooks/` | post-commit warning (warn-only) |
-| `submodule_pin_drift.py` | submodule pin drift (read-only) |
 
 **HOOKSRC-1:** global `core.hooksPath` must point at a **published install**
 (pinned submodule in the consumer), **never** at this product's development

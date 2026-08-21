@@ -34,8 +34,8 @@ apply ok, ``classifiable_inbox_count == 0``.
 
 Primeiro no **proprio** repositorio do produto:
 
-1. Rodar ``python3 scripts/dogfood_metrics.py`` na raiz do repo.
-2. Criterio verde: **``classifiable == 0``** (exit 0).
+1. Rodar ``python3 tools/todo_health.py`` na raiz do repo.
+2. Criterio verde: **``classifiable == 0``** na INBOX residual.
 3. Neste repo, o residual legado ``FIX-RISCO`` ja foi drenado
    (``FIX-RISCO-A/B/C`` na tabela; secao INBOX vazia ou so residual com
    triage valido).
@@ -43,8 +43,8 @@ Primeiro no **proprio** repositorio do produto:
    (``DISCOVERED_WORK`` / ``--add`` / residual com triage), nunca como
    bullet solto sem metadado.
 
-Exit 2 de ``dogfood_metrics.py`` e **metrica**, nao hard fail de CI
-generico: serve de canary de cutover.
+``classifiable > 0`` e **metrica**, nao hard fail de CI generico: serve de
+canary de cutover.
 
 ## Canary (TAB-CUT-003)
 
@@ -60,20 +60,20 @@ nomes **sinteticos** (sem nome de projeto real no produto):
 
 Por canary:
 
-1. Baseline com ``dogfood_metrics.py --json`` (gravar fora do repo se
-   quiser comparar depois).
+1. Baseline com ``todo_health.py`` (gravar a saida fora do repo se quiser
+   comparar depois).
 2. Rodar ``--drain`` dry-run; se houver ``legacy_inbox_line``, planejar
    judgments e apply com arvore limpa.
 3. Repetir metricas; ``classifiable`` deve ir a 0; ``itens perdidos`` = 0.
 
 ## Metricas before/after (TAB-CUT-004)
 
-Medir por projeto (script cobre o nucleo mecanico; o resto e checklist
-operacional):
+Medir por projeto (``todo_health.py`` cobre o nucleo mecanico; o resto e
+checklist operacional):
 
 | Metrica | Fonte |
 |---|---|
-| `inbox_total` | `dogfood_metrics` / `inbox_entries` |
+| `inbox_total` | `todo_health` / `todo_lib.inbox_entries` |
 | `classifiable` (`inbox_classificable`) | idem |
 | `oldest_age_days` (`oldest_inbox_age`) | residual com `since` mais antigo |
 | `n_items` / `n_verif` / `n_pending` | tabela canônica |
@@ -119,8 +119,7 @@ dependencia de memoria humana para priorizar a fila.
 ## Comandos uteis
 
 ```text
-python3 scripts/dogfood_metrics.py
-python3 scripts/dogfood_metrics.py --todo path/to/TODO.md --json
+python3 tools/todo_intake.py --drain --todo path/to/TODO.md
 python3 tools/todo_intake.py --drain
 python3 tools/todo_intake.py --drain --apply --judgments-json judgments.json
 python3 tools/todo_health.py

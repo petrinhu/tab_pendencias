@@ -5,8 +5,7 @@ antes/depois de integrar, recuperacao repetida, journal corrompido/parcial,
 dois processos gravando ao mesmo tempo) mais os dois eixos cross-platform
 exigidos: git-common-dir compartilhado entre worktrees, e sanitizacao de
 nome de arquivo (caracteres invalidos no Windows). Nao reusa helpers de
-outros arquivos de teste de proposito (convencao da suite, ver
-test_submodule_pin_drift.py:11-12).
+outros arquivos de teste de proposito (convencao da suite).
 """
 import json
 import os
