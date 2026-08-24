@@ -17,7 +17,7 @@ A norma abaixo vale só para um dos dois tipos. Não confundir:
 
 ## 2. Vocabulário de status e DoD de transição
 
-A coluna `Status` usa sete valores fixos -- emoji + texto exato, em pt-br, por contrato:
+A coluna `Status` usa dez valores fixos -- emoji + texto exato, em pt-br, por contrato:
 
 | Status | Significado |
 |---|---|
@@ -28,11 +28,29 @@ A coluna `Status` usa sete valores fixos -- emoji + texto exato, em pt-br, por c
 | 💡 Decisão tomada | Abordagem definida, implementação futura |
 | 🎨 Pendente design | Aguarda spec/brainstorm |
 | 🔍 Pendente verificação | Implementado, aguarda validação |
+| ⛔ Bloqueado | Parou por causa externa; não avança até a causa sair |
+| ❌ Reprovado | Foi entregue, passou por revisão adversarial e FALHOU; volta para a fila com o motivo na Descrição |
+| 🚫 Cancelado | Decidiu-se NÃO fazer; nada foi entregue e não está na fila |
 
-> **Nota de idioma:** só o vocabulário de status (os sete textos acima) é fixo em pt-br.
+`❌ Reprovado` é diferente de `🔍 Pendente verificação` (este é "entregue,
+ninguém olhou ainda") e de `⏳ Pendente` (este apaga a informação de que
+houve entrega e falha). `🚫 Cancelado` é diferente de `✅ Concluído` (nada
+foi entregue), de `⏳ Pendente` (não está na fila), de `⛔ Bloqueado` (não vai
+destravar) e de `❌ Reprovado` (ninguém tentou). Nenhum dos três é elegível
+a auto-avanço mecânico via `todo_sync.py`.
+
+> **Nota de idioma:** só o vocabulário de status (os dez textos acima) é fixo em pt-br.
 > Descrição do item, ID e mensagens de commit do usuário podem estar em qualquer língua.
 > Nenhuma verificação automatizada -- própria ou de terceiro -- pode assumir português no
 > conteúdo livre da tabela; só a célula de `Status` tem vocabulário fechado.
+>
+> **Duas camadas de casamento:** o contrato primário é o emoji-prefixo (primeiro
+> caractere não-espaço da célula). Existe um fallback textual legado (radicais
+> `pendente`/`andamento`/`conclu`/`verifica`/`design`) só para célula sem emoji
+> reconhecido, cobrindo 7 dos 10 status -- `🟡`/`💡` nunca tiveram forma textual
+> pura reconhecida, e `⛔`/`❌`/`🚫` exigem sempre o emoji por decisão explícita
+> (evitar que "bloqueado"/"cancelado" em nota livre de outra célula seja lido
+> como o composto).
 
 **Definition of Done da transição de status:**
 

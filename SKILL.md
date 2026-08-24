@@ -65,6 +65,30 @@ python3 tools/todo_migrate_inbox.py --apply    # converte
 | 💡 Decisão tomada | abordagem definida, implementação futura |
 | 🎨 Pendente design | aguarda spec/brainstorm |
 | 🔍 Pendente verificação | implementado, aguarda validação |
+| ⛔ Bloqueado | parou por causa externa; não avança até a causa sair |
+| ❌ Reprovado | foi entregue, passou por revisão adversarial e FALHOU; volta para a fila com o motivo na Descrição |
+| 🚫 Cancelado | decidiu-se NÃO fazer; nada foi entregue e não está na fila |
+
+`❌ Reprovado` ≠ `🔍 Pendente verificação` (este é "entregue, ninguém olhou
+ainda") e ≠ `⏳ Pendente` (este apaga a informação de que houve entrega e
+falha). `🚫 Cancelado` ≠ `✅ Concluído` (nada entregue), ≠ `⏳ Pendente` (não
+está na fila), ≠ `⛔ Bloqueado` (não vai destravar), ≠ `❌ Reprovado`
+(ninguém tentou). Nenhum dos três é elegível a auto-avanço mecânico
+(`--sync`/`todo_sync.py` nunca toca ⛔/❌/🚫).
+
+**Duas camadas de casamento.** A camada canônica é o **emoji-prefixo**: o
+primeiro caractere não-espaço da célula decide o status, nunca uma busca por
+palavra no texto livre que vem depois. Existe também um **fallback textual
+legado** (radicais `pendente`/`andamento`/`conclu`/`verifica`/`design`) só
+para célula sem nenhum dos 10 emojis reconhecidos — cobre 7 dos 10 status
+(fica de fora `🟡 Parcial`/`💡 Decisão tomada`, que nunca tiveram forma
+textual pura reconhecida, e, por decisão explícita, `⛔`/`❌`/`🚫`: as
+palavras "bloqueado" e "cancelado" aparecem com frequência em nota livre
+dentro de OUTRA célula de status, ex. `⏳ Pendente (bloqueado até o líder
+responder)`, e um radical aí correria o mesmo risco de falso-positivo já
+corrigido para "verificar" — sem emoji, essas 3 células ficam `unknown`
+(CHK-08 aponta, severidade IMPORTANTE) em vez de arriscar casar substring de
+anotação livre.
 
 - **Estado Auditado**: `—` (não auditado) | `✓` (aprovado) | `⚠` (com ressalvas).
 

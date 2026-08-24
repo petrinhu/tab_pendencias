@@ -27,7 +27,7 @@ usuario ignorar o audit inteiro.
 
   (a) DISCRIMINANTE ESTREITO (`todo_lib.checklist_tables`): a tabela so conta
       como checklist se tiver coluna de identificador, coluna Status E pelo
-      menos uma linha cujo Status comeca com um dos 7 emojis do vocabulario
+      menos uma linha cujo Status comeca com um dos 10 emojis do vocabulario
       fechado (D-1). Tabela de ADR com `Status = Aceito`, matriz de rotas e
       contagem de auditoria NAO casam. Limitacao declarada: checklist paralelo
       escrito sem emoji nao e detectado (falso negativo deliberado).

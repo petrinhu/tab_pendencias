@@ -314,6 +314,34 @@ def test_chk08_calado_em_tabela_legada_8_colunas_com_emoji():
     assert C._chk08_status_fora_do_vocabulario(_ctx(texto)) == []
 
 
+def test_chk08_calado_para_os_3_status_novos_via_emoji():
+    # ⛔/❌/🚫 (2026-08-24): CHK-08 nao acusa mais essas 3 celulas, desde que
+    # venham com o emoji-prefixo (contrato D-1, igual aos outros 7).
+    texto = (
+        "| ID | Wave | Group | Description | Priority | Blocked By | "
+        "Effort | Status | Reviewed |\n"
+        "| :- | :- | :- | :- | :- | :- | :- | :- | :- |\n"
+        "| Z-11 | W1 | Core | A | High | - | Low | ⛔ Bloqueado | - |\n"
+        "| Z-12 | W1 | Core | B | High | - | Low | ❌ Reprovado | - |\n"
+        "| Z-13 | W1 | Core | C | High | - | Low | 🚫 Cancelado | - |\n"
+    )
+    assert C._chk08_status_fora_do_vocabulario(_ctx(texto)) == []
+
+
+def test_chk08_ainda_acusa_bloqueado_ou_cancelado_sem_emoji():
+    # Decisao deliberada: sem o emoji, "bloqueado"/"cancelado" continuam
+    # "unknown" IMPORTANTE -- nao ganharam radical no fallback textual.
+    texto = (
+        "| ID | Wave | Group | Description | Priority | Blocked By | "
+        "Effort | Status | Reviewed |\n"
+        "| :- | :- | :- | :- | :- | :- | :- | :- | :- |\n"
+        "| Z-14 | W1 | Core | A | High | - | Low | Bloqueado | - |\n"
+    )
+    achados = C._chk08_status_fora_do_vocabulario(_ctx(texto))
+    assert len(achados) == 1
+    assert achados[0].severity == "IMPORTANTE"
+
+
 def test_chk08_aviso_brando_para_legado_sem_emoji_reconhecido_por_palavra():
     texto = (
         "| ID | Wave | Group | Description | Priority | Blocked By | "

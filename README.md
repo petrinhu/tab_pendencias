@@ -185,6 +185,15 @@ hook anti-mdash do consumidor isentar o path `tab_pendencias`.
 | 💡 Decisão tomada | Abordagem definida, implementação futura |
 | 🎨 Pendente design | Aguarda spec/brainstorm |
 | 🔍 Pendente verificação | Implementado, aguarda validação |
+| ⛔ Bloqueado | Parou por causa externa; não avança até a causa sair |
+| ❌ Reprovado | Foi entregue, passou por revisão adversarial e FALHOU; volta para a fila com o motivo na Descrição |
+| 🚫 Cancelado | Decidiu-se NÃO fazer; nada foi entregue e não está na fila |
+
+Nenhum dos três novos é elegível a auto-avanço mecânico (`todo_sync.py`
+nunca toca ⛔/❌/🚫). Fallback textual legado (célula sem emoji reconhecido)
+cobre 7 dos 10 status; ⛔/❌/🚫 exigem sempre o emoji, por decisão explícita
+(evitar falso-positivo de "bloqueado"/"cancelado" como anotação livre em
+outra célula de status).
 
 ### Argumentos
 
@@ -629,6 +638,15 @@ checklist to exempt the `tab_pendencias` path.
 | 💡 Decisão tomada | Approach defined, implementation deferred |
 | 🎨 Pendente design | Awaiting spec/brainstorm |
 | 🔍 Pendente verificação | Implemented, awaiting validation |
+| ⛔ Bloqueado | Stopped by an external cause; won't move until it clears |
+| ❌ Reprovado | Delivered, went through adversarial review and FAILED; back in the queue with the reason in the Description |
+| 🚫 Cancelado | Decided NOT to do it; nothing was delivered, not in the queue |
+
+None of the three new statuses is auto-advance eligible (`todo_sync.py`
+never touches ⛔/❌/🚫). The legacy text fallback (cell with no recognized
+emoji) covers 7 of the 10 statuses; ⛔/❌/🚫 always require the emoji, by
+explicit decision (avoids the false-positive of "bloqueado"/"cancelado" as
+free-text notes inside another status cell).
 
 ### Arguments
 

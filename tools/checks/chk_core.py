@@ -481,9 +481,9 @@ def _chk08_status_fora_do_vocabulario(ctx):
                 check_id="CHK-08", severity="IMPORTANTE",
                 message=(
                     f"ID {it['id']!r}: status {it['status']!r} nao "
-                    "corresponde a nenhum dos 7 emojis canonicos nem ao "
+                    "corresponde a nenhum dos 10 emojis canonicos nem ao "
                     "vocabulario legado por palavra -- emoji desconhecido "
-                    "ou texto solto; corrija para um dos 7 status "
+                    "ou texto solto; corrija para um dos 10 status "
                     "canonicos."),
                 line_no=it["line_no"], fixable=False))
     return out

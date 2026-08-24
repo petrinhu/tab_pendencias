@@ -30,9 +30,11 @@ exige que a linha tenha o MESMO nº de colunas do cabecalho (rejeita linha
 malformada em vez de escrever no lugar errado), e para no 2º cabecalho (tabela
 unica canonica).
 
-Vocabulario de status da skill tab_pendencias:
+Vocabulario de status da skill tab_pendencias (10, D-1 + ordem do lider
+2026-08-24):
   ✅ Concluído | 🔄 Em andamento | 🟡 Parcial | ⏳ Pendente | 💡 Decisão tomada
-  | 🎨 Pendente design | 🔍 Pendente verificação
+  | 🎨 Pendente design | 🔍 Pendente verificação | ⛔ Bloqueado
+  | ❌ Reprovado | 🚫 Cancelado
 """
 import configparser
 import datetime
@@ -265,16 +267,27 @@ def parse_status_map(text):
     return {it["id"]: it["status"] for it in tbl["items"]} if tbl else {}
 
 
-# Vocabulario de status (D-1, decisoes_lider.md): a celula pertence a
-# exatamente um dos 7 kinds abaixo, decidido pelo PRIMEIRO caractere
-# nao-espaco da celula (o emoji-prefixo) -- nunca por procura de substring no
-# texto livre que vem depois do emoji (esse texto e do usuario: pode conter
-# "verificar", "pendente", "concluido" como parte de qualquer frase, sem que
-# isso mude a classificacao). Corrige a classe de bug BUG-5/SUB-1/SUB-2:
+# Vocabulario de status (D-1, decisoes_lider.md; + 3 kinds da ordem do lider
+# 2026-08-24): a celula pertence a exatamente um dos 10 kinds abaixo,
+# decidido pelo PRIMEIRO caractere nao-espaco da celula (o emoji-prefixo) --
+# nunca por procura de substring no texto livre que vem depois do emoji
+# (esse texto e do usuario: pode conter "verificar", "pendente", "concluido"
+# como parte de qualquer frase, sem que isso mude a classificacao). Corrige a
+# classe de bug BUG-5/SUB-1/SUB-2:
 # "✅ Concluído ... VERIFICADO ..." classificado como preso em verificacao,
 # "🔴 Bloqueado (dependente de X)" classificado como pendente (substring de
 # "pendente" dentro de "dependente"), e "⏳ Pendente (verificar
 # disponibilidade)" barrado de um flip legitimo (substring de "verifica").
+#
+# ⛔/❌/🚫 (2026-08-24): "bloqueado" = parou por causa externa, nao avanca ate
+# a causa sair; "reprovado" = foi entregue, passou por revisao adversarial e
+# FALHOU, volta pra fila com o motivo na Descricao (!= 🔍, que e "entregue,
+# ninguem olhou ainda"; != ⏳, que apagaria a informacao de que houve entrega
+# e falha); "cancelado" = decidiu-se NAO fazer, nada foi entregue e nao esta
+# na fila (!= ✅, que entregou algo; != ⏳, que esta na fila; != ⛔, que
+# destrava; != ❌, que teve tentativa). O emoji de cancelado e 🚫, NUNCA ❌
+# -- ❌ ja e reprovado, e como o casamento e por emoji-prefixo, os dois
+# usando ❌ faria "❌ Cancelado" ser lido em silencio como kind=reprovado.
 _EMOJI_KIND = {
     "✅": "done",
     "🔄": "andamento",
@@ -283,16 +296,19 @@ _EMOJI_KIND = {
     "💡": "decisao",
     "🎨": "design",
     "🔍": "verificacao",
+    "⛔": "bloqueado",
+    "❌": "reprovado",
+    "🚫": "cancelado",
 }
 
 
 def _status_kind(status):
     """Kind do vocabulario fechado (D-1) pelo emoji-prefixo, ou None quando a
-    celula nao comeca com nenhum dos 7 -- o UNICO caso em que os predicados
+    celula nao comeca com nenhum dos 10 -- o UNICO caso em que os predicados
     abaixo caem no fallback substring/word-boundary (ADR-0001 secao (d)):
     tabela legada sem emoji, ou emoji fora do vocabulario controlado (ex.:
     🔴 de um esquema proprio do usuario, tratado como 'sem emoji
-    reconhecido', nao como um 8o kind)."""
+    reconhecido', nao como um 11o kind)."""
     s = status.lstrip(BOM).strip()
     for emoji, kind in _EMOJI_KIND.items():
         if s.startswith(emoji):
@@ -345,12 +361,19 @@ _LEGACY_QUALIFIER = (
 )
 
 # Vocabulario simples do fallback e o kind que cada radical decide quando
-# vence por posicao (mesmos 7 kinds de _EMOJI_KIND, exceto parcial/decisao,
-# que nao tem forma textual pura reconhecida historicamente pelo fallback).
-# Padroes compilados: "verifica" NUNCA casa o infinitivo "verificar"
-# (VERB-STATUS-2 -- so-verbo sem vocabulo canonico nao classifica; o
-# audit/CHK-08 aponta "unknown"). "verificacao"/"verificado"/"verifica "
-# continuam casando.
+# vence por posicao (7 dos 10 kinds de _EMOJI_KIND: fica de fora
+# parcial/decisao, que nunca tiveram forma textual pura reconhecida
+# historicamente pelo fallback, e -- decisao explicita de 2026-08-24 --
+# bloqueado/reprovado/cancelado tambem NAO ganham radical aqui. Motivo:
+# "bloqueado" e "cancelado" sao palavras correntes de nota livre dentro de
+# OUTRA celula de status (ex.: "⏳ Pendente (bloqueado ate o lider
+# responder)"), a mesma classe de falso-positivo que VERB-STATUS-2 ja
+# corrigiu para o infinitivo "verificar"; sem emoji, essas 3 celulas ficam
+# "unknown" (CHK-08 aponta, IMPORTANTE) em vez de arriscar casar substring
+# de anotacao livre. Padroes compilados: "verifica" NUNCA casa o infinitivo
+# "verificar" (VERB-STATUS-2 -- so-verbo sem vocabulo canonico nao
+# classifica; o audit/CHK-08 aponta "unknown"). "verificacao"/"verificado"/
+# "verifica " continuam casando.
 _LEGACY_WORD_PATTERNS = (
     (re.compile(r"\bpendente"), "pendente"),
     (re.compile(r"\bandamento"), "andamento"),
@@ -400,7 +423,16 @@ def _classify_legacy(status):
 
 def is_pending(status):
     """⏳/🔄/🎨 = ainda nao concluido nem em verificacao. Usado em warnings/
-    contagem (onde 'nao entregue' inclui 'pendente design')."""
+    contagem (onde 'nao entregue' inclui 'pendente design').
+
+    DECISAO 2026-08-24 (fatia dos 3 status novos): ⛔/❌/🚫 ficam DE FORA
+    desta lista nesta fatia, deliberadamente. ⛔ Bloqueado e, por natureza,
+    uma pendencia (ha trabalho que falta, so que travado por causa
+    externa) -- mas is_pending() e lido por ~20 projetos consumidores em
+    contagem ja publicada, e mudar o que ela conta e uma mudanca de
+    contrato observavel de fora desta skill, nao uma decisao de
+    implementacao. Fica registrado como achado para o lider decidir com
+    julgamento de produto, nao decidido aqui por default."""
     kind = _status_kind(status)
     if kind is None:
         kind = _classify_legacy(status)
@@ -410,7 +442,12 @@ def is_pending(status):
 def is_flip_eligible(status):
     """Elegivel a avancar para 🔍 num sync mecanico: SO ⏳ Pendente e
     🔄 Em andamento. Exclui 🎨 Pendente design (design nem existe), 🔍 (ja
-    entregue), 🟡 Parcial, 💡, ✅ (ambiguos/ja resolvidos -> nao auto-flipar)."""
+    entregue), 🟡 Parcial, 💡, ✅ (ambiguos/ja resolvidos -> nao auto-flipar),
+    e (2026-08-24) ⛔ Bloqueado, ❌ Reprovado, 🚫 Cancelado -- nenhum dos tres
+    pode ser auto-avancado por sync mecanico: bloqueado nao anda sozinho ate
+    a causa externa sair, reprovado precisa de retrabalho humano/agente antes
+    de voltar a fila (nao so re-entregar o que ja falhou), e cancelado nem
+    esta na fila."""
     kind = _status_kind(status)
     if kind is None:
         kind = _classify_legacy(status)
@@ -701,7 +738,7 @@ def checklist_tables(text):
 
       1. coluna de identificador no cabecalho (`^id\b`);
       2. coluna `Status` no cabecalho;
-      3. pelo menos UMA linha de dado cujo Status comeca com um dos 7 emojis
+      3. pelo menos UMA linha de dado cujo Status comeca com um dos 10 emojis
          do vocabulario fechado (D-1) -- `_status_kind(...) is not None`.
 
     E o criterio (3) que separa fila de trabalho de documentacao de produto:

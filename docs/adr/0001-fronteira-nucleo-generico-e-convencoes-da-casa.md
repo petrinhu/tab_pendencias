@@ -186,12 +186,16 @@ override pontual. Sem variavel de ambiente. (D-9, D-10, decisoes_lider.md)**
 
 ### (d) Idioma no conteudo livre
 
-- O vocabulario de status (os 7 textos exatos, `SKILL.md:33-41`) e hardcoded em pt-br **por
+- O vocabulario de status (os 10 textos exatos, `SKILL.md:59-70`; eram 7 ate 2026-08-24,
+  quando o lider acrescentou ⛔ Bloqueado/❌ Reprovado/🚫 Cancelado) e hardcoded em pt-br **por
   contrato** -- essa e uma camada diferente de "conteudo livre": e o vocabulario fechado que a
   skill IMPOE, nao algo que o usuario escreve livremente. O fallback substring/word-boundary de
   D-1 (para tabela legada sem emoji) tambem opera sobre essa MESMA celula de vocabulario
   controlado -- continuar hardcoded em pt-br ali e correto e nao viola a regra de idioma; este
-  ADR deixa isso explicito para nao confundir as duas camadas.
+  ADR deixa isso explicito para nao confundir as duas camadas. Os tres status novos NAO
+  ganharam radical no fallback (decisao deliberada: "bloqueado"/"cancelado" sao palavras
+  correntes de nota livre em OUTRA celula de status, mesma classe de risco que VERB-STATUS-2
+  ja corrigiu para "verificar") -- exigem sempre o emoji.
 - Qualquer check que precise reconhecer PADROES em conteudo livre do usuario (Descricao, IDs,
   mensagens de commit -- CHK-09 e o caso concreto hoje) **nunca hardcodeia string literal no
   corpo do check**. Le de uma lista de padroes carregada de config, com DEFAULT embutido no

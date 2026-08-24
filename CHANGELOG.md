@@ -13,6 +13,20 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Adicionado
+
+- **Vocabulário de status ampliado de 7 para 10 valores** (ordem do líder, 2026-08-24):
+  `⛔ Bloqueado` (parou por causa externa), `❌ Reprovado` (entregue, revisado e reprovado --
+  volta para a fila com o motivo na Descrição) e `🚫 Cancelado` (decidiu-se não fazer, nada
+  entregue). Nenhum dos três é `is_flip_eligible` (nunca auto-avança por `todo_sync.py`). O
+  emoji de Cancelado é `🚫`, não `❌` -- `❌` já é Reprovado, e como o casamento é por
+  emoji-prefixo, os dois usando `❌` faria `❌ Cancelado` ser lido em silêncio como
+  `kind=reprovado`. `is_pending()` **não** inclui os três novos nesta fatia (decisão
+  registrada, não default silencioso: mudar contagem já publicada em ~20 projetos
+  consumidores é decisão de produto do líder, não de implementação). Fallback textual legado
+  não ganhou radical para os três (risco de falso-positivo com nota livre em outra célula,
+  mesma classe que VERB-STATUS-2 já corrigiu) -- exigem sempre o emoji.
+
 ### Alterado
 
 - **`SKILL.md` encurtado de 634 para 373 linhas (contexto por invocação).** O
