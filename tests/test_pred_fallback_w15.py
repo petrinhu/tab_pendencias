@@ -6,7 +6,7 @@ achado da sessão de um consumidor em 2026-07-29 ao comparar comportamentalmente
 O fallback antigo decidia por "a celula CONTEM a palavra X?" (uma pergunta
 por predicado, cada um checando seu proprio vocabulo). Isso produzia UMA
 incoerencia grave -- 'Concluído e verificado' saia com is_done() == True E
-is_awaiting_verification() == True ao mesmo tempo, dois dos 7 status
+is_awaiting_verification() == True ao mesmo tempo, dois dos 10 status
 canonicos que sao mutuamente exclusivos por contrato -- e TRES falsos-
 negativo (celulas legitimas que deveriam classificar mas nao classificavam
 como esperado).

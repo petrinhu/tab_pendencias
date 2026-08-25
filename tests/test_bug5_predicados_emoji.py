@@ -1,7 +1,7 @@
 """tests/test_bug5_predicados_emoji.py -- BUG-5 (+ SUB-1, SUB-2): predicados de
 status classificam pelo EMOJI-PREFIXO da celula (D-1, decisoes_lider.md), nao
 por substring crua no texto livre que vem depois do emoji. Fallback
-substring/word-boundary so para tabela LEGADA sem nenhum dos 7 emojis
+substring/word-boundary so para tabela LEGADA sem nenhum dos 10 emojis
 (ADR-0001 secao (d)).
 
 Os 4 casos abaixo sao os falsos-positivo/negativo confirmados em
@@ -34,7 +34,7 @@ def test_bug5_inconclusivo_nao_e_done_substring_de_conclu():
 
 def test_bug5_dependente_nao_e_pending_substring_de_pendente():
     # Caso 3 (SUB-1): "pendente" e substring crua de "dependente"; o emoji
-    # 🔴 nao faz parte do vocabulario dos 7 status (nao e reconhecido), logo
+    # 🔴 nao faz parte do vocabulario dos 10 status (nao e reconhecido), logo
     # cai no fallback, que tem de usar fronteira de palavra.
     assert L.is_pending("🔴 Bloqueado (dependente de X)") is False
 
@@ -47,7 +47,7 @@ def test_bug5_pendente_com_verificar_no_texto_e_flip_eligivel():
 
 
 def test_bug5_fallback_tabela_legada_sem_emoji_continua_funcionando():
-    # Tabela legada sem NENHUM dos 7 emojis: o fallback substring/word-
+    # Tabela legada sem NENHUM dos 10 emojis: o fallback substring/word-
     # boundary do ADR-0001 (d) precisa continuar reconhecendo o vocabulario
     # de texto puro (comportamento pre-existente preservado), corrigindo
     # so os falsos-positivo de substring crua (dependente/inconclusivo).
@@ -72,7 +72,7 @@ def test_bug5_fallback_tabela_legada_sem_emoji_continua_funcionando():
 
 
 def test_bug5_emoji_nao_reconhecido_ainda_cai_no_fallback():
-    # Emoji presente mas FORA do vocabulario fechado dos 7 (ex.: 🔴) tambem
+    # Emoji presente mas FORA do vocabulario fechado dos 10 (ex.: 🔴) tambem
     # e tratado como "sem emoji reconhecido" -- cai no mesmo fallback, nao
     # em um terceiro caminho.
     assert L.is_done("🔴 Bloqueado, já concluído por engano") is True

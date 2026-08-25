@@ -56,7 +56,7 @@ Detalhe: ADR-0002, `SKILL.md` (seções intake/drain), `references/frescor-da-ta
 
 Vale sobre qualquer decisão de implementação. **Agnóstica a projeto**: zero nome
 de projeto, zero caminho de máquina, zero suposição sobre o `TODO.md` além do
-contrato (schema 9/8 colunas, os 7 status com emoji, INBOX residual); esquema de
+contrato (schema 9/8 colunas, os 10 status com emoji, INBOX residual); esquema de
 ID é arbitrário -- usar o que o projeto já tem, nunca impor; o vocabulário de
 status é pt-br por contrato, mas descrição, ID e mensagem de commit do usuário
 podem estar em qualquer língua, e nenhum check pode assumir português no
