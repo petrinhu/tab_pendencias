@@ -1,5 +1,16 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Portao global anti em-dash/en-dash (L-32) sobre o conteudo STAGED, antes
+# de qualquer outra coisa. Roda ANTES do source de _chain.sh de proposito:
+# _chain.sh termina com "exec", que SUBSTITUI o processo, entao qualquer
+# linha colocada depois dele nunca executaria em repo com pre-commit local
+# proprio. Aborta o commit aqui mesmo se o portao reprovar.
+python3 "$(dirname "$0")/no_mdash_staged.py"
+__rc=$?
+if [ "$__rc" -ne 0 ]; then
+    exit "$__rc"
+fi
+
 # Pass-through: delega ao hook local do repo. Necessario porque um
 # core.hooksPath global sombreia o .git/hooks/ proprio do repositorio.
 . "$(dirname "$0")/_chain.sh"
