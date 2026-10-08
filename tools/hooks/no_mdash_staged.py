@@ -12,6 +12,14 @@ Fonte de verdade UNICA da definicao de "user-facing": a funcao
 is_user_facing() de ~/.claude/hooks/no_mdash.py, importada aqui (nunca
 copiada). O escopo dessa funcao nao e alterado por este arquivo.
 
+Antes de contar em-dash/en-dash, o conteudo staged passa por
+strip_glyph_blocks() do modulo canonico (tambem importada, nunca
+copiada): remove pares casados GLYPH_BLOCK_START/GLYPH_BLOCK_END, que
+marcam desenho de glifos (nao texto lido). Se o modulo canonico em disco
+for uma versao antiga sem essa funcao, o comportamento e fail-closed --
+conta o conteudo inteiro sem subtrair nada, com aviso em stderr, nunca
+AttributeError.
+
 Le o CONTEUDO STAGED (git show :<arquivo>), nao a working tree, porque
 so o staged e o que vai de fato para o commit.
 
@@ -133,6 +141,18 @@ def main() -> int:
             print(f"no_mdash_staged: falha ao analisar {caminho}: {e}", file=sys.stderr)
             continue
         analisados += 1
+
+        if hasattr(modulo, "strip_glyph_blocks"):
+            conteudo, avisos_glifos = modulo.strip_glyph_blocks(conteudo)
+            for aviso in avisos_glifos:
+                print(f"no_mdash_staged: {caminho}: {aviso}", file=sys.stderr)
+        else:
+            print(
+                f"no_mdash_staged: {caminho}: modulo canonico sem "
+                f"strip_glyph_blocks (versao antiga em disco); contando "
+                f"sem subtrair blocos de glifos (fail-closed).",
+                file=sys.stderr,
+            )
 
         limpo = modulo.strip_urls(conteudo)
         n_em = limpo.count(modulo.EM_DASH)
