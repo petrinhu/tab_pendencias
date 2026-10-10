@@ -6,7 +6,7 @@ PROVA que o portao no_mdash_staged.py fica VERMELHO contra o que deve
 barrar (L-36: portao so conta depois de provado vermelho). Monta um
 repositorio git descartavel em /var/tmp (nunca /tmp, que e tmpfs nesta
 maquina; nunca dentro de um repo real), stageia arquivos e confere o
-codigo de saida do verificador.
+codigo de saida do verificador e o texto que ele imprime.
 
 Casos cobertos:
   1. arquivo user-facing (README.md) com em-dash staged -> exit 1
@@ -14,8 +14,17 @@ Casos cobertos:
   3. arquivo NAO user-facing (TODO.md) com em-dash staged -> exit 0
   4. arquivo user-facing (README.md) com en-dash staged  -> exit 1
   5. arquivo user-facing (README.md) com en-dash removido -> exit 0
+  6. caminhos RELATIVOS (como o git entrega): public/guia.md, docs/narrative/
+     cap1.md e site/x.md com dash -> exit 1; DECISOES_AUTONOMAS.md e
+     tests/x.md com dash -> exit 0 (defeito 2: fragmentos com barra inicial)
+  7. so arquivo interno staged -> stdout declara "0 user-facing file(s)
+     among 1 staged file(s)" (defeito 1: zero sem declaracao)
+  8. arquivo user-facing staged -> stdout NAO traz a declaracao de zero
 
 Uso: python3 ~/.claude/githooks/selftest_no_mdash_staged.py
+(rode pelo caminho ~/.claude/githooks/, que e o que o pre-commit usa: o
+verificador acha o no_mdash.py canonico relativo ao caminho em que foi
+chamado, e a copia dentro de tools/hooks/ nao o enxerga.)
 """
 import os
 import shutil
@@ -47,6 +56,7 @@ def _novo_repo() -> str:
 
 def _escrever_e_stagear(repo: str, nome: str, conteudo: str):
     caminho = os.path.join(repo, nome)
+    os.makedirs(os.path.dirname(caminho), exist_ok=True)
     with open(caminho, "w", encoding="utf-8") as f:
         f.write(conteudo)
     rc, _, err = _git(repo, "add", nome)
@@ -61,6 +71,8 @@ def _rodar_verificador(repo: str):
     return p.returncode, p.stdout.decode("utf-8", "replace"), p.stderr.decode("utf-8", "replace")
 
 
+# Cada caso: (descricao, arquivo, conteudo, rc_esperado[, trechos que DEVEM
+# aparecer no stdout[, trechos que NAO podem aparecer no stdout]]).
 CASOS = (
     (
         "README.md com em-dash staged deve reprovar",
@@ -94,24 +106,103 @@ CASOS = (
     ),
 )
 
+# Caminhos relativos, como o git entrega no staged (defeito 2).
+CASOS_CAMINHO = (
+    (
+        "public/guia.md com em-dash staged deve reprovar (relativo)",
+        "public/guia.md",
+        f"Texto{EM_DASH} no guia publico.",
+        1,
+    ),
+    (
+        "docs/narrative/cap1.md com em-dash staged deve reprovar (relativo)",
+        "docs/narrative/cap1.md",
+        f"Capitulo{EM_DASH} um.",
+        1,
+    ),
+    (
+        "site/x.md com en-dash staged deve reprovar (relativo)",
+        "site/x.md",
+        f"Periodo 1990{EN_DASH}2000.",
+        1,
+    ),
+    (
+        "DECISOES_AUTONOMAS.md com em-dash staged deve passar (interno)",
+        "DECISOES_AUTONOMAS.md",
+        f"Decisao{EM_DASH} interna.",
+        0,
+    ),
+    (
+        "tests/x.md com em-dash staged deve passar (interno, relativo)",
+        "tests/x.md",
+        f"Caso{EM_DASH} interno.",
+        0,
+    ),
+)
+
+# Declaracao de zero (defeito 1): quando nada e user-facing, o verificador
+# diz por que, em vez de imprimir so a linha de contagem.
+CASOS_DECLARACAO = (
+    (
+        "so arquivo interno staged: declara zero user-facing among 1",
+        "DECISOES_AUTONOMAS.md",
+        f"Decisao{EM_DASH} interna.",
+        0,
+        (
+            "encontrados=0 analisados=0 falharam=0",
+            "0 user-facing file(s) among 1 staged file(s)",
+        ),
+        (),
+    ),
+    (
+        "arquivo user-facing staged: nao declara zero",
+        "README.md",
+        "Texto limpo, so virgula.",
+        0,
+        (),
+        ("0 user-facing file(s)",),
+    ),
+)
+
+
+def _checar(caso) -> tuple[bool, str]:
+    descricao, nome_arquivo, conteudo, esperado = caso[:4]
+    deve_conter = caso[4] if len(caso) > 4 else ()
+    nao_deve_conter = caso[5] if len(caso) > 5 else ()
+    repo = _novo_repo()
+    try:
+        _escrever_e_stagear(repo, nome_arquivo, conteudo)
+        rc, out, err = _rodar_verificador(repo)
+    finally:
+        shutil.rmtree(repo, ignore_errors=True)
+    problemas = []
+    if rc != esperado:
+        problemas.append(f"rc={rc} (esperado {esperado})")
+    for trecho in deve_conter:
+        if trecho not in out:
+            problemas.append(f"stdout sem '{trecho}'")
+    for trecho in nao_deve_conter:
+        if trecho in out:
+            problemas.append(f"stdout traz '{trecho}'")
+    if problemas:
+        detalhe = (
+            f"     {'; '.join(problemas)}\n"
+            f"     stdout: {out.strip()}\n"
+            f"     stderr: {err.strip()}"
+        )
+        return False, f"FAIL {descricao}\n{detalhe}"
+    return True, f"ok   {descricao} (rc={rc})"
+
 
 def main() -> int:
     passou = falhou = 0
-    for descricao, nome_arquivo, conteudo, esperado in CASOS:
-        repo = _novo_repo()
-        try:
-            _escrever_e_stagear(repo, nome_arquivo, conteudo)
-            rc, out, err = _rodar_verificador(repo)
-            if rc != esperado:
-                falhou += 1
-                print(f"FAIL {descricao}: rc={rc} (esperado {esperado})")
-                print(f"     stdout: {out.strip()}")
-                print(f"     stderr: {err.strip()}")
-            else:
-                passou += 1
-                print(f"ok   {descricao} (rc={rc})")
-        finally:
-            shutil.rmtree(repo, ignore_errors=True)
+    for caso in (*CASOS, *CASOS_CAMINHO, *CASOS_DECLARACAO):
+        ok, linha = _checar(caso)
+        print(linha)
+        if ok:
+            passou += 1
+        else:
+            falhou += 1
 
     print(f"\n{passou} passed / {falhou} failed")
     return 1 if falhou else 0

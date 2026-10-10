@@ -125,9 +125,8 @@ def main() -> int:
         return 0
     repo_root = p.stdout.decode("utf-8", "replace").strip()
 
-    candidatos = [
-        f for f in _arquivos_staged(repo_root) if modulo.is_user_facing(f)
-    ]
+    staged = _arquivos_staged(repo_root)
+    candidatos = [f for f in staged if modulo.is_user_facing(f)]
     encontrados = len(candidatos)
     analisados = 0
     falharam = 0
@@ -161,6 +160,13 @@ def main() -> int:
             violacoes.append((caminho, n_em, n_en))
 
     print(f"encontrados={encontrados} analisados={analisados} falharam={falharam}")
+    if encontrados == 0:
+        # Zero declarado, nunca silencioso (L-36/L-40): outros consumidores
+        # continuam lendo a linha de contagem acima, inalterada.
+        print(
+            f"no_mdash_staged: 0 user-facing file(s) among {len(staged)} "
+            f"staged file(s); nenhum conteudo varrido pelo portao de travessao."
+        )
 
     if analisados + falharam != encontrados:
         print(
