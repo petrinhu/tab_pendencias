@@ -28,9 +28,11 @@ Contrato de saida:
   - exit 1: em-dash/en-dash encontrado em algum candidato, OU a analise
     de algum candidato falhou (git show quebrou) -- ambos contam como
     reprovacao, nunca sucesso silencioso.
-  - exit 0 com aviso em stderr: SO quando o ambiente nao tem git, ou o
-    no_mdash.py de referencia nao existe no disco. Fail-open documentado,
-    nunca fail-open em silencio.
+  - exit 0 com aviso em stderr: SO quando o ambiente nao tem git, ou nao
+    esta dentro de um repositorio git. Fail-open documentado, nunca
+    fail-open em silencio.
+  - exit 1 com aviso em stderr: quando o no_mdash.py de referencia nao
+    existe no disco (fail-closed, L-36). O aviso diz qual caminho procurou.
 
 Uso: chamado pelo shim ~/.claude/githooks/pre-commit ANTES do source de
 _chain.sh (que usa exec e substitui o processo, entao nada depois dele
@@ -105,12 +107,17 @@ def main() -> int:
 
     modulo = _carregar_no_mdash()
     if modulo is None:
+        # Fail-closed (L-36): sem o canon a varredura nao roda, e silencio
+        # aqui deixaria passar em-dash em todo commit da maquina. Reprova e
+        # diz onde procurou, para o dono corrigir o caminho.
         print(
-            f"no_mdash_staged: nao encontrei o modulo canonico em "
-            f"{_NO_MDASH_PATH}; portao desativado (fail-open documentado).",
+            f"no_mdash_staged: REPROVADO. Nao encontrei o modulo canonico "
+            f"no_mdash.py em {_NO_MDASH_PATH} (procurado relativo a "
+            f"{_AQUI}). Sem ele a varredura de travessao nao roda; "
+            f"restaure ~/.claude/hooks/no_mdash.py ou ajuste o caminho.",
             file=sys.stderr,
         )
-        return 0
+        return 1
 
     p = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"],

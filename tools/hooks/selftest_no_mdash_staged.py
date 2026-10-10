@@ -20,6 +20,8 @@ Casos cobertos:
   7. so arquivo interno staged -> stdout declara "0 user-facing file(s)
      among 1 staged file(s)" (defeito 1: zero sem declaracao)
   8. arquivo user-facing staged -> stdout NAO traz a declaracao de zero
+  9. verificador copiado para uma arvore sem o no_mdash.py canonico ao lado
+     -> rc diferente de 0 e stderr cita o caminho procurado (fail-closed)
 
 Uso: python3 ~/.claude/githooks/selftest_no_mdash_staged.py
 (rode pelo caminho ~/.claude/githooks/, que e o que o pre-commit usa: o
@@ -194,6 +196,41 @@ def _checar(caso) -> tuple[bool, str]:
     return True, f"ok   {descricao} (rc={rc})"
 
 
+def _checar_canon_ausente() -> tuple[bool, str]:
+    """Caso 9 (fail-closed, L-36): o verificador copiado para uma arvore SEM
+    o no_mdash.py canonico ao lado (tools/hooks/ sem ../hooks/) deve
+    REPROVAR (rc diferente de 0) e dizer qual caminho procurou. Antes
+    passava calado (rc 0, so um aviso em stderr)."""
+    descricao = "verificador sem no_mdash.py canonico deve reprovar e dizer onde procurou"
+    base = tempfile.mkdtemp(prefix="selftest-canon-ausente-", dir="/var/tmp")
+    try:
+        pasta = os.path.join(base, "tools", "hooks")
+        os.makedirs(pasta)
+        copia = os.path.join(pasta, "no_mdash_staged.py")
+        shutil.copyfile(_VERIFICADOR, copia)
+        procurado = os.path.normpath(os.path.join(pasta, "..", "hooks", "no_mdash.py"))
+        repo = _novo_repo()
+        try:
+            _escrever_e_stagear(repo, "README.md", f"Texto{EM_DASH} no meio.")
+            p = subprocess.run(
+                [sys.executable, copia], cwd=repo, capture_output=True, timeout=30,
+            )
+            rc = p.returncode
+            err = p.stderr.decode("utf-8", "replace")
+        finally:
+            shutil.rmtree(repo, ignore_errors=True)
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+    problemas = []
+    if rc == 0:
+        problemas.append("rc=0 (esperado diferente de 0, fail-closed)")
+    if procurado not in err:
+        problemas.append(f"stderr nao cita o caminho procurado '{procurado}'")
+    if problemas:
+        return False, f"FAIL {descricao}\n     {'; '.join(problemas)}\n     stderr: {err.strip()}"
+    return True, f"ok   {descricao} (rc={rc})"
+
+
 def main() -> int:
     passou = falhou = 0
     for caso in (*CASOS, *CASOS_CAMINHO, *CASOS_DECLARACAO):
@@ -203,6 +240,12 @@ def main() -> int:
             passou += 1
         else:
             falhou += 1
+    ok, linha = _checar_canon_ausente()
+    print(linha)
+    if ok:
+        passou += 1
+    else:
+        falhou += 1
 
     print(f"\n{passou} passed / {falhou} failed")
     return 1 if falhou else 0
