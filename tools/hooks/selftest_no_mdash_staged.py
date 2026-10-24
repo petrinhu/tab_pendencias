@@ -231,6 +231,93 @@ def _checar_canon_ausente() -> tuple[bool, str]:
     return True, f"ok   {descricao} (rc={rc})"
 
 
+# Casos S10 a S15 (F3c, HUM-08): excecao de origem do portao de staged.
+# A base e a versao no HEAD. Cada caso monta um repositorio com um commit de
+# base (hooksPath vazio so nesse commit de montagem) e depois stageia o teste.
+_EM = "\u2014"
+ORIGEM_BASE = (
+    "Inicio do texto.\n"
+    + _EM + " um personagem fala.\n"
+    + "O narrador " + _EM + " comenta algo.\n"
+)
+ORIGEM_REESCRITA = (
+    "Inicio reescrito.\n"
+    + _EM + " um personagem fala, reescrito.\n"
+    + "O narrador " + _EM + " comenta algo, de outro modo.\n"
+)
+ORIGEM_UM_MEIO_A_MAIS = ORIGEM_REESCRITA + "Mais um " + _EM + " aqui.\n"
+
+# (descricao, arquivos do commit de base {caminho: texto}, arquivo staged,
+#  texto staged, rc_esperado)
+CASOS_ORIGEM = (
+    (
+        "S10 site/cap.md no HEAD com 2 travessoes; staged com as mesmas contagens: deve passar",
+        {"site/cap.md": ORIGEM_BASE},
+        "site/cap.md",
+        ORIGEM_REESCRITA,
+        0,
+    ),
+    (
+        "S11 igual a S10 com um travessao a mais: deve reprovar",
+        {"site/cap.md": ORIGEM_BASE},
+        "site/cap.md",
+        ORIGEM_UM_MEIO_A_MAIS,
+        1,
+    ),
+    (
+        "S12 site/cap_humanizado.md novo com contagens <= HEAD site/cap.md: deve passar",
+        {"site/cap.md": ORIGEM_BASE},
+        "site/cap_humanizado.md",
+        ORIGEM_REESCRITA,
+        0,
+    ),
+    (
+        "S13 site/x_humanizado.md novo sem site/x.md no HEAD: deve reprovar",
+        {"outro.txt": "x\n"},
+        "site/x_humanizado.md",
+        _EM + " frase.\n",
+        1,
+    ),
+    (
+        "S14 site/cap_original.md novo, identico ao site/cap.md do HEAD: deve passar",
+        {"site/cap.md": ORIGEM_BASE},
+        "site/cap_original.md",
+        ORIGEM_BASE,
+        0,
+    ),
+    (
+        "S15 troca de classe (inicio da linha para meio) no humanizado: deve reprovar",
+        {"site/cap.md": _EM + " um personagem fala.\n"},
+        "site/cap_humanizado.md",
+        "Frase com " + _EM + " no meio.\n",
+        1,
+    ),
+)
+
+
+def _checar_origem(caso) -> tuple[bool, str]:
+    descricao, base, arquivo, conteudo, esperado = caso
+    repo = _novo_repo()
+    try:
+        for nome, texto in base.items():
+            _escrever_e_stagear(repo, nome, texto)
+        rc, _, err = _git(
+            repo, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "base"
+        )
+        if rc != 0:
+            return False, f"FAIL {descricao}\n     commit de base falhou: {err.strip()}"
+        _escrever_e_stagear(repo, arquivo, conteudo)
+        rc, out, err = _rodar_verificador(repo)
+    finally:
+        shutil.rmtree(repo, ignore_errors=True)
+    if rc != esperado:
+        return False, (
+            f"FAIL {descricao}\n     rc={rc} (esperado {esperado})\n"
+            f"     stdout: {out.strip()}\n     stderr: {err.strip()}"
+        )
+    return True, f"ok   {descricao} (rc={rc})"
+
+
 def main() -> int:
     passou = falhou = 0
     for caso in (*CASOS, *CASOS_CAMINHO, *CASOS_DECLARACAO):
@@ -246,6 +333,14 @@ def main() -> int:
         passou += 1
     else:
         falhou += 1
+
+    for caso in CASOS_ORIGEM:
+        ok, linha = _checar_origem(caso)
+        print(linha)
+        if ok:
+            passou += 1
+        else:
+            falhou += 1
 
     print(f"\n{passou} passed / {falhou} failed")
     return 1 if falhou else 0

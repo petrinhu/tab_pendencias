@@ -40,6 +40,8 @@ roda).
 """
 import importlib.util
 import os
+import posixpath
+import re
 import subprocess
 import sys
 
@@ -90,6 +92,81 @@ def _conteudo_staged(repo_root: str, caminho: str) -> str:
             f"{p.stderr.decode('utf-8', 'replace').strip()}"
         )
     return p.stdout.decode("utf-8", "replace")
+
+
+# Excecao de origem (F3c, HUM-08; secao 1.4 do PLANO-humanizar.md). A base e
+# sempre a versao no HEAD, nunca a do agente: arquivo que ja existe no HEAD se
+# compara com ele mesmo; arquivo novo <raiz>_humanizado[_n].<ext> ou
+# <raiz>_original[_n].<ext> se compara com <raiz>.<ext> do HEAD.
+_ORIGEM_RE = re.compile(
+    r"^(?P<raiz>.+)_(?:humanizado|original)(?:_\d+)?\.(?P<ext>[^./]+)$"
+)
+
+
+def _existe_no_head(repo_root: str, caminho: str) -> bool:
+    p = subprocess.run(
+        ["git", "cat-file", "-e", f"HEAD:{caminho}"],
+        cwd=repo_root, capture_output=True, timeout=30,
+    )
+    return p.returncode == 0
+
+
+def _conteudo_head(repo_root: str, caminho: str) -> str:
+    p = subprocess.run(
+        ["git", "show", f"HEAD:{caminho}"],
+        cwd=repo_root, capture_output=True, timeout=30,
+    )
+    if p.returncode != 0:
+        raise RuntimeError(
+            f"git show HEAD:{caminho} saiu {p.returncode}: "
+            f"{p.stderr.decode('utf-8', 'replace').strip()}"
+        )
+    return p.stdout.decode("utf-8", "replace")
+
+
+def _caminho_base(repo_root: str, caminho: str):
+    if _existe_no_head(repo_root, caminho):
+        return caminho
+    m = _ORIGEM_RE.match(posixpath.basename(caminho))
+    if not m:
+        return None
+    irmao = posixpath.join(
+        posixpath.dirname(caminho), f"{m.group('raiz')}.{m.group('ext')}"
+    )
+    return irmao if _existe_no_head(repo_root, irmao) else None
+
+
+def _resumo_contagens(novo: dict, base: dict, classes) -> str:
+    partes = []
+    for marca, classe in classes:
+        chave = (marca, classe)
+        partes.append(
+            f"{marca} {classe}: staged={novo[chave]} base={base[chave]}"
+        )
+    return "; ".join(partes)
+
+
+def _motivo_origem(modulo, repo_root: str, caminho: str, bruto: str):
+    """None: permitido pela excecao de origem (cada classe <= a da base).
+    Texto: motivo do bloqueio. Sem base, reprova como antes (fail-closed)."""
+    if not hasattr(modulo, "contar_travessoes"):
+        return "modulo canonico sem contar_travessoes (versao antiga); bloqueia"
+    try:
+        base_path = _caminho_base(repo_root, caminho)
+        if base_path is None:
+            return "sem base no HEAD para comparar; bloqueia"
+        base_txt = _conteudo_head(repo_root, base_path)
+    except Exception as e:
+        return f"base no HEAD ilegivel ({e}); bloqueia"
+    novo = modulo.contar_travessoes(bruto)
+    base = modulo.contar_travessoes(base_txt)
+    for chave in modulo.CLASSES:
+        if novo[chave] > base[chave]:
+            return (
+                f"contagem acima da base {base_path} "
+                f"({_resumo_contagens(novo, base, modulo.CLASSES)}); bloqueia"
+            )
+    return None
 
 
 def main() -> int:
@@ -147,6 +224,7 @@ def main() -> int:
             print(f"no_mdash_staged: falha ao analisar {caminho}: {e}", file=sys.stderr)
             continue
         analisados += 1
+        bruto = conteudo
 
         if hasattr(modulo, "strip_glyph_blocks"):
             conteudo, avisos_glifos = modulo.strip_glyph_blocks(conteudo)
@@ -164,7 +242,9 @@ def main() -> int:
         n_em = limpo.count(modulo.EM_DASH)
         n_en = limpo.count(modulo.EN_DASH)
         if n_em or n_en:
-            violacoes.append((caminho, n_em, n_en))
+            motivo = _motivo_origem(modulo, repo_root, caminho, bruto)
+            if motivo is not None:
+                violacoes.append((caminho, n_em, n_en, motivo))
 
     print(f"encontrados={encontrados} analisados={analisados} falharam={falharam}")
     if encontrados == 0:
@@ -199,13 +279,14 @@ def main() -> int:
         linhas.append("  - parenteses para apartes (ex.: 'Texto (aparte)')")
         linhas.append("  - hifen simples (-) para compostos e ranges (ex.: '1990-2000')")
         linhas.append("")
-        for caminho, n_em, n_en in violacoes:
+        for caminho, n_em, n_en, motivo in violacoes:
             partes = []
             if n_em:
                 partes.append(f"em-dash (U+2014): {n_em} ocorrencia(s)")
             if n_en:
                 partes.append(f"en-dash (U+2013): {n_en} ocorrencia(s)")
             linhas.append(f"  {caminho}: " + " | ".join(partes))
+            linhas.append(f"    excecao de origem: {motivo}")
         print("\n".join(linhas), file=sys.stderr)
 
     return 1
